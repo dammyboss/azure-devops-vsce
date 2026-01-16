@@ -1,0 +1,460 @@
+{
+  "name": "azure-devops-boards",
+  "displayName": "Azure DevOps Boards",
+  "description": "Azure DevOps Boards integration for Visual Studio Code - Manage work items, boards, sprints, and more without leaving your editor",
+  "version": "0.2.0",
+  "publisher": "devops-extension",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "SCM Providers"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "azureDevOps.connect",
+        "title": "Connect to Organization",
+        "category": "Azure DevOps",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "azureDevOps.disconnect",
+        "title": "Disconnect",
+        "category": "Azure DevOps",
+        "icon": "$(debug-disconnect)"
+      },
+      {
+        "command": "azureDevOps.createWorkItem",
+        "title": "Create Work Item",
+        "category": "Azure DevOps",
+        "icon": "$(add)"
+      },
+      {
+        "command": "azureDevOps.searchWorkItems",
+        "title": "Search Work Items",
+        "category": "Azure DevOps",
+        "icon": "$(search)"
+      },
+      {
+        "command": "azureDevOps.refresh",
+        "title": "Refresh",
+        "category": "Azure DevOps",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "azureDevOps.openBoard",
+        "title": "Open Board in Browser",
+        "category": "Azure DevOps",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "azureDevOps.openSprint",
+        "title": "Open Sprint in Browser",
+        "category": "Azure DevOps",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "azureDevOps.startWorking",
+        "title": "Start Working On...",
+        "category": "Azure DevOps",
+        "icon": "$(play)"
+      },
+      {
+        "command": "azureDevOps.stopWorking",
+        "title": "Stop Working",
+        "category": "Azure DevOps",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "azureDevOps.openWorkItem",
+        "title": "Open Work Item in Browser",
+        "category": "Azure DevOps",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "azureDevOps.filterWorkItems",
+        "title": "Filter Work Items",
+        "category": "Azure DevOps",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "azureDevOps.createBranchFromWorkItem",
+        "title": "Create Branch from Work Item",
+        "category": "Azure DevOps",
+        "icon": "$(git-branch)"
+      },
+      {
+        "command": "azureDevOps.editWorkItem",
+        "title": "Edit Work Item",
+        "category": "Azure DevOps",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "azureDevOps.changeWorkItemState",
+        "title": "Change Work Item State",
+        "category": "Azure DevOps",
+        "icon": "$(symbol-event)"
+      },
+      {
+        "command": "azureDevOps.assignWorkItem",
+        "title": "Assign Work Item",
+        "category": "Azure DevOps",
+        "icon": "$(person)"
+      },
+      {
+        "command": "azureDevOps.viewWorkItemDetails",
+        "title": "View Work Item Details",
+        "category": "Azure DevOps",
+        "icon": "$(preview)"
+      },
+      {
+        "command": "azureDevOps.addWorkItemComment",
+        "title": "Add Comment to Work Item",
+        "category": "Azure DevOps",
+        "icon": "$(comment)"
+      },
+      {
+        "command": "azureDevOps.createPullRequest",
+        "title": "Create Pull Request",
+        "category": "Azure DevOps",
+        "icon": "$(git-pull-request)"
+      },
+      {
+        "command": "azureDevOps.selectProject",
+        "title": "Select Project",
+        "category": "Azure DevOps",
+        "icon": "$(folder)"
+      },
+      {
+        "command": "azureDevOps.selectTeam",
+        "title": "Select Team",
+        "category": "Azure DevOps",
+        "icon": "$(organization)"
+      },
+      {
+        "command": "azureDevOps.runQuery",
+        "title": "Run Saved Query",
+        "category": "Azure DevOps",
+        "icon": "$(play)"
+      },
+      {
+        "command": "azureDevOps.commitWithWorkItem",
+        "title": "Commit with Work Item Link",
+        "category": "Azure DevOps",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "azureDevOps.refreshWorkItems",
+        "title": "Refresh Work Items",
+        "category": "Azure DevOps",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "azureDevOps.refreshBoards",
+        "title": "Refresh Boards",
+        "category": "Azure DevOps",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "azureDevOps.refreshSprints",
+        "title": "Refresh Sprints",
+        "category": "Azure DevOps",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "azureDevOps.refreshQueries",
+        "title": "Refresh Queries",
+        "category": "Azure DevOps",
+        "icon": "$(refresh)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "azure-devops",
+          "title": "Azure DevOps",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "azure-devops": [
+        {
+          "id": "azureDevOpsWorkItems",
+          "name": "Work Items",
+          "icon": "$(tasklist)",
+          "contextualTitle": "Azure DevOps Work Items"
+        },
+        {
+          "id": "azureDevOpsBacklogs",
+          "name": "Backlogs",
+          "icon": "$(list-tree)",
+          "contextualTitle": "Azure DevOps Backlogs"
+        },
+        {
+          "id": "azureDevOpsBoards",
+          "name": "Boards",
+          "icon": "$(project)",
+          "contextualTitle": "Azure DevOps Boards"
+        },
+        {
+          "id": "azureDevOpsSprints",
+          "name": "Sprints",
+          "icon": "$(calendar)",
+          "contextualTitle": "Azure DevOps Sprints"
+        },
+        {
+          "id": "azureDevOpsQueries",
+          "name": "Queries",
+          "icon": "$(search)",
+          "contextualTitle": "Azure DevOps Queries"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "azureDevOpsWorkItems",
+        "contents": "Connect to Azure DevOps to view your work items.\n[Connect to Azure DevOps](command:azureDevOps.connect)"
+      },
+      {
+        "view": "azureDevOpsBacklogs",
+        "contents": "Connect to Azure DevOps to view your backlogs.\n[Connect to Azure DevOps](command:azureDevOps.connect)"
+      },
+      {
+        "view": "azureDevOpsBoards",
+        "contents": "Connect to Azure DevOps to view your boards.\n[Connect to Azure DevOps](command:azureDevOps.connect)"
+      },
+      {
+        "view": "azureDevOpsSprints",
+        "contents": "Connect to Azure DevOps to view your sprints.\n[Connect to Azure DevOps](command:azureDevOps.connect)"
+      },
+      {
+        "view": "azureDevOpsQueries",
+        "contents": "Connect to Azure DevOps to view saved queries.\n[Connect to Azure DevOps](command:azureDevOps.connect)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "azureDevOps.createWorkItem",
+          "when": "view == azureDevOpsWorkItems",
+          "group": "navigation@1"
+        },
+        {
+          "command": "azureDevOps.filterWorkItems",
+          "when": "view == azureDevOpsWorkItems",
+          "group": "navigation@2"
+        },
+        {
+          "command": "azureDevOps.searchWorkItems",
+          "when": "view == azureDevOpsWorkItems",
+          "group": "navigation@3"
+        },
+        {
+          "command": "azureDevOps.refreshWorkItems",
+          "when": "view == azureDevOpsWorkItems",
+          "group": "navigation@4"
+        },
+        {
+          "command": "azureDevOps.refreshBoards",
+          "when": "view == azureDevOpsBoards",
+          "group": "navigation"
+        },
+        {
+          "command": "azureDevOps.refreshSprints",
+          "when": "view == azureDevOpsSprints",
+          "group": "navigation"
+        },
+        {
+          "command": "azureDevOps.refreshQueries",
+          "when": "view == azureDevOpsQueries",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "azureDevOps.openWorkItem",
+          "when": "view == azureDevOpsWorkItems && viewItem == workItem",
+          "group": "navigation@1"
+        },
+        {
+          "command": "azureDevOps.viewWorkItemDetails",
+          "when": "view == azureDevOpsWorkItems && viewItem == workItem",
+          "group": "navigation@2"
+        },
+        {
+          "command": "azureDevOps.editWorkItem",
+          "when": "view == azureDevOpsWorkItems && viewItem == workItem",
+          "group": "1_modify@1"
+        },
+        {
+          "command": "azureDevOps.changeWorkItemState",
+          "when": "view == azureDevOpsWorkItems && viewItem == workItem",
+          "group": "1_modify@2"
+        },
+        {
+          "command": "azureDevOps.assignWorkItem",
+          "when": "view == azureDevOpsWorkItems && viewItem == workItem",
+          "group": "1_modify@3"
+        },
+        {
+          "command": "azureDevOps.addWorkItemComment",
+          "when": "view == azureDevOpsWorkItems && viewItem == workItem",
+          "group": "2_actions@1"
+        },
+        {
+          "command": "azureDevOps.createBranchFromWorkItem",
+          "when": "view == azureDevOpsWorkItems && viewItem == workItem",
+          "group": "2_actions@2"
+        },
+        {
+          "command": "azureDevOps.startWorking",
+          "when": "view == azureDevOpsWorkItems && viewItem == workItem",
+          "group": "2_actions@3"
+        },
+        {
+          "command": "azureDevOps.openBoard",
+          "when": "view == azureDevOpsBoards && viewItem == board",
+          "group": "navigation"
+        },
+        {
+          "command": "azureDevOps.openSprint",
+          "when": "view == azureDevOpsSprints && viewItem == sprint",
+          "group": "navigation"
+        },
+        {
+          "command": "azureDevOps.runQuery",
+          "when": "view == azureDevOpsQueries && viewItem == query",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "azureDevOps.refreshWorkItems",
+          "when": "false"
+        },
+        {
+          "command": "azureDevOps.refreshBoards",
+          "when": "false"
+        },
+        {
+          "command": "azureDevOps.refreshSprints",
+          "when": "false"
+        },
+        {
+          "command": "azureDevOps.refreshQueries",
+          "when": "false"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Azure DevOps Boards",
+      "properties": {
+        "azureDevOps.organizationUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Azure DevOps organization URL (e.g., https://dev.azure.com/your-organization)"
+        },
+        "azureDevOps.personalAccessToken": {
+          "type": "string",
+          "default": "",
+          "description": "Personal Access Token for Azure DevOps",
+          "scope": "application"
+        },
+        "azureDevOps.defaultProject": {
+          "type": "string",
+          "default": "",
+          "description": "Default project to use"
+        },
+        "azureDevOps.defaultTeam": {
+          "type": "string",
+          "default": "",
+          "description": "Default team to use"
+        },
+        "azureDevOps.autoRefreshInterval": {
+          "type": "number",
+          "default": 300,
+          "minimum": 0,
+          "description": "Auto-refresh interval in seconds (0 to disable)"
+        },
+        "azureDevOps.showNotifications": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show notifications for work item updates"
+        },
+        "azureDevOps.gitIntegration": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Git integration (auto-link commits to work items)"
+        },
+        "azureDevOps.defaultWorkItemType": {
+          "type": "string",
+          "default": "Task",
+          "enum": [
+            "User Story",
+            "Task",
+            "Bug",
+            "Epic",
+            "Feature",
+            "Issue"
+          ],
+          "description": "Default work item type when creating new items"
+        },
+        "azureDevOps.branchNameFormat": {
+          "type": "string",
+          "default": "feature/{id}-{title}",
+          "description": "Branch name format when creating branches from work items. Use {id} for work item ID and {title} for sanitized title"
+        },
+        "azureDevOps.maxWorkItemsToLoad": {
+          "type": "number",
+          "default": 200,
+          "minimum": 10,
+          "maximum": 1000,
+          "description": "Maximum number of work items to load in the tree view"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/node": "18.x",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.1",
+    "@typescript-eslint/parser": "^6.13.1",
+    "eslint": "^8.54.0",
+    "typescript": "^5.3.2"
+  },
+  "dependencies": {
+    "@azure/msal-node": "^3.8.5",
+    "axios": "^1.6.2",
+    "vscode-uri": "^3.0.7"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/azure-devops-boards-vscode"
+  },
+  "icon": "media/icon.png",
+  "keywords": [
+    "azure",
+    "devops",
+    "boards",
+    "work-items",
+    "sprints",
+    "agile",
+    "scrum",
+    "kanban"
+  ]
+}
