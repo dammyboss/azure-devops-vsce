@@ -1,6 +1,9 @@
 import * as vscode from 'vscode';
 import { AuthenticationManager } from '../authentication/authenticationManager';
 import { WorkItem, WorkItemTypeEnum, WorkItemStateEnum } from '../models/workItem';
+import { CacheManager } from '../utils/cacheManager';
+
+export type GroupByOption = 'type' | 'state' | 'assignedTo' | 'sprint' | 'none';
 
 export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<WorkItemTreeItem | undefined | void> = new vscode.EventEmitter<WorkItemTreeItem | undefined | void>();
@@ -12,6 +15,8 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
     private filterState: string | null = null;
     private filterType: string | null = null;
     private filterAssignedToMe: boolean = false;
+    private groupBy: GroupByOption = 'state';
+    private cacheManager: CacheManager = new CacheManager();
 
     constructor(context: vscode.ExtensionContext, authenticationManager: AuthenticationManager) {
         this.context = context;
@@ -26,12 +31,30 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
         this.filterState = state;
         this.filterType = type;
         this.filterAssignedToMe = assignedToMe;
+        this.cacheManager.invalidatePattern('workitems');
         this.refresh();
+    }
+
+    setGroupBy(groupBy: GroupByOption): void {
+        this.groupBy = groupBy;
+        this.refresh();
+    }
+
+    getGroupBy(): GroupByOption {
+        return this.groupBy;
     }
 
     private async loadWorkItems(): Promise<void> {
         if (!this.authenticationManager.isConnected()) {
             this.workItems = [];
+            return;
+        }
+
+        // Check cache first
+        const cacheKey = `workitems:${this.filterState}:${this.filterType}:${this.filterAssignedToMe}`;
+        const cached = this.cacheManager.get<WorkItem[]>(cacheKey);
+        if (cached) {
+            this.workItems = cached;
             return;
         }
 
@@ -95,6 +118,9 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
             });
 
             this.workItems = detailsResponse.data.value || [];
+            
+            // Cache the results
+            this.cacheManager.set(cacheKey, this.workItems);
         } catch (error: any) {
             console.error('Failed to load work items:', error?.message || error);
             this.workItems = [];
@@ -111,39 +137,19 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
         }
 
         if (!element) {
-            // Root level - show work items grouped by type
             await this.loadWorkItems();
 
             if (this.workItems.length === 0) {
                 return [new WorkItemTreeItem('No work items found', vscode.TreeItemCollapsibleState.None)];
             }
 
-            // Group work items by type
-            const groupedItems = this.workItems.reduce((groups, item) => {
-                const type = item.fields['System.WorkItemType'];
-                if (!groups[type]) {
-                    groups[type] = [];
-                }
-                groups[type].push(item);
-                return groups;
-            }, {} as Record<string, WorkItem[]>);
+            // Group based on selected option
+            return this.groupWorkItems();
+        } else if (element.contextValue === 'workItemGroup') {
+            // Show work items in this group
+            const items = this.getWorkItemsForGroup(element);
 
-            return Object.entries(groupedItems).map(([type, items]) => {
-                const treeItem = new WorkItemTreeItem(
-                    `${type} (${items.length})`,
-                    vscode.TreeItemCollapsibleState.Collapsed
-                );
-                treeItem.contextValue = 'workItemType';
-                treeItem.iconPath = this.getIconForWorkItemType(type);
-                treeItem.workItemType = type;
-                return treeItem;
-            });
-        } else if (element.contextValue === 'workItemType') {
-            // Show work items of this type
-            const type = element.workItemType;
-            const itemsOfType = this.workItems.filter(item => item.fields['System.WorkItemType'] === type);
-
-            return itemsOfType.map(item => {
+            return items.map(item => {
                 const title = item.fields['System.Title'];
                 const state = item.fields['System.State'];
                 const assignedTo = item.fields['System.AssignedTo']?.displayName || 'Unassigned';
@@ -163,12 +169,123 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
                 treeItem.tooltip = this.createWorkItemTooltip(item);
                 treeItem.iconPath = this.getIconForWorkItemState(state);
                 treeItem.workItemId = item.id;
+                treeItem.workItem = item;
 
                 return treeItem;
             });
         }
 
         return [];
+    }
+
+    private groupWorkItems(): WorkItemTreeItem[] {
+        if (this.groupBy === 'none') {
+            return this.workItems.map(item => this.createWorkItemTreeItem(item));
+        }
+
+        const grouped: Record<string, WorkItem[]> = {};
+
+        this.workItems.forEach(item => {
+            let key: string;
+            switch (this.groupBy) {
+                case 'state':
+                    key = item.fields['System.State'] || 'Unknown';
+                    break;
+                case 'type':
+                    key = item.fields['System.WorkItemType'] || 'Unknown';
+                    break;
+                case 'assignedTo':
+                    key = item.fields['System.AssignedTo']?.displayName || 'Unassigned';
+                    break;
+                case 'sprint':
+                    key = item.fields['System.IterationPath']?.split('\\').pop() || 'No Sprint';
+                    break;
+                default:
+                    key = 'All';
+            }
+
+            if (!grouped[key]) {
+                grouped[key] = [];
+            }
+            grouped[key].push(item);
+        });
+
+        // Sort groups by priority for state grouping
+        const sortedGroups = Object.entries(grouped).sort(([a], [b]) => {
+            if (this.groupBy === 'state') {
+                const stateOrder = ['New', 'To Do', 'Active', 'In Progress', 'Resolved', 'Done', 'Closed'];
+                return stateOrder.indexOf(a) - stateOrder.indexOf(b);
+            }
+            return a.localeCompare(b);
+        });
+
+        return sortedGroups.map(([groupName, items]) => {
+            const treeItem = new WorkItemTreeItem(
+                `${groupName} (${items.length})`,
+                vscode.TreeItemCollapsibleState.Expanded
+            );
+            treeItem.contextValue = 'workItemGroup';
+            treeItem.groupName = groupName;
+            treeItem.groupType = this.groupBy;
+            treeItem.iconPath = this.getIconForGroup(groupName, this.groupBy);
+            return treeItem;
+        });
+    }
+
+    private getWorkItemsForGroup(element: WorkItemTreeItem): WorkItem[] {
+        return this.workItems.filter(item => {
+            switch (element.groupType) {
+                case 'state':
+                    return item.fields['System.State'] === element.groupName;
+                case 'type':
+                    return item.fields['System.WorkItemType'] === element.groupName;
+                case 'assignedTo':
+                    return (item.fields['System.AssignedTo']?.displayName || 'Unassigned') === element.groupName;
+                case 'sprint':
+                    return (item.fields['System.IterationPath']?.split('\\').pop() || 'No Sprint') === element.groupName;
+                default:
+                    return true;
+            }
+        });
+    }
+
+    private createWorkItemTreeItem(item: WorkItem): WorkItemTreeItem {
+        const title = item.fields['System.Title'];
+        const state = item.fields['System.State'];
+        const type = item.fields['System.WorkItemType'];
+        const assignedTo = item.fields['System.AssignedTo']?.displayName || 'Unassigned';
+
+        const treeItem = new WorkItemTreeItem(
+            `#${item.id}: ${title}`,
+            vscode.TreeItemCollapsibleState.None,
+            {
+                command: 'azureDevOps.viewWorkItemDetails',
+                title: 'View Work Item Details',
+                arguments: [item.id]
+            }
+        );
+
+        treeItem.description = `${type} • ${state}`;
+        treeItem.contextValue = 'workItem';
+        treeItem.tooltip = this.createWorkItemTooltip(item);
+        treeItem.iconPath = this.getIconForWorkItemState(state);
+        treeItem.workItemId = item.id;
+        treeItem.workItem = item;
+
+        return treeItem;
+    }
+
+    private getIconForGroup(groupName: string, groupType: GroupByOption): vscode.ThemeIcon {
+        if (groupType === 'state') {
+            return this.getIconForWorkItemState(groupName);
+        } else if (groupType === 'type') {
+            return this.getIconForWorkItemType(groupName);
+        } else if (groupType === 'assignedTo') {
+            return new vscode.ThemeIcon('person');
+        } else if (groupType === 'sprint') {
+            return new vscode.ThemeIcon('calendar');
+        }
+        return new vscode.ThemeIcon('folder');
     }
 
     private getIconForWorkItemType(type: string): vscode.ThemeIcon {
@@ -345,6 +462,7 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
                         headers: { 'Content-Type': 'application/json-patch+json' }
                     }
                 );
+                this.cacheManager.invalidatePattern('workitems');
                 this.refresh();
                 return true;
             }
@@ -360,6 +478,9 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
 export class WorkItemTreeItem extends vscode.TreeItem {
     public workItemId?: number;
     public workItemType?: string;
+    public workItem?: WorkItem;
+    public groupName?: string;
+    public groupType?: GroupByOption;
 
     constructor(
         public readonly label: string,

@@ -183,10 +183,11 @@ export class WorkItemPanel {
             }
 
             await axiosInstance.post(
-                `/${config.defaultProject}/_apis/wit/workItems/${this._workItem.id}/comments`,
+                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workItems/${this._workItem.id}/comments`,
                 {
                     text: comment
-                }
+                },
+                { params: { 'api-version': '7.0' } }
             );
 
             vscode.window.showInformationMessage('Comment added successfully');
@@ -203,15 +204,44 @@ export class WorkItemPanel {
 
         try {
             const axiosInstance = this.authenticationManager.getAxiosInstance();
-            if (!axiosInstance) {
+            const config = this.authenticationManager.getConfig();
+            
+            if (!axiosInstance || !config?.defaultProject) {
                 return;
             }
 
-            const response = await axiosInstance.get(`/_apis/wit/workitems/${this._workItem.id}?$expand=all`);
+            const response = await axiosInstance.get(`/_apis/wit/workitems/${this._workItem.id}`, {
+                params: { '$expand': 'all', 'api-version': '7.0' }
+            });
             this._workItem = response.data;
             this._update();
         } catch (error) {
             console.error('Failed to refresh work item:', error);
+        }
+    }
+
+    private async getComments(): Promise<any[]> {
+        if (!this._workItem) {
+            return [];
+        }
+
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+            
+            if (!axiosInstance || !config?.defaultProject) {
+                return [];
+            }
+
+            const response = await axiosInstance.get(
+                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workItems/${this._workItem.id}/comments`,
+                { params: { 'api-version': '7.0' } }
+            );
+            
+            return response.data.comments || [];
+        } catch (error) {
+            console.error('Failed to fetch comments:', error);
+            return [];
         }
     }
 
@@ -228,10 +258,12 @@ export class WorkItemPanel {
     }
 
     private _update() {
-        this._panel.webview.html = this._getHtmlForWebview();
+        this.getComments().then(comments => {
+            this._panel.webview.html = this._getHtmlForWebview(comments);
+        });
     }
 
-    private _getHtmlForWebview(): string {
+    private _getHtmlForWebview(comments: any[] = []): string {
         if (!this._workItem) {
             return '<html><body><p>No work item loaded</p></body></html>';
         }
@@ -250,6 +282,20 @@ export class WorkItemPanel {
         const tags = fields['System.Tags'] || '';
 
         const stateOptions = ['New', 'Active', 'Resolved', 'Closed', 'Done', 'To Do', 'In Progress'];
+        
+        const getStateColor = (state: string) => {
+            const stateMap: Record<string, string> = {
+                'New': '#0078d4',
+                'To Do': '#0078d4',
+                'Active': '#ffa500',
+                'In Progress': '#ffa500',
+                'Resolved': '#8b8b00',
+                'Done': '#107c10',
+                'Closed': '#107c10',
+                'Removed': '#d13438'
+            };
+            return stateMap[state] || '#8b8b8b';
+        };
 
         return `<!DOCTYPE html>
 <html lang="en">
@@ -260,56 +306,110 @@ export class WorkItemPanel {
     <style>
         :root {
             --vscode-font-family: var(--vscode-editor-font-family, 'Segoe UI', sans-serif);
+            --card-background: var(--vscode-sideBar-background);
+            --card-border: var(--vscode-panel-border);
+        }
+        * {
+            box-sizing: border-box;
         }
         body {
             font-family: var(--vscode-font-family);
-            padding: 20px;
+            padding: 0;
+            margin: 0;
             color: var(--vscode-foreground);
             background-color: var(--vscode-editor-background);
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
         }
         .header {
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 2px solid var(--card-border);
+        }
+        .header-top {
             display: flex;
             align-items: center;
             gap: 12px;
-            margin-bottom: 20px;
-            padding-bottom: 12px;
-            border-bottom: 1px solid var(--vscode-panel-border);
+            margin-bottom: 12px;
         }
         .work-item-type {
-            padding: 4px 8px;
-            border-radius: 4px;
+            padding: 6px 12px;
+            border-radius: 16px;
             font-size: 12px;
             font-weight: 600;
             background-color: var(--vscode-badge-background);
             color: var(--vscode-badge-foreground);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
         .work-item-id {
             font-size: 14px;
+            font-weight: 600;
             color: var(--vscode-descriptionForeground);
+            font-family: 'Consolas', 'Courier New', monospace;
+        }
+        .state-pill {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            color: white;
+            margin-left: auto;
+        }
+        .title-section {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--vscode-foreground);
+            margin: 0;
+        }
+        .card {
+            background-color: var(--card-background);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 16px;
+            transition: box-shadow 0.2s ease;
+        }
+        .card:hover {
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
+        .card-title {
+            font-size: 12px;
+            font-weight: 600;
+            margin: 0 0 16px 0;
+            color: var(--vscode-foreground);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
         .form-group {
             margin-bottom: 16px;
         }
         label {
             display: block;
-            margin-bottom: 4px;
+            margin-bottom: 6px;
             font-weight: 600;
             font-size: 13px;
             color: var(--vscode-foreground);
         }
         input[type="text"], textarea, select {
             width: 100%;
-            padding: 8px;
+            padding: 10px 12px;
             border: 1px solid var(--vscode-input-border);
             background-color: var(--vscode-input-background);
             color: var(--vscode-input-foreground);
-            border-radius: 4px;
+            border-radius: 6px;
             font-family: inherit;
             font-size: 14px;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
         }
         input[type="text"]:focus, textarea:focus, select:focus {
             outline: none;
             border-color: var(--vscode-focusBorder);
+            box-shadow: 0 0 0 2px var(--vscode-focusBorder);
         }
         textarea {
             min-height: 150px;
@@ -317,12 +417,8 @@ export class WorkItemPanel {
         }
         .metadata {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 16px;
-            margin-bottom: 20px;
-            padding: 16px;
-            background-color: var(--vscode-sideBar-background);
-            border-radius: 8px;
         }
         .metadata-item {
             display: flex;
@@ -332,24 +428,36 @@ export class WorkItemPanel {
             font-size: 11px;
             color: var(--vscode-descriptionForeground);
             text-transform: uppercase;
-            margin-bottom: 4px;
+            margin-bottom: 6px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
         }
         .metadata-value {
-            font-size: 13px;
+            font-size: 14px;
             color: var(--vscode-foreground);
+            font-weight: 500;
         }
         .button-row {
             display: flex;
             gap: 8px;
             margin-top: 20px;
+            flex-wrap: wrap;
         }
         button {
-            padding: 8px 16px;
+            padding: 10px 20px;
             border: none;
-            border-radius: 4px;
+            border-radius: 6px;
             cursor: pointer;
             font-size: 13px;
-            font-weight: 500;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
+        button:active {
+            transform: translateY(0);
         }
         .btn-primary {
             background-color: var(--vscode-button-background);
@@ -365,15 +473,11 @@ export class WorkItemPanel {
         .btn-secondary:hover {
             background-color: var(--vscode-button-secondaryHoverBackground);
         }
-        .section {
-            margin-top: 24px;
-            padding-top: 16px;
-            border-top: 1px solid var(--vscode-panel-border);
-        }
         .section-title {
             font-size: 14px;
             font-weight: 600;
-            margin-bottom: 12px;
+            margin-bottom: 16px;
+            color: var(--vscode-foreground);
         }
         .state-select {
             display: flex;
@@ -389,81 +493,149 @@ export class WorkItemPanel {
             flex: 1;
             min-height: 80px;
         }
+        .tag {
+            display: inline-block;
+            padding: 4px 10px;
+            margin: 2px 4px 2px 0;
+            background-color: var(--vscode-badge-background);
+            color: var(--vscode-badge-foreground);
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .comments-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .comment-item {
+            padding: 12px;
+            background-color: var(--vscode-editor-background);
+            border-radius: 6px;
+            border-left: 3px solid var(--vscode-focusBorder);
+        }
+        .comment-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .comment-author {
+            font-weight: 600;
+            font-size: 13px;
+            color: var(--vscode-foreground);
+        }
+        .comment-date {
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+        }
+        .comment-text {
+            font-size: 13px;
+            line-height: 1.5;
+            color: var(--vscode-foreground);
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
     </style>
 </head>
 <body>
-    <div class="header">
-        <span class="work-item-type">${this.escapeHtml(type)}</span>
-        <span class="work-item-id">#${this._workItem.id}</span>
-    </div>
+    <div class="container">
+        <div class="header">
+            <div class="header-top">
+                <span class="work-item-type">${this.escapeHtml(type)}</span>
+                <span class="work-item-id">#${this._workItem.id}</span>
+                <span class="state-pill" style="background-color: ${getStateColor(state)}">${this.escapeHtml(state)}</span>
+            </div>
+            <h1 class="title-section">${title}</h1>
+        </div>
 
-    <div class="form-group">
-        <label for="title">Title</label>
-        <input type="text" id="title" value="${title}">
-    </div>
+        <div class="card">
+            <div class="card-title">Details</div>
+            <div class="form-group">
+                <label for="title">Title</label>
+                <input type="text" id="title" value="${title}">
+            </div>
 
-    <div class="metadata">
-        <div class="metadata-item">
-            <span class="metadata-label">State</span>
-            <span class="metadata-value">${this.escapeHtml(state)}</span>
+            <div class="form-group">
+                <label for="description">Description</label>
+                <textarea id="description">${this.escapeHtml(this.stripHtml(description))}</textarea>
+            </div>
         </div>
-        <div class="metadata-item">
-            <span class="metadata-label">Assigned To</span>
-            <span class="metadata-value">${this.escapeHtml(assignedTo)}</span>
-        </div>
-        <div class="metadata-item">
-            <span class="metadata-label">Priority</span>
-            <span class="metadata-value">${priority}</span>
-        </div>
-        <div class="metadata-item">
-            <span class="metadata-label">Iteration</span>
-            <span class="metadata-value">${this.escapeHtml(iterationPath)}</span>
-        </div>
-        <div class="metadata-item">
-            <span class="metadata-label">Area</span>
-            <span class="metadata-value">${this.escapeHtml(areaPath)}</span>
-        </div>
-        <div class="metadata-item">
-            <span class="metadata-label">Created</span>
-            <span class="metadata-value">${createdDate}</span>
-        </div>
-        <div class="metadata-item">
-            <span class="metadata-label">Modified</span>
-            <span class="metadata-value">${changedDate}</span>
-        </div>
-        <div class="metadata-item">
-            <span class="metadata-label">Tags</span>
-            <span class="metadata-value">${this.escapeHtml(tags) || 'None'}</span>
-        </div>
-    </div>
 
-    <div class="form-group">
-        <label for="description">Description</label>
-        <textarea id="description">${this.escapeHtml(this.stripHtml(description))}</textarea>
-    </div>
-
-    <div class="button-row">
-        <button class="btn-primary" onclick="saveWorkItem()">Save Changes</button>
-        <button class="btn-secondary" onclick="openInBrowser()">Open in Browser</button>
-        <button class="btn-secondary" onclick="refresh()">Refresh</button>
-    </div>
-
-    <div class="section">
-        <div class="section-title">Change State</div>
-        <div class="state-select">
-            <select id="newState">
-                ${stateOptions.map(s => `<option value="${s}" ${s === state ? 'selected' : ''}>${s}</option>`).join('')}
-            </select>
-            <button class="btn-secondary" onclick="changeState()">Update State</button>
+        <div class="card">
+            <div class="card-title">Metadata</div>
+            <div class="metadata">
+                <div class="metadata-item">
+                    <span class="metadata-label">Assigned To</span>
+                    <span class="metadata-value">${this.escapeHtml(assignedTo)}</span>
+                </div>
+                <div class="metadata-item">
+                    <span class="metadata-label">Priority</span>
+                    <span class="metadata-value">${priority}</span>
+                </div>
+                <div class="metadata-item">
+                    <span class="metadata-label">Iteration</span>
+                    <span class="metadata-value">${this.escapeHtml(iterationPath)}</span>
+                </div>
+                <div class="metadata-item">
+                    <span class="metadata-label">Area</span>
+                    <span class="metadata-value">${this.escapeHtml(areaPath)}</span>
+                </div>
+                <div class="metadata-item">
+                    <span class="metadata-label">Created</span>
+                    <span class="metadata-value">${createdDate}</span>
+                </div>
+                <div class="metadata-item">
+                    <span class="metadata-label">Modified</span>
+                    <span class="metadata-value">${changedDate}</span>
+                </div>
+            </div>
+            ${tags ? `<div style="margin-top: 16px;">
+                <span class="metadata-label">Tags</span>
+                <div>${tags.split(';').map(tag => `<span class="tag">${this.escapeHtml(tag.trim())}</span>`).join('')}</div>
+            </div>` : ''}
         </div>
-    </div>
 
-    <div class="section">
-        <div class="section-title">Add Comment</div>
-        <div class="comment-input">
-            <textarea id="comment" placeholder="Write a comment..."></textarea>
-            <button class="btn-secondary" onclick="addComment()">Add</button>
+        <div class="button-row">
+            <button class="btn-primary" onclick="saveWorkItem()">💾 Save Changes</button>
+            <button class="btn-secondary" onclick="openInBrowser()">🌐 Open in Browser</button>
+            <button class="btn-secondary" onclick="refresh()">🔄 Refresh</button>
         </div>
+
+        <div class="card">
+            <div class="section-title">Change State</div>
+            <div class="state-select">
+                <select id="newState">
+                    ${stateOptions.map(s => `<option value="${s}" ${s === state ? 'selected' : ''}>${s}</option>`).join('')}
+                </select>
+                <button class="btn-secondary" onclick="changeState()">Update State</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="section-title">Add Comment</div>
+            <div class="comment-input">
+                <textarea id="comment" placeholder="Write a comment..."></textarea>
+                <button class="btn-secondary" onclick="addComment()">Add</button>
+            </div>
+        </div>
+
+        ${comments.length > 0 ? `
+        <div class="card">
+            <div class="section-title">Comments (${comments.length})</div>
+            <div class="comments-list">
+                ${comments.map(comment => `
+                    <div class="comment-item">
+                        <div class="comment-header">
+                            <span class="comment-author">${this.escapeHtml(comment.createdBy?.displayName || 'Unknown')}</span>
+                            <span class="comment-date">${new Date(comment.createdDate).toLocaleString()}</span>
+                        </div>
+                        <div class="comment-text">${this.escapeHtml(comment.text || '')}</div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+        ` : ''}
     </div>
 
     <script>

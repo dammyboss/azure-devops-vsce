@@ -172,6 +172,30 @@
         "title": "Refresh Queries",
         "category": "Azure DevOps",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "azureDevOps.groupWorkItems",
+        "title": "Group Work Items",
+        "category": "Azure DevOps",
+        "icon": "$(group-by-ref-type)"
+      },
+      {
+        "command": "azureDevOps.copyWorkItemId",
+        "title": "Copy Work Item ID",
+        "category": "Azure DevOps",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "azureDevOps.copyWorkItemUrl",
+        "title": "Copy Work Item URL",
+        "category": "Azure DevOps",
+        "icon": "$(link)"
+      },
+      {
+        "command": "azureDevOps.assignToMe",
+        "title": "Assign to Me",
+        "category": "Azure DevOps",
+        "icon": "$(account)"
       }
     ],
     "viewsContainers": {
@@ -220,23 +244,28 @@
     "viewsWelcome": [
       {
         "view": "azureDevOpsWorkItems",
-        "contents": "Connect to Azure DevOps to view your work items.\n[Connect to Azure DevOps](command:azureDevOps.connect)"
+        "contents": "Not connected to Azure DevOps.\n\nUse the Command Palette (Ctrl+Shift+P) and run:\n**Azure DevOps: Connect to Organization**",
+        "when": "!azureDevOps.connected"
       },
       {
         "view": "azureDevOpsBacklogs",
-        "contents": "Connect to Azure DevOps to view your backlogs.\n[Connect to Azure DevOps](command:azureDevOps.connect)"
+        "contents": "Not connected to Azure DevOps.\n\nUse the Command Palette (Ctrl+Shift+P) and run:\n**Azure DevOps: Connect to Organization**",
+        "when": "!azureDevOps.connected"
       },
       {
         "view": "azureDevOpsBoards",
-        "contents": "Connect to Azure DevOps to view your boards.\n[Connect to Azure DevOps](command:azureDevOps.connect)"
+        "contents": "Not connected to Azure DevOps.\n\nUse the Command Palette (Ctrl+Shift+P) and run:\n**Azure DevOps: Connect to Organization**",
+        "when": "!azureDevOps.connected"
       },
       {
         "view": "azureDevOpsSprints",
-        "contents": "Connect to Azure DevOps to view your sprints.\n[Connect to Azure DevOps](command:azureDevOps.connect)"
+        "contents": "Not connected to Azure DevOps.\n\nUse the Command Palette (Ctrl+Shift+P) and run:\n**Azure DevOps: Connect to Organization**",
+        "when": "!azureDevOps.connected"
       },
       {
         "view": "azureDevOpsQueries",
-        "contents": "Connect to Azure DevOps to view saved queries.\n[Connect to Azure DevOps](command:azureDevOps.connect)"
+        "contents": "Not connected to Azure DevOps.\n\nUse the Command Palette (Ctrl+Shift+P) and run:\n**Azure DevOps: Connect to Organization**",
+        "when": "!azureDevOps.connected"
       }
     ],
     "menus": {
@@ -247,19 +276,24 @@
           "group": "navigation@1"
         },
         {
-          "command": "azureDevOps.filterWorkItems",
+          "command": "azureDevOps.groupWorkItems",
           "when": "view == azureDevOpsWorkItems",
           "group": "navigation@2"
         },
         {
-          "command": "azureDevOps.searchWorkItems",
+          "command": "azureDevOps.filterWorkItems",
           "when": "view == azureDevOpsWorkItems",
           "group": "navigation@3"
         },
         {
-          "command": "azureDevOps.refreshWorkItems",
+          "command": "azureDevOps.searchWorkItems",
           "when": "view == azureDevOpsWorkItems",
           "group": "navigation@4"
+        },
+        {
+          "command": "azureDevOps.refreshWorkItems",
+          "when": "view == azureDevOpsWorkItems",
+          "group": "navigation@5"
         },
         {
           "command": "azureDevOps.refreshBoards",
@@ -304,6 +338,11 @@
           "group": "1_modify@3"
         },
         {
+          "command": "azureDevOps.assignToMe",
+          "when": "view == azureDevOpsWorkItems && viewItem == workItem",
+          "group": "1_modify@4"
+        },
+        {
           "command": "azureDevOps.addWorkItemComment",
           "when": "view == azureDevOpsWorkItems && viewItem == workItem",
           "group": "2_actions@1"
@@ -317,6 +356,26 @@
           "command": "azureDevOps.startWorking",
           "when": "view == azureDevOpsWorkItems && viewItem == workItem",
           "group": "2_actions@3"
+        },
+        {
+          "command": "azureDevOps.copyWorkItemId",
+          "when": "view == azureDevOpsWorkItems && viewItem == workItem",
+          "group": "3_copy@1"
+        },
+        {
+          "command": "azureDevOps.copyWorkItemUrl",
+          "when": "view == azureDevOpsWorkItems && viewItem == workItem",
+          "group": "3_copy@2"
+        },
+        {
+          "command": "azureDevOps.openWorkItem",
+          "when": "view == azureDevOpsBacklogs && viewItem == workItem",
+          "group": "navigation@1"
+        },
+        {
+          "command": "azureDevOps.viewWorkItemDetails",
+          "when": "view == azureDevOpsBacklogs && viewItem == workItem",
+          "group": "navigation@2"
         },
         {
           "command": "azureDevOps.openBoard",

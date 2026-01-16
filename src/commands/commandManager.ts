@@ -36,14 +36,22 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
         vscode.commands.registerCommand('azureDevOps.connect', async () => {
             const connected = await components.authenticationManager.connect();
             if (connected) {
+                // Set context for all views
+                vscode.commands.executeCommand('setContext', 'azureDevOps.connected', true);
+                
                 // Prompt for project selection
                 await vscode.commands.executeCommand('azureDevOps.selectProject');
 
                 components.statusBarManager.updateStatus('connected');
+                
+                // Refresh ALL views
                 components.workItemProvider.refresh();
+                components.backlogProvider.refresh();
                 components.boardProvider.refresh();
                 components.sprintProvider.refresh();
                 components.queryProvider.refresh();
+            } else {
+                vscode.commands.executeCommand('setContext', 'azureDevOps.connected', false);
             }
         })
     );
@@ -52,8 +60,12 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
     context.subscriptions.push(
         vscode.commands.registerCommand('azureDevOps.disconnect', async () => {
             await components.authenticationManager.disconnect();
+            vscode.commands.executeCommand('setContext', 'azureDevOps.connected', false);
             components.statusBarManager.updateStatus('disconnected');
+            
+            // Refresh ALL views to show disconnected state
             components.workItemProvider.refresh();
+            components.backlogProvider.refresh();
             components.boardProvider.refresh();
             components.sprintProvider.refresh();
             components.queryProvider.refresh();
@@ -184,6 +196,9 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
             const workItem = await components.workItemProvider.createWorkItem(workItemType, title, description);
 
             if (workItem) {
+                // Invalidate cache and refresh to show new work item
+                components.workItemProvider.refresh();
+                
                 const action = await vscode.window.showInformationMessage(
                     `Created ${workItemType} #${workItem.id}: ${title}`,
                     'Open in Browser',
@@ -917,6 +932,7 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
                 { label: '$(person) Assigned to Me', state: null, type: null, assignedToMe: true },
                 { label: '$(play) Active Items', state: 'Active', type: null, assignedToMe: false },
                 { label: '$(circle-outline) New Items', state: 'New', type: null, assignedToMe: false },
+                { label: '$(check) Done Items', state: 'Done', type: null, assignedToMe: false },
                 { label: '$(book) User Stories', state: null, type: 'User Story', assignedToMe: false },
                 { label: '$(checklist) Tasks', state: null, type: 'Task', assignedToMe: false },
                 { label: '$(bug) Bugs', state: null, type: 'Bug', assignedToMe: false },
@@ -930,6 +946,120 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
 
             if (selected) {
                 components.workItemProvider.setFilter(selected.state, selected.type, selected.assignedToMe);
+            }
+        })
+    );
+
+    // Group work items command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.groupWorkItems', async () => {
+            if (!components.authenticationManager.isConnected()) {
+                vscode.window.showErrorMessage('Please connect to Azure DevOps first');
+                return;
+            }
+
+            const currentGroupBy = components.workItemProvider.getGroupBy();
+            const groupOptions = [
+                { label: '$(symbol-event) Group by State', value: 'state' as const, description: currentGroupBy === 'state' ? '(Current)' : '' },
+                { label: '$(symbol-class) Group by Type', value: 'type' as const, description: currentGroupBy === 'type' ? '(Current)' : '' },
+                { label: '$(person) Group by Assigned To', value: 'assignedTo' as const, description: currentGroupBy === 'assignedTo' ? '(Current)' : '' },
+                { label: '$(calendar) Group by Sprint', value: 'sprint' as const, description: currentGroupBy === 'sprint' ? '(Current)' : '' },
+                { label: '$(list-flat) No Grouping', value: 'none' as const, description: currentGroupBy === 'none' ? '(Current)' : '' }
+            ];
+
+            const selected = await vscode.window.showQuickPick(groupOptions, {
+                placeHolder: 'Select grouping option'
+            });
+
+            if (selected) {
+                components.workItemProvider.setGroupBy(selected.value);
+            }
+        })
+    );
+
+    // Copy work item ID command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.copyWorkItemId', async (item?: any) => {
+            let workItemId: number | undefined;
+
+            if (item?.workItemId) {
+                workItemId = item.workItemId;
+            } else if (typeof item === 'number') {
+                workItemId = item;
+            }
+
+            if (workItemId) {
+                await vscode.env.clipboard.writeText(workItemId.toString());
+                vscode.window.showInformationMessage(`Copied work item ID: ${workItemId}`);
+            }
+        })
+    );
+
+    // Copy work item URL command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.copyWorkItemUrl', async (item?: any) => {
+            if (!components.authenticationManager.isConnected()) {
+                vscode.window.showErrorMessage('Please connect to Azure DevOps first');
+                return;
+            }
+
+            let workItemId: number | undefined;
+
+            if (item?.workItemId) {
+                workItemId = item.workItemId;
+            } else if (typeof item === 'number') {
+                workItemId = item;
+            }
+
+            if (workItemId) {
+                const config = components.authenticationManager.getConfig();
+                if (config) {
+                    const url = `${config.organizationUrl}/${config.defaultProject}/_workitems/edit/${workItemId}`;
+                    await vscode.env.clipboard.writeText(url);
+                    vscode.window.showInformationMessage('Work item URL copied to clipboard');
+                }
+            }
+        })
+    );
+
+    // Assign to me command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.assignToMe', async (item?: any) => {
+            if (!components.authenticationManager.isConnected()) {
+                vscode.window.showErrorMessage('Please connect to Azure DevOps first');
+                return;
+            }
+
+            let workItemId: number | undefined;
+
+            if (item?.workItemId) {
+                workItemId = item.workItemId;
+            } else if (typeof item === 'number') {
+                workItemId = item;
+            }
+
+            if (!workItemId) return;
+
+            try {
+                const axiosInstance = components.authenticationManager.getAxiosInstance();
+                if (!axiosInstance) return;
+
+                const currentUser = await components.authenticationManager.getCurrentUser();
+                if (!currentUser?.uniqueName) {
+                    vscode.window.showErrorMessage('Could not get current user');
+                    return;
+                }
+
+                await axiosInstance.patch(
+                    `/_apis/wit/workitems/${workItemId}`,
+                    [{ op: 'replace', path: '/fields/System.AssignedTo', value: currentUser.uniqueName }],
+                    { headers: { 'Content-Type': 'application/json-patch+json' } }
+                );
+
+                vscode.window.showInformationMessage(`Work item #${workItemId} assigned to you`);
+                components.workItemProvider.refresh();
+            } catch (error) {
+                vscode.window.showErrorMessage(`Failed to assign work item: ${error}`);
             }
         })
     );

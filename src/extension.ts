@@ -114,22 +114,25 @@ export async function activate(context: vscode.ExtensionContext) {
     try {
         const isConnected = await authenticationManager.autoConnect();
         if (isConnected) {
+            vscode.commands.executeCommand('setContext', 'azureDevOps.connected', true);
             statusBarManager.updateStatus('connected');
             const showNotifications = config.get<boolean>('showNotifications', true);
             if (showNotifications) {
                 vscode.window.showInformationMessage('Connected to Azure DevOps');
             }
-            // Refresh views
+            // Refresh ALL views
             workItemProvider.refresh();
             backlogProvider.refresh();
             boardProvider.refresh();
             sprintProvider.refresh();
             queryProvider.refresh();
         } else {
+            vscode.commands.executeCommand('setContext', 'azureDevOps.connected', false);
             statusBarManager.updateStatus('disconnected');
         }
     } catch (error) {
         console.log('Auto-connect failed:', error);
+        vscode.commands.executeCommand('setContext', 'azureDevOps.connected', false);
         statusBarManager.updateStatus('disconnected');
     }
 
