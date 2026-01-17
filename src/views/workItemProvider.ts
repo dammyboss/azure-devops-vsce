@@ -5,7 +5,14 @@ import { CacheManager } from '../utils/cacheManager';
 
 export type GroupByOption = 'type' | 'state' | 'assignedTo' | 'sprint' | 'none';
 
-export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeItem> {
+// Custom MIME type for work item drag and drop
+const WORK_ITEM_MIME_TYPE = 'application/vnd.code.tree.azuredevopsworkitems';
+
+export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeItem>, vscode.TreeDragAndDropController<WorkItemTreeItem> {
+
+    // Drag and drop support
+    dropMimeTypes = [WORK_ITEM_MIME_TYPE];
+    dragMimeTypes = [WORK_ITEM_MIME_TYPE];
     private _onDidChangeTreeData: vscode.EventEmitter<WorkItemTreeItem | undefined | void> = new vscode.EventEmitter<WorkItemTreeItem | undefined | void>();
     readonly onDidChangeTreeData: vscode.Event<WorkItemTreeItem | undefined | void> = this._onDidChangeTreeData.event;
 
@@ -547,6 +554,189 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
         } catch (error) {
             console.error(`Failed to update work item ${id}:`, error);
             return false;
+        }
+    }
+
+    // ========== DRAG AND DROP SUPPORT ==========
+
+    public async handleDrag(source: readonly WorkItemTreeItem[], dataTransfer: vscode.DataTransfer, token: vscode.CancellationToken): Promise<void> {
+        // Only allow dragging work items (not groups)
+        const workItemsToMove = source.filter(item => item.contextValue === 'workItem' && item.workItemId);
+
+        if (workItemsToMove.length === 0) {
+            return;
+        }
+
+        // Store the work item IDs in the data transfer
+        const dragData = workItemsToMove.map(item => ({
+            id: item.workItemId,
+            state: item.workItem?.fields['System.State'],
+            type: item.workItem?.fields['System.WorkItemType']
+        }));
+
+        dataTransfer.set(WORK_ITEM_MIME_TYPE, new vscode.DataTransferItem(JSON.stringify(dragData)));
+    }
+
+    public async handleDrop(target: WorkItemTreeItem | undefined, dataTransfer: vscode.DataTransfer, token: vscode.CancellationToken): Promise<void> {
+        const transferItem = dataTransfer.get(WORK_ITEM_MIME_TYPE);
+        if (!transferItem) {
+            return;
+        }
+
+        const dragData = JSON.parse(await transferItem.asString()) as Array<{ id: number; state: string; type: string }>;
+
+        if (dragData.length === 0) {
+            return;
+        }
+
+        // Determine what action to take based on drop target
+        if (!target) {
+            // Dropped on root - no action
+            return;
+        }
+
+        if (target.contextValue === 'workItemGroup') {
+            // Dropped on a group - update the work item's field to match the group
+            await this.handleDropOnGroup(dragData, target);
+        } else if (target.contextValue === 'workItem' && target.workItemId) {
+            // Dropped on another work item - reorder (update backlog priority)
+            await this.handleDropOnWorkItem(dragData, target);
+        }
+    }
+
+    private async handleDropOnGroup(dragData: Array<{ id: number; state: string; type: string }>, targetGroup: WorkItemTreeItem): Promise<void> {
+        const axiosInstance = this.authenticationManager.getAxiosInstance();
+        if (!axiosInstance) return;
+
+        const groupType = targetGroup.groupType;
+        const groupName = targetGroup.groupName;
+
+        if (!groupType || !groupName) return;
+
+        // Determine which field to update based on group type
+        let fieldPath: string | null = null;
+        let fieldValue: string | null = groupName;
+
+        switch (groupType) {
+            case 'state':
+                fieldPath = '/fields/System.State';
+                break;
+            case 'assignedTo':
+                fieldPath = '/fields/System.AssignedTo';
+                if (groupName === 'Unassigned') {
+                    fieldValue = null; // Will use remove operation
+                }
+                break;
+            case 'sprint':
+                // Need to get the full iteration path
+                fieldPath = '/fields/System.IterationPath';
+                // For sprint, we need the full path, try to find it
+                const config = this.authenticationManager.getConfig();
+                if (config?.defaultProject && groupName !== 'No Sprint') {
+                    try {
+                        const iterResponse = await axiosInstance.get(
+                            `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam || '')}/_apis/work/teamsettings/iterations`,
+                            { params: { 'api-version': '7.0' } }
+                        );
+                        const iteration = (iterResponse.data.value || []).find((i: any) => i.name === groupName);
+                        if (iteration) {
+                            fieldValue = iteration.path;
+                        }
+                    } catch (e) {
+                        console.error('Failed to get iteration path:', e);
+                        return;
+                    }
+                } else if (groupName === 'No Sprint') {
+                    fieldValue = null;
+                }
+                break;
+            case 'type':
+                // Cannot change work item type via simple field update
+                vscode.window.showWarningMessage('Cannot change work item type via drag and drop');
+                return;
+            default:
+                return;
+        }
+
+        if (!fieldPath) return;
+
+        // Update each work item
+        let successCount = 0;
+        for (const item of dragData) {
+            try {
+                const patchOp = fieldValue !== null
+                    ? { op: 'replace', path: fieldPath, value: fieldValue }
+                    : { op: 'remove', path: fieldPath };
+
+                await axiosInstance.patch(
+                    `/_apis/wit/workitems/${item.id}`,
+                    [patchOp],
+                    { headers: { 'Content-Type': 'application/json-patch+json' } }
+                );
+                successCount++;
+            } catch (error) {
+                console.error(`Failed to update work item ${item.id}:`, error);
+            }
+        }
+
+        if (successCount > 0) {
+            vscode.window.showInformationMessage(`Updated ${successCount} work item(s)`);
+            this.cacheManager.invalidatePattern('workitems');
+            this.refresh();
+        }
+    }
+
+    private async handleDropOnWorkItem(dragData: Array<{ id: number; state: string; type: string }>, targetItem: WorkItemTreeItem): Promise<void> {
+        const axiosInstance = this.authenticationManager.getAxiosInstance();
+        if (!axiosInstance || !targetItem.workItem) return;
+
+        // Get target's backlog priority
+        const targetFields = targetItem.workItem.fields as any;
+        const targetPriority = targetFields['Microsoft.VSTS.Common.BacklogPriority'] ||
+                              targetFields['Microsoft.VSTS.Common.StackRank'] || 0;
+
+        // Set dragged items to have priority just before the target
+        const newPriority = targetPriority - 0.001;
+
+        let successCount = 0;
+        for (const item of dragData) {
+            if (item.id === targetItem.workItemId) continue; // Skip if dropping on itself
+
+            try {
+                // Try BacklogPriority first, then StackRank
+                const patchDocument = [
+                    { op: 'replace', path: '/fields/Microsoft.VSTS.Common.BacklogPriority', value: newPriority - (dragData.indexOf(item) * 0.0001) }
+                ];
+
+                await axiosInstance.patch(
+                    `/_apis/wit/workitems/${item.id}`,
+                    patchDocument,
+                    { headers: { 'Content-Type': 'application/json-patch+json' } }
+                );
+                successCount++;
+            } catch (error: any) {
+                // If BacklogPriority doesn't exist, try StackRank
+                if (error?.response?.status === 400) {
+                    try {
+                        await axiosInstance.patch(
+                            `/_apis/wit/workitems/${item.id}`,
+                            [{ op: 'replace', path: '/fields/Microsoft.VSTS.Common.StackRank', value: newPriority - (dragData.indexOf(item) * 0.0001) }],
+                            { headers: { 'Content-Type': 'application/json-patch+json' } }
+                        );
+                        successCount++;
+                    } catch (e2) {
+                        console.error(`Failed to update priority for work item ${item.id}:`, e2);
+                    }
+                } else {
+                    console.error(`Failed to update priority for work item ${item.id}:`, error);
+                }
+            }
+        }
+
+        if (successCount > 0) {
+            vscode.window.showInformationMessage(`Reordered ${successCount} work item(s)`);
+            this.cacheManager.invalidatePattern('workitems');
+            this.refresh();
         }
     }
 }

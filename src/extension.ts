@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { AuthenticationManager } from './authentication/authenticationManager';
+import { ConnectionStatusProvider } from './authentication/connectionStatusProvider';
 import { WorkItemProvider } from './views/workItemProvider';
 import { BacklogProvider } from './views/backlogProvider';
 import { BoardProvider } from './views/boardProvider';
@@ -19,6 +20,7 @@ export let queryProvider: QueryProvider;
 export let gitIntegration: GitIntegration;
 export let statusBarManager: StatusBarManager;
 export let workItemLinksManager: WorkItemLinksManager;
+export let connectionStatusProvider: ConnectionStatusProvider;
 
 export async function activate(context: vscode.ExtensionContext) {
     console.log('Azure DevOps Boards extension is now active!');
@@ -28,6 +30,7 @@ export async function activate(context: vscode.ExtensionContext) {
     statusBarManager = new StatusBarManager();
     gitIntegration = new GitIntegration();
     workItemLinksManager = new WorkItemLinksManager(authenticationManager);
+    connectionStatusProvider = new ConnectionStatusProvider(authenticationManager, context);
 
     // Initialize providers
     workItemProvider = new WorkItemProvider(context, authenticationManager);
@@ -36,10 +39,19 @@ export async function activate(context: vscode.ExtensionContext) {
     sprintProvider = new SprintProvider(context, authenticationManager);
     queryProvider = new QueryProvider(context, authenticationManager);
 
+    // Register connection status tree view
+    const connectionStatusTreeView = vscode.window.createTreeView('azureDevOpsConnection', {
+        treeDataProvider: connectionStatusProvider,
+        showCollapseAll: false
+    });
+    context.subscriptions.push(connectionStatusTreeView);
+
     // Register tree views
     const workItemsTreeView = vscode.window.createTreeView('azureDevOpsWorkItems', {
         treeDataProvider: workItemProvider,
-        showCollapseAll: true
+        showCollapseAll: true,
+        dragAndDropController: workItemProvider,
+        canSelectMany: true
     });
 
     const backlogsTreeView = vscode.window.createTreeView('azureDevOpsBacklogs', {
@@ -75,7 +87,8 @@ export async function activate(context: vscode.ExtensionContext) {
         gitIntegration,
         statusBarManager,
         extensionUri: context.extensionUri,
-        workItemLinksManager
+        workItemLinksManager,
+        connectionStatusProvider
     });
 
     // Register configuration change listener
@@ -88,6 +101,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 boardProvider.refresh();
                 sprintProvider.refresh();
                 queryProvider.refresh();
+                connectionStatusProvider.refresh();
             }
         })
     );
@@ -103,6 +117,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 backlogProvider.refresh();
                 boardProvider.refresh();
                 sprintProvider.refresh();
+                connectionStatusProvider.refresh();
             }
         }, refreshInterval * 1000);
 
@@ -113,6 +128,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Initialize status bar
     statusBarManager.updateStatus('disconnected');
+    connectionStatusProvider.refresh();
 
     // Try to auto-connect if credentials are available
     try {
@@ -122,7 +138,7 @@ export async function activate(context: vscode.ExtensionContext) {
             statusBarManager.updateStatus('connected');
             const showNotifications = config.get<boolean>('showNotifications', true);
             if (showNotifications) {
-                vscode.window.showInformationMessage('Connected to Azure DevOps');
+                vscode.window.showInformationMessage('✓ Connected to Azure DevOps');
             }
             // Refresh ALL views
             workItemProvider.refresh();
@@ -130,6 +146,7 @@ export async function activate(context: vscode.ExtensionContext) {
             boardProvider.refresh();
             sprintProvider.refresh();
             queryProvider.refresh();
+            connectionStatusProvider.refresh();
         } else {
             vscode.commands.executeCommand('setContext', 'azureDevOps.connected', false);
             statusBarManager.updateStatus('disconnected');

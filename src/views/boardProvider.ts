@@ -84,7 +84,7 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
             const axiosInstance = this.authenticationManager.getAxiosInstance();
             const config = this.authenticationManager.getConfig();
 
-            if (!axiosInstance || !config?.defaultProject) {
+            if (!axiosInstance || !config?.defaultProject || !config?.defaultTeam) {
                 return [];
             }
 
@@ -92,11 +92,40 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
             const board = this.boards.find(b => b.id === boardId);
             if (!board) return [];
 
-            // Query work items in this column using WIQL
+            // Get backlog work item types for this specific board
+            let allowedWorkItemTypes: string[] = [];
+            try {
+                const backlogsResponse = await axiosInstance.get(
+                    `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/backlogs`
+                );
+
+                const backlogs = backlogsResponse.data.value || [];
+                const matchingBacklog = backlogs.find((b: any) =>
+                    b.name === board.name || b.id === boardId
+                );
+
+                if (matchingBacklog && matchingBacklog.workItemTypes) {
+                    allowedWorkItemTypes = matchingBacklog.workItemTypes.map((wit: any) => wit.name);
+                }
+            } catch (error) {
+                console.error('Failed to load backlog configuration:', error);
+            }
+
+            // Build work item type filter
+            let workItemTypeFilter = '';
+            if (allowedWorkItemTypes.length > 0) {
+                const typeConditions = allowedWorkItemTypes
+                    .map(t => `[System.WorkItemType] = '${t.replace(/'/g, "''")}'`)
+                    .join(' OR ');
+                workItemTypeFilter = `AND (${typeConditions})`;
+            }
+
+            // Query work items in this column using WIQL with type filter
             const wiql = `SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo]
                           FROM WorkItems
                           WHERE [System.TeamProject] = @project
                           AND [System.BoardColumn] = '${columnName}'
+                          ${workItemTypeFilter}
                           ORDER BY [Microsoft.VSTS.Common.BacklogPriority]`;
 
             const response = await axiosInstance.post(

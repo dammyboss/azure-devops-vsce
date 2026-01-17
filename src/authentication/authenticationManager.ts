@@ -23,6 +23,7 @@ export class AuthenticationManager {
     private connectionStatus: ConnectionStatus = { isConnected: false };
     private authProvider: AzureDevOpsAuthenticationProvider;
     private currentSession: vscode.AuthenticationSession | null = null;
+    private setupWizard: any = null; // Lazy loaded
 
     constructor(context: vscode.ExtensionContext) {
         this.context = context;
@@ -146,38 +147,49 @@ export class AuthenticationManager {
 
     public async connect(): Promise<boolean> {
         try {
-            const session = await vscode.authentication.getSession('azure-devops', [], { createIfNone: true });
+            // Get Microsoft session - use scopes that Azure DevOps recognizes
+            // The '499b84d6-255a-44c2-8dab-4c5dae438d15' is the Azure DevOps app ID
+            const session = await vscode.authentication.getSession('microsoft', [
+                'https://app.vssps.visualstudio.com/.default'
+            ], { createIfNone: true });
             
             if (!session) {
+                vscode.window.showErrorMessage('Authentication cancelled.');
                 return false;
             }
 
+            // Store the Microsoft session
             this.currentSession = session;
-            const organizationUrl = session.account.id.replace(/\/+$/, '');
-            
-            console.log('[Azure DevOps] Organization URL from session:', organizationUrl);
-            
+
+            // Get config to see if we have saved org/project
             const config = vscode.workspace.getConfiguration('azureDevOps');
+            const savedOrgUrl = config.get<string>('organizationUrl', '');
             const defaultProject = config.get<string>('defaultProject', '');
             const defaultTeam = config.get<string>('defaultTeam', '');
 
-            this.config = {
-                organizationUrl,
-                personalAccessToken: session.accessToken,
-                defaultProject,
-                defaultTeam
-            };
-            
-            console.log('[Azure DevOps] Config created with baseURL:', this.config.organizationUrl);
+            // If we have saved config, use it. Otherwise, show wizard
+            if (savedOrgUrl && defaultProject) {
+                this.config = {
+                    organizationUrl: savedOrgUrl,
+                    personalAccessToken: session.accessToken,
+                    defaultProject,
+                    defaultTeam
+                };
+                
+                this.createAxiosInstance();
+                const connected = await this.autoConnect();
 
-            this.createAxiosInstance();
-            const connected = await this.autoConnect();
-
-            if (connected) {
-                vscode.window.showInformationMessage(`Connected to Azure DevOps: ${organizationUrl}`);
-                return true;
+                if (connected) {
+                    vscode.window.showInformationMessage(`✓ Connected to Azure DevOps`);
+                    return true;
+                } else {
+                    vscode.window.showErrorMessage('Failed to verify connection. Configuration may have changed.');
+                    return false;
+                }
             } else {
-                vscode.window.showErrorMessage('Failed to connect to Azure DevOps. Please check your credentials.');
+                // No saved config, open setup wizard
+                vscode.window.showInformationMessage('Opening Azure DevOps setup wizard...');
+                await vscode.commands.executeCommand('azureDevOps.setupWizard');
                 return false;
             }
         } catch (error) {
@@ -269,6 +281,18 @@ export class AuthenticationManager {
             console.error('Failed to get teams:', error);
             throw error;
         }
+    }
+
+    public setConfig(config: AzureDevOpsConfig): void {
+        this.config = config;
+        this.createAxiosInstance();
+        
+        // Update connection status
+        this.connectionStatus = {
+            isConnected: true,
+            organization: config.organizationUrl,
+            project: config.defaultProject
+        };
     }
 
     public async getCurrentUser(): Promise<any> {

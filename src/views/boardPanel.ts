@@ -187,6 +187,31 @@ export class BoardPanel {
             throw new Error('Not connected to Azure DevOps');
         }
 
+        // Get the backlog work item types for this specific board
+        // First, get the team's backlog configuration to map board names to work item types
+        let allowedWorkItemTypes: string[] = [];
+
+        try {
+            // Get team settings which includes backlog configuration
+            const backlogsResponse = await axiosInstance.get(
+                `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/backlogs`
+            );
+
+            const backlogs = backlogsResponse.data.value || [];
+            // Find the backlog that matches this board's name
+            const matchingBacklog = backlogs.find((b: any) =>
+                b.name === this.boardName || b.id === this.boardId
+            );
+
+            if (matchingBacklog && matchingBacklog.workItemTypes) {
+                // workItemTypes is an array of { name: "Epic" } objects
+                allowedWorkItemTypes = matchingBacklog.workItemTypes.map((wit: any) => wit.name);
+            }
+        } catch (error) {
+            console.error('Failed to load backlog configuration:', error);
+            // Continue without filtering - will show all items
+        }
+
         // Load board columns
         const columnsResponse = await axiosInstance.get(
             `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/boards/${this.boardId}/columns`
@@ -210,6 +235,15 @@ export class BoardPanel {
             workItemsMap.set(column.name, []);
         }
 
+        // Build work item type filter for WIQL
+        let workItemTypeFilter = '';
+        if (allowedWorkItemTypes.length > 0) {
+            const typeConditions = allowedWorkItemTypes
+                .map(t => `[System.WorkItemType] = '${t.replace(/'/g, "''")}'`)
+                .join(' OR ');
+            workItemTypeFilter = `AND (${typeConditions})`;
+        }
+
         // Query work items for all columns
         for (const column of columns) {
             try {
@@ -217,6 +251,7 @@ export class BoardPanel {
                               FROM WorkItems
                               WHERE [System.TeamProject] = @project
                               AND [System.BoardColumn] = '${column.name.replace(/'/g, "''")}'
+                              ${workItemTypeFilter}
                               ORDER BY [Microsoft.VSTS.Common.BacklogPriority]`;
 
                 const wiqlResponse = await axiosInstance.post(
@@ -1510,9 +1545,8 @@ export class BoardPanel {
                     </div>
                 </div>
                 <div class="column-body">
-                    ${items.length === 0 ? `
-                        <div class="empty-column">No items</div>
-                    ` : items.map((item, itemIndex) => this._renderCard(item, colIndex, itemIndex)).join('')}
+                    ${items.map((item, itemIndex) => this._renderCard(item, colIndex, itemIndex)).join('')}
+                    ${items.length === 0 ? '<div class="empty-column">No items</div>' : ''}
                     <div class="drop-placeholder"></div>
                 </div>
                 <div class="add-item">
@@ -1750,6 +1784,12 @@ export class BoardPanel {
             const placeholder = columnBody.querySelector('.drop-placeholder');
             columnBody.insertBefore(selectedCard, placeholder);
 
+            // Remove empty state message if present
+            const emptyMessage = columnBody.querySelector('.empty-column');
+            if (emptyMessage) {
+                emptyMessage.remove();
+            }
+
             updateColumnCounts();
         }
 
@@ -1915,6 +1955,12 @@ export class BoardPanel {
             const placeholder = columnBody.querySelector('.drop-placeholder');
             columnBody.insertBefore(draggedCard, placeholder);
             draggedCard.classList.remove('dragging');
+
+            // Remove empty state message if present
+            const emptyMessage = columnBody.querySelector('.empty-column');
+            if (emptyMessage) {
+                emptyMessage.remove();
+            }
 
             updateColumnCounts();
 

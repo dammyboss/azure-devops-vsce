@@ -108,6 +108,24 @@
         "icon": "$(person)"
       },
       {
+        "command": "azureDevOps.bulkChangeState",
+        "title": "Bulk: Change State",
+        "category": "Azure DevOps",
+        "icon": "$(symbol-event)"
+      },
+      {
+        "command": "azureDevOps.bulkAssign",
+        "title": "Bulk: Assign",
+        "category": "Azure DevOps",
+        "icon": "$(person)"
+      },
+      {
+        "command": "azureDevOps.bulkMoveToSprint",
+        "title": "Bulk: Move to Sprint",
+        "category": "Azure DevOps",
+        "icon": "$(calendar)"
+      },
+      {
         "command": "azureDevOps.viewWorkItemDetails",
         "title": "View Work Item Details",
         "category": "Azure DevOps",
@@ -214,6 +232,12 @@
         "title": "Open Board (Kanban View)",
         "category": "Azure DevOps",
         "icon": "$(project)"
+      },
+      {
+        "command": "azureDevOps.setupWizard",
+        "title": "Setup Connection Wizard",
+        "category": "Azure DevOps",
+        "icon": "$(settings-gear)"
       }
     ],
     "viewsContainers": {
@@ -227,6 +251,12 @@
     },
     "views": {
       "azure-devops": [
+        {
+          "id": "azureDevOpsConnection",
+          "name": "Connection",
+          "icon": "$(debug-disconnect)",
+          "contextualTitle": "Azure DevOps Connection Status"
+        },
         {
           "id": "azureDevOpsWorkItems",
           "name": "Work Items",
@@ -399,6 +429,21 @@
           "command": "azureDevOps.createAndLink",
           "when": "view == azureDevOpsWorkItems && viewItem == workItem",
           "group": "4_link@2"
+        },
+        {
+          "command": "azureDevOps.bulkChangeState",
+          "when": "view == azureDevOpsWorkItems && viewItem == workItem",
+          "group": "5_bulk@1"
+        },
+        {
+          "command": "azureDevOps.bulkAssign",
+          "when": "view == azureDevOpsWorkItems && viewItem == workItem",
+          "group": "5_bulk@2"
+        },
+        {
+          "command": "azureDevOps.bulkMoveToSprint",
+          "when": "view == azureDevOpsWorkItems && viewItem == workItem",
+          "group": "5_bulk@3"
         },
         {
           "command": "azureDevOps.openWorkItem",

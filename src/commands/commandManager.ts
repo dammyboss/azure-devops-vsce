@@ -10,6 +10,9 @@ import { StatusBarManager } from '../utils/statusBarManager';
 import { WorkItemPanel } from '../views/workItemPanel';
 import { BoardPanel } from '../views/boardPanel';
 import { WorkItemTypeEnum } from '../models/workItem';
+import { ConnectionSetupWizard } from '../authentication/connectionSetupWizard';
+import { OrganizationManager } from '../authentication/organizationManager';
+import { ConnectionStatusProvider } from '../authentication/connectionStatusProvider';
 
 import { WorkItemLinksManager } from '../utils/workItemLinksManager';
 
@@ -24,6 +27,7 @@ interface ExtensionComponents {
     statusBarManager: StatusBarManager;
     extensionUri: vscode.Uri;
     workItemLinksManager: WorkItemLinksManager;
+    connectionStatusProvider: ConnectionStatusProvider;
 }
 
 interface WorkItemQuickPickItem extends vscode.QuickPickItem {
@@ -42,11 +46,9 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
             if (connected) {
                 // Set context for all views
                 vscode.commands.executeCommand('setContext', 'azureDevOps.connected', true);
-                
-                // Prompt for project selection
-                await vscode.commands.executeCommand('azureDevOps.selectProject');
 
                 components.statusBarManager.updateStatus('connected');
+                components.connectionStatusProvider.refresh();
                 
                 // Refresh ALL views
                 components.workItemProvider.refresh();
@@ -60,12 +62,44 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
         })
     );
 
+    // Setup Wizard command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.setupWizard', async () => {
+            try {
+                const wizard = new ConnectionSetupWizard(
+                    context,
+                    components.authenticationManager,
+                    new OrganizationManager(context)
+                );
+
+                const success = await wizard.runSetup();
+                if (success) {
+                    // Auto-connect after setup
+                    const connected = await components.authenticationManager.autoConnect();
+                    if (connected) {
+                        vscode.commands.executeCommand('setContext', 'azureDevOps.connected', true);
+                        components.statusBarManager.updateStatus('connected');
+                        components.connectionStatusProvider.refresh();
+                        components.workItemProvider.refresh();
+                        components.backlogProvider.refresh();
+                        components.boardProvider.refresh();
+                        components.sprintProvider.refresh();
+                        components.queryProvider.refresh();
+                    }
+                }
+            } catch (error: any) {
+                vscode.window.showErrorMessage(`Setup wizard error: ${error.message}`);
+            }
+        })
+    );
+
     // Disconnect command
     context.subscriptions.push(
         vscode.commands.registerCommand('azureDevOps.disconnect', async () => {
             await components.authenticationManager.disconnect();
             vscode.commands.executeCommand('setContext', 'azureDevOps.connected', false);
             components.statusBarManager.updateStatus('disconnected');
+            components.connectionStatusProvider.refresh();
             
             // Refresh ALL views to show disconnected state
             components.workItemProvider.refresh();
@@ -937,6 +971,288 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
                 components.workItemProvider.refresh();
             } catch (error) {
                 vscode.window.showErrorMessage(`Failed to assign work item: ${error}`);
+            }
+        })
+    );
+
+    // ========== BULK OPERATIONS ==========
+
+    // Bulk change state command (works with multi-select)
+    context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.bulkChangeState', async (...args: any[]) => {
+            if (!components.authenticationManager.isConnected()) {
+                vscode.window.showErrorMessage('Please connect to Azure DevOps first');
+                return;
+            }
+
+            // Get selected work items - can come from context menu (single item) or multi-select
+            const workItemIds: number[] = [];
+
+            // Handle different argument formats
+            if (args.length > 0) {
+                // First arg might be the clicked item, rest might be selected items
+                const items = args.flat();
+                for (const item of items) {
+                    if (item?.workItemId) {
+                        workItemIds.push(item.workItemId);
+                    } else if (typeof item === 'number') {
+                        workItemIds.push(item);
+                    }
+                }
+            }
+
+            if (workItemIds.length === 0) {
+                vscode.window.showWarningMessage('No work items selected');
+                return;
+            }
+
+            // Remove duplicates
+            const uniqueIds = [...new Set(workItemIds)];
+
+            // Show state picker with common states
+            const states = ['New', 'To Do', 'Active', 'In Progress', 'Resolved', 'Done', 'Closed'];
+            const newState = await vscode.window.showQuickPick(states, {
+                placeHolder: `Select new state for ${uniqueIds.length} work item(s)`
+            });
+
+            if (!newState) return;
+
+            const axiosInstance = components.authenticationManager.getAxiosInstance();
+            if (!axiosInstance) return;
+
+            let successCount = 0;
+            let errorCount = 0;
+
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: `Changing state of ${uniqueIds.length} work items...`,
+                cancellable: true
+            }, async (progress, token) => {
+                for (let i = 0; i < uniqueIds.length; i++) {
+                    if (token.isCancellationRequested) break;
+
+                    progress.report({ increment: 100 / uniqueIds.length, message: `${i + 1}/${uniqueIds.length}` });
+
+                    try {
+                        await axiosInstance.patch(
+                            `/_apis/wit/workitems/${uniqueIds[i]}`,
+                            [{ op: 'replace', path: '/fields/System.State', value: newState }],
+                            { headers: { 'Content-Type': 'application/json-patch+json' } }
+                        );
+                        successCount++;
+                    } catch (error) {
+                        errorCount++;
+                        console.error(`Failed to update work item ${uniqueIds[i]}:`, error);
+                    }
+                }
+            });
+
+            if (successCount > 0) {
+                vscode.window.showInformationMessage(`Changed state to "${newState}" for ${successCount} work item(s)${errorCount > 0 ? ` (${errorCount} failed)` : ''}`);
+                components.workItemProvider.refresh();
+            } else {
+                vscode.window.showErrorMessage('Failed to change state for any work items');
+            }
+        })
+    );
+
+    // Bulk assign command (works with multi-select)
+    context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.bulkAssign', async (...args: any[]) => {
+            if (!components.authenticationManager.isConnected()) {
+                vscode.window.showErrorMessage('Please connect to Azure DevOps first');
+                return;
+            }
+
+            // Get selected work items
+            const workItemIds: number[] = [];
+            const items = args.flat();
+            for (const item of items) {
+                if (item?.workItemId) {
+                    workItemIds.push(item.workItemId);
+                } else if (typeof item === 'number') {
+                    workItemIds.push(item);
+                }
+            }
+
+            if (workItemIds.length === 0) {
+                vscode.window.showWarningMessage('No work items selected');
+                return;
+            }
+
+            const uniqueIds = [...new Set(workItemIds)];
+
+            const config = components.authenticationManager.getConfig();
+            if (!config?.defaultProject || !config.defaultTeam) {
+                vscode.window.showErrorMessage('Please select a project and team first');
+                return;
+            }
+
+            const axiosInstance = components.authenticationManager.getAxiosInstance();
+            if (!axiosInstance) return;
+
+            // Get team members
+            const membersResponse = await axiosInstance.get(
+                `/_apis/projects/${config.defaultProject}/teams/${config.defaultTeam}/members`
+            );
+            const members = membersResponse.data.value || [];
+
+            const memberItems: TeamMemberQuickPickItem[] = [
+                { label: 'Unassigned', description: 'Remove assignment', uniqueName: '' },
+                { label: 'Assign to me', description: 'Assign to current user', uniqueName: '__ME__' },
+                ...members.map((m: any) => ({
+                    label: m.identity.displayName,
+                    description: m.identity.uniqueName,
+                    uniqueName: m.identity.uniqueName
+                }))
+            ];
+
+            const selected = await vscode.window.showQuickPick(memberItems, {
+                placeHolder: `Assign ${uniqueIds.length} work item(s) to...`
+            });
+
+            if (selected === undefined) return;
+
+            let assignTo = selected.uniqueName;
+            if (assignTo === '__ME__') {
+                const currentUser = await components.authenticationManager.getCurrentUser();
+                assignTo = currentUser?.uniqueName || '';
+            }
+
+            let successCount = 0;
+            let errorCount = 0;
+
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: `Assigning ${uniqueIds.length} work items...`,
+                cancellable: true
+            }, async (progress, token) => {
+                for (let i = 0; i < uniqueIds.length; i++) {
+                    if (token.isCancellationRequested) break;
+
+                    progress.report({ increment: 100 / uniqueIds.length, message: `${i + 1}/${uniqueIds.length}` });
+
+                    try {
+                        const patchOp = assignTo
+                            ? { op: 'replace', path: '/fields/System.AssignedTo', value: assignTo }
+                            : { op: 'remove', path: '/fields/System.AssignedTo' };
+
+                        await axiosInstance.patch(
+                            `/_apis/wit/workitems/${uniqueIds[i]}`,
+                            [patchOp],
+                            { headers: { 'Content-Type': 'application/json-patch+json' } }
+                        );
+                        successCount++;
+                    } catch (error) {
+                        errorCount++;
+                        console.error(`Failed to assign work item ${uniqueIds[i]}:`, error);
+                    }
+                }
+            });
+
+            if (successCount > 0) {
+                const message = assignTo
+                    ? `Assigned ${successCount} work item(s) to ${selected.label}`
+                    : `Unassigned ${successCount} work item(s)`;
+                vscode.window.showInformationMessage(`${message}${errorCount > 0 ? ` (${errorCount} failed)` : ''}`);
+                components.workItemProvider.refresh();
+            } else {
+                vscode.window.showErrorMessage('Failed to assign any work items');
+            }
+        })
+    );
+
+    // Bulk move to sprint command (works with multi-select)
+    context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.bulkMoveToSprint', async (...args: any[]) => {
+            if (!components.authenticationManager.isConnected()) {
+                vscode.window.showErrorMessage('Please connect to Azure DevOps first');
+                return;
+            }
+
+            // Get selected work items
+            const workItemIds: number[] = [];
+            const items = args.flat();
+            for (const item of items) {
+                if (item?.workItemId) {
+                    workItemIds.push(item.workItemId);
+                } else if (typeof item === 'number') {
+                    workItemIds.push(item);
+                }
+            }
+
+            if (workItemIds.length === 0) {
+                vscode.window.showWarningMessage('No work items selected');
+                return;
+            }
+
+            const uniqueIds = [...new Set(workItemIds)];
+
+            const config = components.authenticationManager.getConfig();
+            if (!config?.defaultProject || !config.defaultTeam) {
+                vscode.window.showErrorMessage('Please select a project and team first');
+                return;
+            }
+
+            const axiosInstance = components.authenticationManager.getAxiosInstance();
+            if (!axiosInstance) return;
+
+            // Get team iterations
+            const iterResponse = await axiosInstance.get(
+                `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/teamsettings/iterations`,
+                { params: { 'api-version': '7.0' } }
+            );
+
+            const iterations = iterResponse.data.value || [];
+
+            interface SprintQuickPickItem extends vscode.QuickPickItem {
+                path: string;
+            }
+
+            const sprintItems: SprintQuickPickItem[] = iterations.map((iter: any) => ({
+                label: iter.name,
+                description: iter.path,
+                path: iter.path
+            }));
+
+            const selected = await vscode.window.showQuickPick(sprintItems, {
+                placeHolder: `Move ${uniqueIds.length} work item(s) to sprint...`
+            });
+
+            if (!selected) return;
+
+            let successCount = 0;
+            let errorCount = 0;
+
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: `Moving ${uniqueIds.length} work items to ${selected.label}...`,
+                cancellable: true
+            }, async (progress, token) => {
+                for (let i = 0; i < uniqueIds.length; i++) {
+                    if (token.isCancellationRequested) break;
+
+                    progress.report({ increment: 100 / uniqueIds.length, message: `${i + 1}/${uniqueIds.length}` });
+
+                    try {
+                        await axiosInstance.patch(
+                            `/_apis/wit/workitems/${uniqueIds[i]}`,
+                            [{ op: 'replace', path: '/fields/System.IterationPath', value: selected.path }],
+                            { headers: { 'Content-Type': 'application/json-patch+json' } }
+                        );
+                        successCount++;
+                    } catch (error) {
+                        errorCount++;
+                        console.error(`Failed to move work item ${uniqueIds[i]}:`, error);
+                    }
+                }
+            });
+
+            if (successCount > 0) {
+                vscode.window.showInformationMessage(`Moved ${successCount} work item(s) to ${selected.label}${errorCount > 0 ? ` (${errorCount} failed)` : ''}`);
+                components.workItemProvider.refresh();
+            } else {
+                vscode.window.showErrorMessage('Failed to move any work items');
             }
         })
     );
