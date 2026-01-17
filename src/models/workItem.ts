@@ -4,6 +4,7 @@ export interface WorkItem {
     url: string;
     fields: WorkItemFields;
     _links: any;
+    relations?: any[];
 }
 
 export interface WorkItemFields {

@@ -8,6 +8,7 @@ import { QueryProvider } from './views/queryProvider';
 import { registerCommands } from './commands/commandManager';
 import { GitIntegration } from './gitIntegration/gitIntegration';
 import { StatusBarManager } from './utils/statusBarManager';
+import { WorkItemLinksManager } from './utils/workItemLinksManager';
 
 export let authenticationManager: AuthenticationManager;
 export let workItemProvider: WorkItemProvider;
@@ -17,6 +18,7 @@ export let sprintProvider: SprintProvider;
 export let queryProvider: QueryProvider;
 export let gitIntegration: GitIntegration;
 export let statusBarManager: StatusBarManager;
+export let workItemLinksManager: WorkItemLinksManager;
 
 export async function activate(context: vscode.ExtensionContext) {
     console.log('Azure DevOps Boards extension is now active!');
@@ -25,6 +27,7 @@ export async function activate(context: vscode.ExtensionContext) {
     authenticationManager = new AuthenticationManager(context);
     statusBarManager = new StatusBarManager();
     gitIntegration = new GitIntegration();
+    workItemLinksManager = new WorkItemLinksManager(authenticationManager);
 
     // Initialize providers
     workItemProvider = new WorkItemProvider(context, authenticationManager);
@@ -71,7 +74,8 @@ export async function activate(context: vscode.ExtensionContext) {
         queryProvider,
         gitIntegration,
         statusBarManager,
-        extensionUri: context.extensionUri
+        extensionUri: context.extensionUri,
+        workItemLinksManager
     });
 
     // Register configuration change listener

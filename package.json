@@ -196,6 +196,18 @@
         "title": "Assign to Me",
         "category": "Azure DevOps",
         "icon": "$(account)"
+      },
+      {
+        "command": "azureDevOps.linkToExisting",
+        "title": "Link to Existing Work Item",
+        "category": "Azure DevOps",
+        "icon": "$(link)"
+      },
+      {
+        "command": "azureDevOps.createAndLink",
+        "title": "Create and Link New Work Item",
+        "category": "Azure DevOps",
+        "icon": "$(add)"
       }
     ],
     "viewsContainers": {
@@ -366,6 +378,16 @@
           "command": "azureDevOps.copyWorkItemUrl",
           "when": "view == azureDevOpsWorkItems && viewItem == workItem",
           "group": "3_copy@2"
+        },
+        {
+          "command": "azureDevOps.linkToExisting",
+          "when": "view == azureDevOpsWorkItems && viewItem == workItem",
+          "group": "4_link@1"
+        },
+        {
+          "command": "azureDevOps.createAndLink",
+          "when": "view == azureDevOpsWorkItems && viewItem == workItem",
+          "group": "4_link@2"
         },
         {
           "command": "azureDevOps.openWorkItem",

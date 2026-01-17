@@ -10,6 +10,8 @@ import { StatusBarManager } from '../utils/statusBarManager';
 import { WorkItemPanel } from '../views/workItemPanel';
 import { WorkItemTypeEnum } from '../models/workItem';
 
+import { WorkItemLinksManager } from '../utils/workItemLinksManager';
+
 interface ExtensionComponents {
     authenticationManager: AuthenticationManager;
     workItemProvider: WorkItemProvider;
@@ -20,6 +22,7 @@ interface ExtensionComponents {
     gitIntegration: GitIntegration;
     statusBarManager: StatusBarManager;
     extensionUri: vscode.Uri;
+    workItemLinksManager: WorkItemLinksManager;
 }
 
 interface WorkItemQuickPickItem extends vscode.QuickPickItem {
@@ -1413,6 +1416,145 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
                     }
                 }
             );
+        })
+    );
+
+    // Link to existing work item
+    context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.linkToExisting', async (item?: any) => {
+            if (!components.authenticationManager.isConnected()) {
+                vscode.window.showErrorMessage('Please connect to Azure DevOps first');
+                return;
+            }
+
+            let workItemId: number | undefined;
+            if (item?.workItemId) {
+                workItemId = item.workItemId;
+            }
+
+            if (!workItemId) {
+                const input = await vscode.window.showInputBox({
+                    prompt: 'Enter work item ID',
+                    placeHolder: '12345'
+                });
+                if (!input) return;
+                workItemId = parseInt(input, 10);
+            }
+
+            const linkType = await vscode.window.showQuickPick([
+                { label: 'Parent', description: 'Link as parent of this work item' },
+                { label: 'Child', description: 'Link as child of this work item' },
+                { label: 'Related', description: 'Link as related work item' },
+                { label: 'Predecessor', description: 'This work item depends on the linked item' },
+                { label: 'Successor', description: 'The linked item depends on this work item' }
+            ], { placeHolder: 'Select link type' });
+
+            if (!linkType) return;
+
+            const searchTerm = await vscode.window.showInputBox({
+                prompt: 'Search work items by ID or title',
+                placeHolder: 'Enter ID or search term'
+            });
+
+            if (!searchTerm) return;
+
+            const results = await components.workItemLinksManager.searchWorkItems(searchTerm);
+            if (results.length === 0) {
+                vscode.window.showInformationMessage('No work items found');
+                return;
+            }
+
+            const selected = await vscode.window.showQuickPick(
+                results.map(wi => ({
+                    label: `#${wi.id}: ${wi.fields['System.Title']}`,
+                    description: `${wi.fields['System.WorkItemType']} • ${wi.fields['System.State']}`,
+                    detail: wi.fields['System.AssignedTo']?.displayName || 'Unassigned',
+                    id: wi.id
+                })),
+                { placeHolder: 'Select work item to link' }
+            );
+
+            if (!selected) return;
+
+            const success = await components.workItemLinksManager.addLink(workItemId, (selected as any).id, linkType.label);
+            if (success) {
+                vscode.window.showInformationMessage(`Linked as ${linkType.label}`);
+                components.workItemProvider.refresh();
+            } else {
+                vscode.window.showErrorMessage('Failed to create link');
+            }
+        })
+    );
+
+    // Create and link new work item
+    context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.createAndLink', async (item?: any) => {
+            if (!components.authenticationManager.isConnected()) {
+                vscode.window.showErrorMessage('Please connect to Azure DevOps first');
+                return;
+            }
+
+            let sourceWorkItemId: number | undefined;
+            if (item?.workItemId) {
+                sourceWorkItemId = item.workItemId;
+            }
+
+            if (!sourceWorkItemId) {
+                const input = await vscode.window.showInputBox({
+                    prompt: 'Enter source work item ID',
+                    placeHolder: '12345'
+                });
+                if (!input) return;
+                sourceWorkItemId = parseInt(input, 10);
+            }
+
+            const workItemType = await vscode.window.showQuickPick([
+                { label: 'Task', description: 'Create a task' },
+                { label: 'Bug', description: 'Create a bug' },
+                { label: 'User Story', description: 'Create a user story' },
+                { label: 'Feature', description: 'Create a feature' }
+            ], { placeHolder: 'Select work item type to create' });
+
+            if (!workItemType) return;
+
+            const title = await vscode.window.showInputBox({
+                prompt: 'Enter work item title',
+                placeHolder: 'Work item title',
+                validateInput: (value) => value?.trim() ? null : 'Title is required'
+            });
+
+            if (!title) return;
+
+            const linkType = await vscode.window.showQuickPick([
+                { label: 'Child', description: 'Create as child of current work item' },
+                { label: 'Related', description: 'Create as related work item' },
+                { label: 'Successor', description: 'Create as successor (depends on current)' }
+            ], { placeHolder: 'Select link type' });
+
+            if (!linkType) return;
+
+            const newWorkItem = await components.workItemProvider.createWorkItem(workItemType.label, title);
+            if (!newWorkItem) {
+                vscode.window.showErrorMessage('Failed to create work item');
+                return;
+            }
+
+            const success = await components.workItemLinksManager.addLink(sourceWorkItemId, newWorkItem.id, linkType.label);
+            if (success) {
+                const action = await vscode.window.showInformationMessage(
+                    `Created and linked ${workItemType.label} #${newWorkItem.id}`,
+                    'Open',
+                    'Stay Here'
+                );
+
+                if (action === 'Open') {
+                    vscode.commands.executeCommand('azureDevOps.viewWorkItemDetails', newWorkItem.id);
+                }
+
+                components.workItemProvider.refresh();
+            } else {
+                vscode.window.showErrorMessage('Work item created but failed to link');
+            }
         })
     );
 }

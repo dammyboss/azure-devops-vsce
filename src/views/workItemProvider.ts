@@ -154,10 +154,15 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
                 const state = item.fields['System.State'];
                 const assignedTo = item.fields['System.AssignedTo']?.displayName || 'Unassigned';
 
+                // Check if item has children
+                const hasChildren = item.relations?.some((rel: any) => 
+                    rel.rel === 'System.LinkTypes.Hierarchy-Forward'
+                ) || false;
+
                 const treeItem = new WorkItemTreeItem(
                     `#${item.id}: ${title}`,
-                    vscode.TreeItemCollapsibleState.None,
-                    {
+                    hasChildren ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
+                    hasChildren ? undefined : {
                         command: 'azureDevOps.viewWorkItemDetails',
                         title: 'View Work Item Details',
                         arguments: [item.id]
@@ -173,6 +178,9 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
 
                 return treeItem;
             });
+        } else if (element.contextValue === 'workItem' && element.workItemId) {
+            // Show child work items
+            return await this.getChildWorkItems(element.workItemId);
         }
 
         return [];
@@ -255,10 +263,15 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
         const type = item.fields['System.WorkItemType'];
         const assignedTo = item.fields['System.AssignedTo']?.displayName || 'Unassigned';
 
+        // Check if item has children
+        const hasChildren = item.relations?.some((rel: any) => 
+            rel.rel === 'System.LinkTypes.Hierarchy-Forward'
+        ) || false;
+
         const treeItem = new WorkItemTreeItem(
             `#${item.id}: ${title}`,
-            vscode.TreeItemCollapsibleState.None,
-            {
+            hasChildren ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
+            hasChildren ? undefined : {
                 command: 'azureDevOps.viewWorkItemDetails',
                 title: 'View Work Item Details',
                 arguments: [item.id]
@@ -275,7 +288,67 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
         return treeItem;
     }
 
-    private getIconForGroup(groupName: string, groupType: GroupByOption): vscode.ThemeIcon {
+    private async getChildWorkItems(parentId: number): Promise<WorkItemTreeItem[]> {
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            if (!axiosInstance) return [];
+
+            const response = await axiosInstance.get(`/_apis/wit/workitems/${parentId}`, {
+                params: { '$expand': 'relations', 'api-version': '7.0' }
+            });
+
+            const relations = response.data.relations || [];
+            const childIds: number[] = [];
+
+            for (const relation of relations) {
+                if (relation.rel === 'System.LinkTypes.Hierarchy-Forward' && relation.url) {
+                    const match = relation.url.match(/workItems\/(\d+)/);
+                    if (match) {
+                        childIds.push(parseInt(match[1]));
+                    }
+                }
+            }
+
+            if (childIds.length === 0) return [];
+
+            const childResponse = await axiosInstance.get('/_apis/wit/workitems', {
+                params: { 'ids': childIds.join(','), '$expand': 'relations', 'api-version': '7.0' }
+            });
+
+            const children = childResponse.data.value || [];
+            return children.map((child: any) => {
+                const title = child.fields['System.Title'];
+                const state = child.fields['System.State'];
+                const type = child.fields['System.WorkItemType'];
+
+                const hasChildren = child.relations?.some((rel: any) => 
+                    rel.rel === 'System.LinkTypes.Hierarchy-Forward'
+                ) || false;
+
+                const treeItem = new WorkItemTreeItem(
+                    `#${child.id}: ${title}`,
+                    hasChildren ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
+                    hasChildren ? undefined : {
+                        command: 'azureDevOps.viewWorkItemDetails',
+                        title: 'View Work Item',
+                        arguments: [child.id]
+                    }
+                );
+
+                treeItem.description = `${type} • ${state}`;
+                treeItem.contextValue = 'workItem';
+                treeItem.workItemId = child.id;
+                treeItem.iconPath = this.getIconForWorkItemState(state);
+
+                return treeItem;
+            });
+        } catch (error) {
+            console.error('Failed to load child work items:', error);
+            return [];
+        }
+    }
+
+    private getIconForGroup(groupName: string, groupType: GroupByOption): vscode.ThemeIcon | { light: vscode.Uri; dark: vscode.Uri } {
         if (groupType === 'state') {
             return this.getIconForWorkItemState(groupName);
         } else if (groupType === 'type') {
@@ -288,20 +361,23 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
         return new vscode.ThemeIcon('folder');
     }
 
-    private getIconForWorkItemType(type: string): vscode.ThemeIcon {
+    private getIconForWorkItemType(type: string): vscode.ThemeIcon | { light: vscode.Uri; dark: vscode.Uri } {
         switch (type) {
             case WorkItemTypeEnum.UserStory:
                 return new vscode.ThemeIcon('book', new vscode.ThemeColor('charts.blue'));
             case WorkItemTypeEnum.Task:
-                return new vscode.ThemeIcon('checklist', new vscode.ThemeColor('charts.yellow'));
+                const taskIconPath = vscode.Uri.joinPath(this.context.extensionUri, 'media', 'task-clipboard-yellow.svg');
+                return { light: taskIconPath, dark: taskIconPath };
             case WorkItemTypeEnum.Bug:
                 return new vscode.ThemeIcon('bug', new vscode.ThemeColor('charts.red'));
             case WorkItemTypeEnum.Epic:
-                return new vscode.ThemeIcon('rocket', new vscode.ThemeColor('charts.purple'));
+                const epicIconPath = vscode.Uri.joinPath(this.context.extensionUri, 'media', 'epic-crown-orange.svg');
+                return { light: epicIconPath, dark: epicIconPath };
             case WorkItemTypeEnum.Feature:
                 return new vscode.ThemeIcon('star', new vscode.ThemeColor('charts.orange'));
             case WorkItemTypeEnum.Issue:
-                return new vscode.ThemeIcon('issues', new vscode.ThemeColor('charts.green'));
+                const issueIconPath = vscode.Uri.joinPath(this.context.extensionUri, 'media', 'issue-clipboard-green.svg');
+                return { light: issueIconPath, dark: issueIconPath };
             default:
                 return new vscode.ThemeIcon('circle');
         }
