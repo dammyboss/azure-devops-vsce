@@ -208,6 +208,12 @@
         "title": "Create and Link New Work Item",
         "category": "Azure DevOps",
         "icon": "$(add)"
+      },
+      {
+        "command": "azureDevOps.openBoardPanel",
+        "title": "Open Board (Kanban View)",
+        "category": "Azure DevOps",
+        "icon": "$(project)"
       }
     ],
     "viewsContainers": {
@@ -308,9 +314,14 @@
           "group": "navigation@5"
         },
         {
+          "command": "azureDevOps.openBoardPanel",
+          "when": "view == azureDevOpsBoards",
+          "group": "navigation@1"
+        },
+        {
           "command": "azureDevOps.refreshBoards",
           "when": "view == azureDevOpsBoards",
-          "group": "navigation"
+          "group": "navigation@2"
         },
         {
           "command": "azureDevOps.refreshSprints",
@@ -400,9 +411,14 @@
           "group": "navigation@2"
         },
         {
+          "command": "azureDevOps.openBoardPanel",
+          "when": "view == azureDevOpsBoards && viewItem == board",
+          "group": "navigation@1"
+        },
+        {
           "command": "azureDevOps.openBoard",
           "when": "view == azureDevOpsBoards && viewItem == board",
-          "group": "navigation"
+          "group": "navigation@2"
         },
         {
           "command": "azureDevOps.openSprint",

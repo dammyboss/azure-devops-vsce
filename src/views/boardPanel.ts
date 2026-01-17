@@ -1,0 +1,2357 @@
+import * as vscode from 'vscode';
+import { AuthenticationManager } from '../authentication/authenticationManager';
+
+interface BoardColumn {
+    id: string;
+    name: string;
+    itemLimit: number;
+    stateMappings: Record<string, string>;
+    isSplit: boolean;
+    description: string;
+    columnType: 'incoming' | 'inProgress' | 'outgoing';
+}
+
+interface BoardWorkItem {
+    id: number;
+    title: string;
+    state: string;
+    type: string;
+    assignedTo?: {
+        displayName: string;
+        uniqueName: string;
+        imageUrl?: string;
+    };
+    priority?: number;
+    tags?: string;
+    boardColumn?: string;
+}
+
+interface Board {
+    id: string;
+    name: string;
+    columns: BoardColumn[];
+    workItems: Map<string, BoardWorkItem[]>;
+}
+
+interface AvailableBoard {
+    id: string;
+    name: string;
+}
+
+export class BoardPanel {
+    public static currentPanel: BoardPanel | undefined;
+
+    private readonly _panel: vscode.WebviewPanel;
+    private readonly _extensionUri: vscode.Uri;
+    private _disposables: vscode.Disposable[] = [];
+    private authenticationManager: AuthenticationManager;
+    private currentBoard: Board | null = null;
+    private availableBoards: AvailableBoard[] = [];
+    private boardId: string;
+    private boardName: string;
+
+    public static createOrShow(
+        extensionUri: vscode.Uri,
+        authenticationManager: AuthenticationManager,
+        boardId: string,
+        boardName: string
+    ) {
+        const column = vscode.window.activeTextEditor
+            ? vscode.window.activeTextEditor.viewColumn
+            : undefined;
+
+        // If we already have a panel for this board, show it
+        if (BoardPanel.currentPanel && BoardPanel.currentPanel.boardId === boardId) {
+            BoardPanel.currentPanel._panel.reveal(column);
+            return;
+        }
+
+        // Otherwise, create a new panel
+        const panel = vscode.window.createWebviewPanel(
+            'azureDevOpsBoard',
+            `Board: ${boardName}`,
+            column || vscode.ViewColumn.One,
+            {
+                enableScripts: true,
+                retainContextWhenHidden: true,
+                localResourceRoots: [extensionUri]
+            }
+        );
+
+        BoardPanel.currentPanel = new BoardPanel(panel, extensionUri, authenticationManager, boardId, boardName);
+    }
+
+    private constructor(
+        panel: vscode.WebviewPanel,
+        extensionUri: vscode.Uri,
+        authenticationManager: AuthenticationManager,
+        boardId: string,
+        boardName: string
+    ) {
+        this._panel = panel;
+        this._extensionUri = extensionUri;
+        this.authenticationManager = authenticationManager;
+        this.boardId = boardId;
+        this.boardName = boardName;
+
+        // Set initial loading state
+        this._panel.webview.html = this._getLoadingHtml();
+
+        // Load board data and update
+        this._loadAndRender();
+
+        // Handle panel disposal
+        this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
+
+        // Handle messages from the webview
+        this._panel.webview.onDidReceiveMessage(
+            async message => {
+                switch (message.command) {
+                    case 'moveWorkItem':
+                        await this._moveWorkItem(message.workItemId, message.targetColumn, message.targetState);
+                        break;
+                    case 'openWorkItem':
+                        vscode.commands.executeCommand('azureDevOps.viewWorkItemDetails', message.workItemId);
+                        break;
+                    case 'refresh':
+                        await this._loadAndRender();
+                        break;
+                    case 'openInBrowser':
+                        this._openBoardInBrowser();
+                        break;
+                    case 'createWorkItem':
+                        await this._createWorkItem(message.columnName, message.title);
+                        break;
+                    case 'assignToMe':
+                        await this._assignToMe(message.workItemId);
+                        break;
+                    case 'changeState':
+                        await this._changeState(message.workItemId, message.state);
+                        break;
+                    case 'addComment':
+                        await this._addComment(message.workItemId);
+                        break;
+                    case 'copyId':
+                        await vscode.env.clipboard.writeText(message.workItemId.toString());
+                        vscode.window.showInformationMessage(`Copied #${message.workItemId} to clipboard`);
+                        break;
+                    case 'copyUrl':
+                        await this._copyWorkItemUrl(message.workItemId);
+                        break;
+                    case 'openWorkItemInBrowser':
+                        this._openWorkItemInBrowser(message.workItemId);
+                        break;
+                    case 'createBranch':
+                        vscode.commands.executeCommand('azureDevOps.createBranchFromWorkItem', message.workItemId);
+                        break;
+                    case 'switchBoard':
+                        await this._switchBoard(message.boardId, message.boardName);
+                        break;
+                    case 'showError':
+                        vscode.window.showErrorMessage(message.text);
+                        break;
+                    case 'showInfo':
+                        vscode.window.showInformationMessage(message.text);
+                        break;
+                    case 'getCurrentUser':
+                        const currentUser = await this.authenticationManager.getCurrentUser();
+                        this._panel.webview.postMessage({
+                            command: 'setCurrentUser',
+                            email: currentUser?.uniqueName || currentUser?.emailAddress || ''
+                        });
+                        break;
+                }
+            },
+            null,
+            this._disposables
+        );
+    }
+
+    private async _loadAndRender() {
+        try {
+            // Load available boards for the dropdown
+            this.availableBoards = await this._getAvailableBoards();
+            await this._loadBoardData();
+            this._panel.webview.html = this._getHtmlForWebview();
+        } catch (error) {
+            console.error('Failed to load board:', error);
+            this._panel.webview.html = this._getErrorHtml('Failed to load board data');
+        }
+    }
+
+    private async _loadBoardData(): Promise<void> {
+        const axiosInstance = this.authenticationManager.getAxiosInstance();
+        const config = this.authenticationManager.getConfig();
+
+        if (!axiosInstance || !config?.defaultProject || !config?.defaultTeam) {
+            throw new Error('Not connected to Azure DevOps');
+        }
+
+        // Load board columns
+        const columnsResponse = await axiosInstance.get(
+            `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/boards/${this.boardId}/columns`
+        );
+
+        const columns: BoardColumn[] = (columnsResponse.data.value || []).map((col: any) => ({
+            id: col.id || col.name,
+            name: col.name,
+            itemLimit: col.itemLimit || 0,
+            stateMappings: col.stateMappings || {},
+            isSplit: col.isSplit || false,
+            description: col.description || '',
+            columnType: col.columnType || 'inProgress'
+        }));
+
+        // Load work items for the board using WIQL
+        const workItemsMap = new Map<string, BoardWorkItem[]>();
+
+        // Initialize empty arrays for each column
+        for (const column of columns) {
+            workItemsMap.set(column.name, []);
+        }
+
+        // Query work items for all columns
+        for (const column of columns) {
+            try {
+                const wiql = `SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo], [Microsoft.VSTS.Common.Priority], [System.Tags]
+                              FROM WorkItems
+                              WHERE [System.TeamProject] = @project
+                              AND [System.BoardColumn] = '${column.name.replace(/'/g, "''")}'
+                              ORDER BY [Microsoft.VSTS.Common.BacklogPriority]`;
+
+                const wiqlResponse = await axiosInstance.post(
+                    `/${encodeURIComponent(config.defaultProject)}/_apis/wit/wiql`,
+                    { query: wiql }
+                );
+
+                const workItemRefs = wiqlResponse.data.workItems || [];
+
+                if (workItemRefs.length > 0) {
+                    const workItemIds = workItemRefs.slice(0, 100).map((item: any) => item.id).join(',');
+                    const detailsResponse = await axiosInstance.get('/_apis/wit/workitems', {
+                        params: {
+                            'ids': workItemIds,
+                            'fields': 'System.Id,System.Title,System.State,System.WorkItemType,System.AssignedTo,Microsoft.VSTS.Common.Priority,System.Tags,System.BoardColumn'
+                        }
+                    });
+
+                    const workItems: BoardWorkItem[] = (detailsResponse.data.value || []).map((item: any) => ({
+                        id: item.id,
+                        title: item.fields['System.Title'],
+                        state: item.fields['System.State'],
+                        type: item.fields['System.WorkItemType'],
+                        assignedTo: item.fields['System.AssignedTo'],
+                        priority: item.fields['Microsoft.VSTS.Common.Priority'],
+                        tags: item.fields['System.Tags'],
+                        boardColumn: item.fields['System.BoardColumn'] || column.name
+                    }));
+
+                    workItemsMap.set(column.name, workItems);
+                }
+            } catch (error) {
+                console.error(`Failed to load work items for column ${column.name}:`, error);
+            }
+        }
+
+        this.currentBoard = {
+            id: this.boardId,
+            name: this.boardName,
+            columns,
+            workItems: workItemsMap
+        };
+    }
+
+    private async _moveWorkItem(workItemId: number, targetColumn: string, targetState: string): Promise<void> {
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            if (!axiosInstance) {
+                throw new Error('Not connected');
+            }
+
+            // Update work item state
+            await axiosInstance.patch(
+                `/_apis/wit/workitems/${workItemId}`,
+                [
+                    { op: 'replace', path: '/fields/System.State', value: targetState }
+                ],
+                { headers: { 'Content-Type': 'application/json-patch+json' } }
+            );
+
+            // Send success message to webview
+            this._panel.webview.postMessage({
+                command: 'moveSuccess',
+                workItemId,
+                targetColumn,
+                message: `Moved #${workItemId} to ${targetColumn}`
+            });
+
+            vscode.window.showInformationMessage(`Moved #${workItemId} to ${targetColumn}`);
+
+        } catch (error: any) {
+            // Send failure message to webview for rollback
+            this._panel.webview.postMessage({
+                command: 'moveFailed',
+                workItemId,
+                message: error?.message || 'Failed to move work item'
+            });
+
+            vscode.window.showErrorMessage(`Failed to move work item: ${error?.message || error}`);
+        }
+    }
+
+    private async _createWorkItem(columnName: string, title: string): Promise<void> {
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+
+            if (!axiosInstance || !config?.defaultProject) {
+                throw new Error('Not connected');
+            }
+
+            // Find the state for this column
+            const column = this.currentBoard?.columns.find(c => c.name === columnName);
+            const stateMappings = column?.stateMappings || {};
+            const state = Object.values(stateMappings)[0] || 'New';
+
+            // Default to User Story type - could be made configurable
+            const workItemType = vscode.workspace.getConfiguration('azureDevOps').get<string>('defaultWorkItemType', 'User Story');
+
+            const response = await axiosInstance.post(
+                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workitems/$${encodeURIComponent(workItemType)}`,
+                [
+                    { op: 'add', path: '/fields/System.Title', value: title },
+                    { op: 'add', path: '/fields/System.State', value: state }
+                ],
+                { headers: { 'Content-Type': 'application/json-patch+json' } }
+            );
+
+            vscode.window.showInformationMessage(`Created work item #${response.data.id}`);
+
+            // Refresh the board
+            await this._loadAndRender();
+
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Failed to create work item: ${error?.message || error}`);
+        }
+    }
+
+    private async _assignToMe(workItemId: number): Promise<void> {
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            if (!axiosInstance) {
+                throw new Error('Not connected');
+            }
+
+            const currentUser = await this.authenticationManager.getCurrentUser();
+            if (!currentUser?.uniqueName) {
+                throw new Error('Could not get current user');
+            }
+
+            await axiosInstance.patch(
+                `/_apis/wit/workitems/${workItemId}`,
+                [{ op: 'replace', path: '/fields/System.AssignedTo', value: currentUser.uniqueName }],
+                { headers: { 'Content-Type': 'application/json-patch+json' } }
+            );
+
+            vscode.window.showInformationMessage(`Assigned #${workItemId} to you`);
+            await this._loadAndRender();
+
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Failed to assign: ${error?.message || error}`);
+        }
+    }
+
+    private _openBoardInBrowser(): void {
+        const config = this.authenticationManager.getConfig();
+        if (config) {
+            const url = `${config.organizationUrl}/${config.defaultProject}/_boards/board/t/${config.defaultTeam}/${this.boardName}`;
+            vscode.env.openExternal(vscode.Uri.parse(url));
+        }
+    }
+
+    private _openWorkItemInBrowser(workItemId: number): void {
+        const config = this.authenticationManager.getConfig();
+        if (config) {
+            const url = `${config.organizationUrl}/${config.defaultProject}/_workitems/edit/${workItemId}`;
+            vscode.env.openExternal(vscode.Uri.parse(url));
+        }
+    }
+
+    private async _copyWorkItemUrl(workItemId: number): Promise<void> {
+        const config = this.authenticationManager.getConfig();
+        if (config) {
+            const url = `${config.organizationUrl}/${config.defaultProject}/_workitems/edit/${workItemId}`;
+            await vscode.env.clipboard.writeText(url);
+            vscode.window.showInformationMessage('Work item URL copied to clipboard');
+        }
+    }
+
+    private async _changeState(workItemId: number, newState: string): Promise<void> {
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            if (!axiosInstance) {
+                throw new Error('Not connected');
+            }
+
+            await axiosInstance.patch(
+                `/_apis/wit/workitems/${workItemId}`,
+                [{ op: 'replace', path: '/fields/System.State', value: newState }],
+                { headers: { 'Content-Type': 'application/json-patch+json' } }
+            );
+
+            vscode.window.showInformationMessage(`Changed #${workItemId} state to ${newState}`);
+            await this._loadAndRender();
+
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Failed to change state: ${error?.message || error}`);
+        }
+    }
+
+    private async _addComment(workItemId: number): Promise<void> {
+        const comment = await vscode.window.showInputBox({
+            prompt: `Add comment to work item #${workItemId}`,
+            placeHolder: 'Enter your comment...',
+            validateInput: (value) => value?.trim() ? null : 'Comment cannot be empty'
+        });
+
+        if (!comment) return;
+
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+
+            if (!axiosInstance || !config?.defaultProject) {
+                throw new Error('Not connected');
+            }
+
+            await axiosInstance.post(
+                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workItems/${workItemId}/comments`,
+                { text: comment },
+                { params: { 'api-version': '7.1-preview.3' } }
+            );
+
+            vscode.window.showInformationMessage(`Comment added to #${workItemId}`);
+
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Failed to add comment: ${error?.message || error}`);
+        }
+    }
+
+    private async _switchBoard(boardId: string, boardName: string): Promise<void> {
+        this.boardId = boardId;
+        this.boardName = boardName;
+        this._panel.title = `Board: ${boardName}`;
+        await this._loadAndRender();
+    }
+
+    private async _getAvailableBoards(): Promise<Array<{id: string, name: string}>> {
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+
+            if (!axiosInstance || !config?.defaultProject || !config?.defaultTeam) {
+                return [];
+            }
+
+            const response = await axiosInstance.get(
+                `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/boards`
+            );
+
+            return (response.data.value || []).map((b: any) => ({
+                id: b.id,
+                name: b.name
+            }));
+        } catch (error) {
+            return [];
+        }
+    }
+
+    private _getLoadingHtml(): string {
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loading Board...</title>
+    <style>
+        body {
+            font-family: var(--vscode-font-family);
+            background: var(--vscode-editor-background);
+            color: var(--vscode-foreground);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .loader {
+            text-align: center;
+        }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--vscode-input-border);
+            border-top-color: var(--vscode-focusBorder);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="loader">
+        <div class="spinner"></div>
+        <p>Loading board...</p>
+    </div>
+</body>
+</html>`;
+    }
+
+    private _getErrorHtml(message: string): string {
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error</title>
+    <style>
+        body {
+            font-family: var(--vscode-font-family);
+            background: var(--vscode-editor-background);
+            color: var(--vscode-foreground);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .error {
+            text-align: center;
+            padding: 20px;
+        }
+        .error-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+        button {
+            margin-top: 16px;
+            padding: 8px 16px;
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: var(--vscode-button-hoverBackground);
+        }
+    </style>
+</head>
+<body>
+    <div class="error">
+        <div class="error-icon">⚠️</div>
+        <p>${this._escapeHtml(message)}</p>
+        <button onclick="location.reload()">Retry</button>
+    </div>
+</body>
+</html>`;
+    }
+
+    private _getHtmlForWebview(): string {
+        if (!this.currentBoard) {
+            return this._getErrorHtml('No board data available');
+        }
+
+        const columns = this.currentBoard.columns;
+        const workItems = this.currentBoard.workItems;
+        const boardsJson = JSON.stringify(this.availableBoards);
+
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Board: ${this._escapeHtml(this.boardName)}</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--vscode-font-family);
+            background: var(--vscode-editor-background);
+            color: var(--vscode-foreground);
+            overflow-x: auto;
+            min-height: 100vh;
+        }
+
+        /* Board Header */
+        .board-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 20px;
+            background: var(--vscode-sideBar-background);
+            border-bottom: 1px solid var(--vscode-panel-border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .board-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .board-selector {
+            position: relative;
+        }
+
+        .board-selector-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            background: var(--vscode-dropdown-background);
+            border: 1px solid var(--vscode-dropdown-border);
+            border-radius: 4px;
+            color: var(--vscode-dropdown-foreground);
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .board-selector-btn:hover {
+            background: var(--vscode-list-hoverBackground);
+        }
+
+        .board-selector-btn::after {
+            content: '▼';
+            font-size: 10px;
+            opacity: 0.7;
+        }
+
+        .board-dropdown {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            min-width: 200px;
+            background: var(--vscode-dropdown-background);
+            border: 1px solid var(--vscode-dropdown-border);
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            z-index: 200;
+            margin-top: 4px;
+        }
+
+        .board-dropdown.show {
+            display: block;
+        }
+
+        .board-dropdown-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background 0.1s;
+        }
+
+        .board-dropdown-item:hover {
+            background: var(--vscode-list-hoverBackground);
+        }
+
+        .board-dropdown-item.active {
+            background: var(--vscode-list-activeSelectionBackground);
+            color: var(--vscode-list-activeSelectionForeground);
+        }
+
+        .board-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn {
+            padding: 6px 12px;
+            background: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.15s ease;
+        }
+
+        .btn:hover {
+            background: var(--vscode-button-secondaryHoverBackground);
+        }
+
+        .btn-primary {
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+        }
+
+        .btn-primary:hover {
+            background: var(--vscode-button-hoverBackground);
+        }
+
+        /* Board Container */
+        .board-container {
+            display: flex;
+            gap: 12px;
+            padding: 16px;
+            min-height: calc(100vh - 60px);
+            overflow-x: auto;
+        }
+
+        /* Columns */
+        .column {
+            flex: 0 0 280px;
+            min-width: 280px;
+            background: var(--vscode-sideBar-background);
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            max-height: calc(100vh - 92px);
+            transition: all 0.2s ease;
+        }
+
+        .column.collapsed {
+            flex: 0 0 48px;
+            min-width: 48px;
+        }
+
+        .column.collapsed .column-body,
+        .column.collapsed .add-item {
+            display: none;
+        }
+
+        .column.collapsed .column-header {
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+            padding: 12px 8px;
+            height: 100%;
+        }
+
+        .column.collapsed .column-title {
+            transform: rotate(180deg);
+        }
+
+        .column.drag-over {
+            background: var(--vscode-list-hoverBackground);
+            box-shadow: 0 0 0 2px var(--vscode-focusBorder);
+        }
+
+        .column.keyboard-focus {
+            box-shadow: 0 0 0 2px var(--vscode-focusBorder);
+        }
+
+        .column-header {
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--vscode-panel-border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+            cursor: pointer;
+        }
+
+        .column-header-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .collapse-btn {
+            background: transparent;
+            border: none;
+            color: var(--vscode-descriptionForeground);
+            cursor: pointer;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-size: 12px;
+            transition: all 0.1s;
+        }
+
+        .collapse-btn:hover {
+            background: var(--vscode-toolbar-hoverBackground);
+            color: var(--vscode-foreground);
+        }
+
+        .column-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--vscode-foreground);
+        }
+
+        .column-count {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .wip-badge {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 10px;
+            background: var(--vscode-badge-background);
+            color: var(--vscode-badge-foreground);
+        }
+
+        .wip-badge.warning {
+            background: #f59e0b;
+            color: #000;
+        }
+
+        .wip-badge.danger {
+            background: #ef4444;
+            color: #fff;
+        }
+
+        .column-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        /* Drop Placeholder */
+        .drop-placeholder {
+            height: 80px;
+            border: 2px dashed var(--vscode-focusBorder);
+            border-radius: 6px;
+            background: var(--vscode-list-hoverBackground);
+            display: none;
+        }
+
+        .column.drag-over .drop-placeholder {
+            display: block;
+        }
+
+        /* Work Item Cards */
+        .card {
+            background: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 6px;
+            padding: 12px;
+            cursor: grab;
+            transition: all 0.15s ease;
+            position: relative;
+        }
+
+        .card:hover {
+            border-color: var(--vscode-focusBorder);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .card.selected {
+            border-color: var(--vscode-focusBorder);
+            box-shadow: 0 0 0 2px var(--vscode-focusBorder);
+        }
+
+        .card.dragging {
+            opacity: 0.5;
+            transform: rotate(3deg);
+            cursor: grabbing;
+        }
+
+        .card.keyboard-moving {
+            border-color: var(--vscode-charts-orange);
+            box-shadow: 0 0 0 2px var(--vscode-charts-orange);
+        }
+
+        .card-type-border {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            border-radius: 6px 0 0 6px;
+        }
+
+        .card-type-border.user-story { background: #009ccc; }
+        .card-type-border.task { background: #f2cb1d; }
+        .card-type-border.bug { background: #cc293d; }
+        .card-type-border.feature { background: #773b93; }
+        .card-type-border.epic { background: #ff7b00; }
+
+        .card-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .card-id {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+            font-weight: 600;
+        }
+
+        .card-title {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--vscode-foreground);
+            line-height: 1.4;
+            flex: 1;
+            word-break: break-word;
+        }
+
+        .card-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 10px;
+        }
+
+        .card-meta {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .card-avatar {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: var(--vscode-badge-background);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--vscode-badge-foreground);
+        }
+
+        .card-avatar.unassigned {
+            background: var(--vscode-input-border);
+            color: var(--vscode-descriptionForeground);
+        }
+
+        .card-type-icon {
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            background: var(--vscode-badge-background);
+            color: var(--vscode-badge-foreground);
+            font-weight: 600;
+        }
+
+        .priority-indicator {
+            display: flex;
+            gap: 2px;
+        }
+
+        .priority-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--vscode-input-border);
+        }
+
+        .priority-dot.filled {
+            background: #f59e0b;
+        }
+
+        .card-actions {
+            display: none;
+            gap: 4px;
+        }
+
+        .card:hover .card-actions {
+            display: flex;
+        }
+
+        .card-action-btn {
+            padding: 4px 6px;
+            background: transparent;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+            transition: all 0.1s;
+        }
+
+        .card-action-btn:hover {
+            background: var(--vscode-toolbar-hoverBackground);
+            color: var(--vscode-foreground);
+        }
+
+        /* Tags */
+        .card-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-top: 8px;
+        }
+
+        .tag {
+            font-size: 10px;
+            padding: 2px 6px;
+            background: var(--vscode-badge-background);
+            color: var(--vscode-badge-foreground);
+            border-radius: 3px;
+        }
+
+        /* Context Menu */
+        .context-menu {
+            display: none;
+            position: fixed;
+            min-width: 180px;
+            background: var(--vscode-menu-background);
+            border: 1px solid var(--vscode-menu-border);
+            border-radius: 6px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+            z-index: 1000;
+            padding: 4px 0;
+        }
+
+        .context-menu.show {
+            display: block;
+        }
+
+        .context-menu-item {
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--vscode-menu-foreground);
+            transition: background 0.1s;
+        }
+
+        .context-menu-item:hover {
+            background: var(--vscode-menu-selectionBackground);
+            color: var(--vscode-menu-selectionForeground);
+        }
+
+        .context-menu-item .icon {
+            width: 16px;
+            text-align: center;
+        }
+
+        .context-menu-separator {
+            height: 1px;
+            background: var(--vscode-menu-separatorBackground);
+            margin: 4px 0;
+        }
+
+        .context-menu-submenu {
+            position: relative;
+        }
+
+        .context-menu-submenu::after {
+            content: '▶';
+            font-size: 10px;
+            margin-left: auto;
+        }
+
+        .submenu {
+            display: none;
+            position: absolute;
+            left: 100%;
+            top: 0;
+            min-width: 150px;
+            background: var(--vscode-menu-background);
+            border: 1px solid var(--vscode-menu-border);
+            border-radius: 6px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+            padding: 4px 0;
+        }
+
+        .context-menu-submenu:hover .submenu {
+            display: block;
+        }
+
+        /* Add New Item */
+        .add-item {
+            padding: 8px;
+            border-top: 1px solid var(--vscode-panel-border);
+            flex-shrink: 0;
+        }
+
+        .add-item-btn {
+            width: 100%;
+            padding: 8px;
+            background: transparent;
+            border: 1px dashed var(--vscode-input-border);
+            border-radius: 4px;
+            color: var(--vscode-descriptionForeground);
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.15s;
+        }
+
+        .add-item-btn:hover {
+            border-color: var(--vscode-focusBorder);
+            color: var(--vscode-foreground);
+            background: var(--vscode-list-hoverBackground);
+        }
+
+        .add-item-form {
+            display: none;
+        }
+
+        .add-item-form.active {
+            display: block;
+        }
+
+        .add-item-input {
+            width: 100%;
+            padding: 8px;
+            background: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 4px;
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+
+        .add-item-input:focus {
+            outline: none;
+            border-color: var(--vscode-focusBorder);
+        }
+
+        .add-item-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            background: var(--vscode-notifications-background);
+            border: 1px solid var(--vscode-notifications-border);
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            z-index: 1000;
+            display: none;
+            animation: slideIn 0.2s ease;
+        }
+
+        .toast.show {
+            display: block;
+        }
+
+        .toast.success {
+            border-left: 4px solid #10b981;
+        }
+
+        .toast.error {
+            border-left: 4px solid #ef4444;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        /* Keyboard Help */
+        .keyboard-help {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            padding: 8px 12px;
+            background: var(--vscode-notifications-background);
+            border: 1px solid var(--vscode-notifications-border);
+            border-radius: 6px;
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+            display: none;
+        }
+
+        .keyboard-help.show {
+            display: block;
+        }
+
+        .keyboard-help kbd {
+            background: var(--vscode-button-secondaryBackground);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+            margin: 0 2px;
+        }
+
+        /* Empty Column */
+        .empty-column {
+            text-align: center;
+            padding: 20px;
+            color: var(--vscode-descriptionForeground);
+            font-size: 12px;
+        }
+
+        /* Filter Bar */
+        .filter-bar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 20px;
+            background: var(--vscode-sideBar-background);
+            border-bottom: 1px solid var(--vscode-panel-border);
+            flex-wrap: wrap;
+        }
+
+        .filter-bar.collapsed {
+            display: none;
+        }
+
+        .filter-search {
+            flex: 1;
+            min-width: 200px;
+            max-width: 300px;
+            position: relative;
+        }
+
+        .filter-search-input {
+            width: 100%;
+            padding: 6px 32px 6px 10px;
+            background: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .filter-search-input:focus {
+            outline: none;
+            border-color: var(--vscode-focusBorder);
+        }
+
+        .filter-search-input::placeholder {
+            color: var(--vscode-input-placeholderForeground);
+        }
+
+        .filter-search-clear {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: transparent;
+            border: none;
+            color: var(--vscode-descriptionForeground);
+            cursor: pointer;
+            font-size: 14px;
+            display: none;
+        }
+
+        .filter-search-input:not(:placeholder-shown) + .filter-search-clear {
+            display: block;
+        }
+
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .filter-label {
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .filter-select {
+            padding: 5px 24px 5px 8px;
+            background: var(--vscode-dropdown-background);
+            color: var(--vscode-dropdown-foreground);
+            border: 1px solid var(--vscode-dropdown-border);
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M3 5l3 3 3-3'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 6px center;
+        }
+
+        .filter-select:focus {
+            outline: none;
+            border-color: var(--vscode-focusBorder);
+        }
+
+        .filter-toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 10px;
+            background: transparent;
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 4px;
+            color: var(--vscode-foreground);
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .filter-toggle:hover {
+            background: var(--vscode-list-hoverBackground);
+        }
+
+        .filter-toggle.active {
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            border-color: var(--vscode-button-background);
+        }
+
+        .filter-toggle-icon {
+            font-size: 14px;
+        }
+
+        .filter-divider {
+            width: 1px;
+            height: 24px;
+            background: var(--vscode-panel-border);
+        }
+
+        .filter-clear-all {
+            padding: 5px 10px;
+            background: transparent;
+            border: none;
+            color: var(--vscode-textLink-foreground);
+            font-size: 12px;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        .filter-clear-all:hover {
+            color: var(--vscode-textLink-activeForeground);
+        }
+
+        .filter-count {
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+            margin-left: auto;
+        }
+
+        .filter-count strong {
+            color: var(--vscode-foreground);
+        }
+
+        /* Hidden card when filtered */
+        .card.filtered-out {
+            display: none;
+        }
+
+        /* Column hidden indicator when all items filtered */
+        .column-filtered-info {
+            text-align: center;
+            padding: 16px;
+            color: var(--vscode-descriptionForeground);
+            font-size: 11px;
+            font-style: italic;
+        }
+
+        /* Scrollbar Styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--vscode-scrollbarSlider-background);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--vscode-scrollbarSlider-hoverBackground);
+        }
+    </style>
+</head>
+<body>
+    <div class="board-header">
+        <div class="board-title">
+            <div class="board-selector">
+                <button class="board-selector-btn" onclick="toggleBoardDropdown()">
+                    ${this._escapeHtml(this.boardName)}
+                </button>
+                <div class="board-dropdown" id="boardDropdown">
+                    ${this.availableBoards.map(board => `
+                        <div class="board-dropdown-item ${board.id === this.boardId ? 'active' : ''}"
+                             onclick="switchBoard('${board.id}', '${this._escapeHtml(board.name)}')">
+                            ${this._escapeHtml(board.name)}
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        </div>
+        <div class="board-actions">
+            <button class="btn" onclick="toggleFilterBar()" title="Toggle filters (F)" id="filterToggleBtn">🔍 Filter</button>
+            <button class="btn" onclick="refresh()" title="Refresh (R)">↻ Refresh</button>
+            <button class="btn" onclick="openInBrowser()" title="Open in browser">Open in Browser</button>
+            <button class="btn" onclick="toggleKeyboardHelp()" title="Keyboard shortcuts (?)">?</button>
+        </div>
+    </div>
+
+    <!-- Filter Bar -->
+    <div class="filter-bar" id="filterBar">
+        <div class="filter-search">
+            <input type="text"
+                   class="filter-search-input"
+                   id="searchInput"
+                   placeholder="Search by ID or title..."
+                   oninput="applyFilters()"
+                   onkeydown="if(event.key==='Escape'){this.value='';applyFilters();}">
+            <button class="filter-search-clear" onclick="clearSearch()">×</button>
+        </div>
+
+        <div class="filter-divider"></div>
+
+        <div class="filter-group">
+            <span class="filter-label">Assigned</span>
+            <select class="filter-select" id="assigneeFilter" onchange="applyFilters()">
+                <option value="all">All</option>
+                <option value="me">Assigned to me</option>
+                <option value="unassigned">Unassigned</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <span class="filter-label">Type</span>
+            <select class="filter-select" id="typeFilter" onchange="applyFilters()">
+                <option value="all">All Types</option>
+                <option value="User Story">User Story</option>
+                <option value="Task">Task</option>
+                <option value="Bug">Bug</option>
+                <option value="Feature">Feature</option>
+                <option value="Epic">Epic</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <span class="filter-label">Priority</span>
+            <select class="filter-select" id="priorityFilter" onchange="applyFilters()">
+                <option value="all">All Priorities</option>
+                <option value="1">1 - Critical</option>
+                <option value="2">2 - High</option>
+                <option value="3">3 - Medium</option>
+                <option value="4">4 - Low</option>
+            </select>
+        </div>
+
+        <div class="filter-divider"></div>
+
+        <button class="filter-toggle" id="hideDoneToggle" onclick="toggleHideDone()">
+            <span class="filter-toggle-icon">✓</span>
+            Hide Done
+        </button>
+
+        <button class="filter-toggle" id="myItemsToggle" onclick="toggleMyItems()">
+            <span class="filter-toggle-icon">👤</span>
+            My Items
+        </button>
+
+        <button class="filter-clear-all" onclick="clearAllFilters()" id="clearFiltersBtn" style="display:none;">
+            Clear all filters
+        </button>
+
+        <div class="filter-count" id="filterCount">
+            Showing <strong id="visibleCount">0</strong> of <strong id="totalCount">0</strong> items
+        </div>
+    </div>
+
+    <div class="board-container" id="boardContainer">
+        ${columns.map((column, colIndex) => {
+            const items = workItems.get(column.name) || [];
+            const itemCount = items.length;
+            const wipClass = column.itemLimit > 0
+                ? (itemCount >= column.itemLimit ? 'danger' : (itemCount >= column.itemLimit * 0.8 ? 'warning' : ''))
+                : '';
+
+            const stateMappings = column.stateMappings || {};
+            const targetState = Object.values(stateMappings)[0] || column.name;
+
+            return `
+            <div class="column"
+                 data-column="${this._escapeHtml(column.name)}"
+                 data-state="${this._escapeHtml(String(targetState))}"
+                 data-limit="${column.itemLimit}"
+                 data-index="${colIndex}"
+                 tabindex="0"
+                 ondragover="handleDragOver(event)"
+                 ondragleave="handleDragLeave(event)"
+                 ondrop="handleDrop(event)">
+                <div class="column-header" onclick="toggleColumn(this.parentElement)">
+                    <div class="column-header-left">
+                        <button class="collapse-btn" onclick="event.stopPropagation(); toggleColumn(this.closest('.column'))">◀</button>
+                        <span class="column-title">${this._escapeHtml(column.name)}</span>
+                    </div>
+                    <div class="column-count">
+                        <span class="wip-badge ${wipClass}">
+                            ${itemCount}${column.itemLimit > 0 ? '/' + column.itemLimit : ''}
+                        </span>
+                    </div>
+                </div>
+                <div class="column-body">
+                    ${items.length === 0 ? `
+                        <div class="empty-column">No items</div>
+                    ` : items.map((item, itemIndex) => this._renderCard(item, colIndex, itemIndex)).join('')}
+                    <div class="drop-placeholder"></div>
+                </div>
+                <div class="add-item">
+                    <button class="add-item-btn" onclick="showAddForm('${this._escapeHtml(column.name)}')">+ New item</button>
+                    <div class="add-item-form" id="add-form-${this._escapeHtml(column.name).replace(/\s/g, '-')}">
+                        <input type="text" class="add-item-input" placeholder="Enter title..."
+                               onkeydown="handleAddKeydown(event, '${this._escapeHtml(column.name)}')" />
+                        <div class="add-item-actions">
+                            <button class="btn btn-primary" onclick="createItem('${this._escapeHtml(column.name)}')">Add</button>
+                            <button class="btn" onclick="hideAddForm('${this._escapeHtml(column.name)}')">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            `;
+        }).join('')}
+    </div>
+
+    <!-- Context Menu -->
+    <div class="context-menu" id="contextMenu">
+        <div class="context-menu-item" onclick="contextMenuAction('open')">
+            <span class="icon">📄</span> Open Details
+        </div>
+        <div class="context-menu-item" onclick="contextMenuAction('openBrowser')">
+            <span class="icon">🌐</span> Open in Browser
+        </div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" onclick="contextMenuAction('assignToMe')">
+            <span class="icon">👤</span> Assign to Me
+        </div>
+        <div class="context-menu-item context-menu-submenu">
+            <span class="icon">📊</span> Change State
+            <div class="submenu" id="stateSubmenu">
+                ${columns.map(col => {
+                    const state = Object.values(col.stateMappings || {})[0] || col.name;
+                    return `<div class="context-menu-item" onclick="contextMenuAction('changeState', '${this._escapeHtml(String(state))}')">${this._escapeHtml(String(state))}</div>`;
+                }).join('')}
+            </div>
+        </div>
+        <div class="context-menu-item" onclick="contextMenuAction('addComment')">
+            <span class="icon">💬</span> Add Comment
+        </div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" onclick="contextMenuAction('createBranch')">
+            <span class="icon">🔀</span> Create Branch
+        </div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" onclick="contextMenuAction('copyId')">
+            <span class="icon">📋</span> Copy ID
+        </div>
+        <div class="context-menu-item" onclick="contextMenuAction('copyUrl')">
+            <span class="icon">🔗</span> Copy URL
+        </div>
+    </div>
+
+    <!-- Keyboard Help -->
+    <div class="keyboard-help" id="keyboardHelp">
+        <strong>Keyboard Shortcuts:</strong><br>
+        <kbd>↑</kbd><kbd>↓</kbd> Navigate cards &nbsp;
+        <kbd>←</kbd><kbd>→</kbd> Navigate columns<br>
+        <kbd>M</kbd> Move mode &nbsp;
+        <kbd>Enter</kbd> Open details &nbsp;
+        <kbd>R</kbd> Refresh<br>
+        <kbd>F</kbd> Toggle filters &nbsp;
+        <kbd>?</kbd> Toggle this help &nbsp;
+        <kbd>Esc</kbd> Cancel
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const vscode = acquireVsCodeApi();
+        const availableBoards = ${boardsJson};
+        let draggedCard = null;
+        let originalColumn = null;
+        let selectedCard = null;
+        let keyboardMoveMode = false;
+        let contextMenuWorkItemId = null;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            document.addEventListener('keydown', handleGlobalKeydown);
+            document.addEventListener('click', hideContextMenu);
+        });
+
+        // Keyboard Navigation
+        function handleGlobalKeydown(event) {
+            // Ignore if typing in input
+            if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
+                return;
+            }
+
+            switch (event.key) {
+                case '?':
+                    toggleKeyboardHelp();
+                    break;
+                case 'r':
+                case 'R':
+                    if (!event.ctrlKey && !event.metaKey) {
+                        refresh();
+                    }
+                    break;
+                case 'Escape':
+                    if (keyboardMoveMode) {
+                        cancelKeyboardMove();
+                    }
+                    hideContextMenu();
+                    break;
+                case 'm':
+                case 'M':
+                    if (selectedCard && !keyboardMoveMode) {
+                        startKeyboardMove();
+                    }
+                    break;
+                case 'Enter':
+                    if (keyboardMoveMode) {
+                        confirmKeyboardMove();
+                    } else if (selectedCard) {
+                        openWorkItem(parseInt(selectedCard.dataset.id));
+                    }
+                    break;
+                case 'ArrowUp':
+                    event.preventDefault();
+                    navigateCards(-1);
+                    break;
+                case 'ArrowDown':
+                    event.preventDefault();
+                    navigateCards(1);
+                    break;
+                case 'ArrowLeft':
+                    event.preventDefault();
+                    if (keyboardMoveMode) {
+                        moveCardToColumn(-1);
+                    } else {
+                        navigateColumns(-1);
+                    }
+                    break;
+                case 'ArrowRight':
+                    event.preventDefault();
+                    if (keyboardMoveMode) {
+                        moveCardToColumn(1);
+                    } else {
+                        navigateColumns(1);
+                    }
+                    break;
+            }
+        }
+
+        function selectCard(card) {
+            if (selectedCard) {
+                selectedCard.classList.remove('selected');
+            }
+            selectedCard = card;
+            if (card) {
+                card.classList.add('selected');
+                card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
+
+        function navigateCards(direction) {
+            const cards = Array.from(document.querySelectorAll('.card'));
+            if (cards.length === 0) return;
+
+            if (!selectedCard) {
+                selectCard(cards[0]);
+                return;
+            }
+
+            const currentIndex = cards.indexOf(selectedCard);
+            const newIndex = Math.max(0, Math.min(cards.length - 1, currentIndex + direction));
+            selectCard(cards[newIndex]);
+        }
+
+        function navigateColumns(direction) {
+            const columns = Array.from(document.querySelectorAll('.column:not(.collapsed)'));
+            if (columns.length === 0) return;
+
+            let currentColIndex = 0;
+            if (selectedCard) {
+                const currentColumn = selectedCard.closest('.column');
+                currentColIndex = columns.indexOf(currentColumn);
+            }
+
+            const newColIndex = Math.max(0, Math.min(columns.length - 1, currentColIndex + direction));
+            const targetColumn = columns[newColIndex];
+            const cards = targetColumn.querySelectorAll('.card');
+
+            if (cards.length > 0) {
+                selectCard(cards[0]);
+            } else {
+                // Focus empty column
+                columns.forEach(c => c.classList.remove('keyboard-focus'));
+                targetColumn.classList.add('keyboard-focus');
+            }
+        }
+
+        function startKeyboardMove() {
+            if (!selectedCard) return;
+            keyboardMoveMode = true;
+            selectedCard.classList.add('keyboard-moving');
+            showToast('Move mode: Use ← → to move, Enter to confirm, Esc to cancel', 'info');
+        }
+
+        function cancelKeyboardMove() {
+            keyboardMoveMode = false;
+            if (selectedCard) {
+                selectedCard.classList.remove('keyboard-moving');
+            }
+            showToast('Move cancelled', 'info');
+        }
+
+        function moveCardToColumn(direction) {
+            if (!selectedCard) return;
+
+            const columns = Array.from(document.querySelectorAll('.column:not(.collapsed)'));
+            const currentColumn = selectedCard.closest('.column');
+            const currentColIndex = columns.indexOf(currentColumn);
+            const newColIndex = Math.max(0, Math.min(columns.length - 1, currentColIndex + direction));
+
+            if (newColIndex === currentColIndex) return;
+
+            const targetColumn = columns[newColIndex];
+            const limit = parseInt(targetColumn.dataset.limit) || 0;
+
+            if (limit > 0) {
+                const currentCount = targetColumn.querySelectorAll('.card').length;
+                if (currentCount >= limit) {
+                    showToast('WIP limit reached for ' + targetColumn.dataset.column, 'error');
+                    return;
+                }
+            }
+
+            // Move the card visually
+            const columnBody = targetColumn.querySelector('.column-body');
+            const placeholder = columnBody.querySelector('.drop-placeholder');
+            columnBody.insertBefore(selectedCard, placeholder);
+
+            updateColumnCounts();
+        }
+
+        function confirmKeyboardMove() {
+            if (!selectedCard || !keyboardMoveMode) return;
+
+            const column = selectedCard.closest('.column');
+            const workItemId = parseInt(selectedCard.dataset.id);
+            const targetColumn = column.dataset.column;
+            const targetState = column.dataset.state;
+
+            vscode.postMessage({
+                command: 'moveWorkItem',
+                workItemId: workItemId,
+                targetColumn: targetColumn,
+                targetState: targetState
+            });
+
+            keyboardMoveMode = false;
+            selectedCard.classList.remove('keyboard-moving');
+        }
+
+        // Context Menu
+        function showContextMenu(event, workItemId) {
+            event.preventDefault();
+            event.stopPropagation();
+
+            contextMenuWorkItemId = workItemId;
+            const menu = document.getElementById('contextMenu');
+
+            menu.style.left = event.pageX + 'px';
+            menu.style.top = event.pageY + 'px';
+            menu.classList.add('show');
+
+            // Adjust if menu goes off screen
+            const rect = menu.getBoundingClientRect();
+            if (rect.right > window.innerWidth) {
+                menu.style.left = (event.pageX - rect.width) + 'px';
+            }
+            if (rect.bottom > window.innerHeight) {
+                menu.style.top = (event.pageY - rect.height) + 'px';
+            }
+        }
+
+        function hideContextMenu() {
+            document.getElementById('contextMenu').classList.remove('show');
+            contextMenuWorkItemId = null;
+        }
+
+        function contextMenuAction(action, value) {
+            hideContextMenu();
+            if (!contextMenuWorkItemId) return;
+
+            switch (action) {
+                case 'open':
+                    vscode.postMessage({ command: 'openWorkItem', workItemId: contextMenuWorkItemId });
+                    break;
+                case 'openBrowser':
+                    vscode.postMessage({ command: 'openWorkItemInBrowser', workItemId: contextMenuWorkItemId });
+                    break;
+                case 'assignToMe':
+                    vscode.postMessage({ command: 'assignToMe', workItemId: contextMenuWorkItemId });
+                    break;
+                case 'changeState':
+                    vscode.postMessage({ command: 'changeState', workItemId: contextMenuWorkItemId, state: value });
+                    break;
+                case 'addComment':
+                    vscode.postMessage({ command: 'addComment', workItemId: contextMenuWorkItemId });
+                    break;
+                case 'createBranch':
+                    vscode.postMessage({ command: 'createBranch', workItemId: contextMenuWorkItemId });
+                    break;
+                case 'copyId':
+                    vscode.postMessage({ command: 'copyId', workItemId: contextMenuWorkItemId });
+                    break;
+                case 'copyUrl':
+                    vscode.postMessage({ command: 'copyUrl', workItemId: contextMenuWorkItemId });
+                    break;
+            }
+        }
+
+        // Board Dropdown
+        function toggleBoardDropdown() {
+            document.getElementById('boardDropdown').classList.toggle('show');
+        }
+
+        function switchBoard(boardId, boardName) {
+            document.getElementById('boardDropdown').classList.remove('show');
+            vscode.postMessage({ command: 'switchBoard', boardId, boardName });
+        }
+
+        // Column Collapse
+        function toggleColumn(column) {
+            column.classList.toggle('collapsed');
+            const btn = column.querySelector('.collapse-btn');
+            btn.textContent = column.classList.contains('collapsed') ? '▶' : '◀';
+        }
+
+        // Keyboard Help
+        function toggleKeyboardHelp() {
+            document.getElementById('keyboardHelp').classList.toggle('show');
+        }
+
+        // Drag and Drop
+        function handleDragStart(event, workItemId) {
+            draggedCard = event.target;
+            originalColumn = draggedCard.closest('.column').dataset.column;
+            event.target.classList.add('dragging');
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', workItemId);
+        }
+
+        function handleDragEnd(event) {
+            event.target.classList.remove('dragging');
+            document.querySelectorAll('.column').forEach(col => {
+                col.classList.remove('drag-over');
+            });
+            draggedCard = null;
+            originalColumn = null;
+        }
+
+        function handleDragOver(event) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'move';
+            const column = event.target.closest('.column');
+            if (column && !column.classList.contains('collapsed')) {
+                column.classList.add('drag-over');
+            }
+        }
+
+        function handleDragLeave(event) {
+            const column = event.target.closest('.column');
+            if (column && !column.contains(event.relatedTarget)) {
+                column.classList.remove('drag-over');
+            }
+        }
+
+        function handleDrop(event) {
+            event.preventDefault();
+            const column = event.target.closest('.column');
+            if (!column || !draggedCard || column.classList.contains('collapsed')) return;
+
+            column.classList.remove('drag-over');
+
+            const workItemId = parseInt(event.dataTransfer.getData('text/plain'));
+            const targetColumn = column.dataset.column;
+            const targetState = column.dataset.state;
+
+            if (originalColumn === targetColumn) {
+                return;
+            }
+
+            const limit = parseInt(column.dataset.limit) || 0;
+            if (limit > 0) {
+                const currentCount = column.querySelectorAll('.card').length;
+                if (currentCount >= limit) {
+                    showToast('WIP limit reached for ' + targetColumn, 'error');
+                    return;
+                }
+            }
+
+            const columnBody = column.querySelector('.column-body');
+            const placeholder = columnBody.querySelector('.drop-placeholder');
+            columnBody.insertBefore(draggedCard, placeholder);
+            draggedCard.classList.remove('dragging');
+
+            updateColumnCounts();
+
+            vscode.postMessage({
+                command: 'moveWorkItem',
+                workItemId: workItemId,
+                targetColumn: targetColumn,
+                targetState: targetState
+            });
+        }
+
+        function updateColumnCounts() {
+            document.querySelectorAll('.column').forEach(column => {
+                const count = column.querySelectorAll('.card').length;
+                const limit = parseInt(column.dataset.limit) || 0;
+                const badge = column.querySelector('.wip-badge');
+
+                badge.textContent = limit > 0 ? count + '/' + limit : count;
+                badge.classList.remove('warning', 'danger');
+
+                if (limit > 0) {
+                    if (count >= limit) {
+                        badge.classList.add('danger');
+                    } else if (count >= limit * 0.8) {
+                        badge.classList.add('warning');
+                    }
+                }
+            });
+        }
+
+        // Handle messages from extension
+        window.addEventListener('message', event => {
+            const message = event.data;
+            switch (message.command) {
+                case 'moveSuccess':
+                    showToast(message.message, 'success');
+                    break;
+                case 'moveFailed':
+                    showToast(message.message, 'error');
+                    vscode.postMessage({ command: 'refresh' });
+                    break;
+            }
+        });
+
+        // Card actions
+        function openWorkItem(workItemId) {
+            vscode.postMessage({ command: 'openWorkItem', workItemId: workItemId });
+        }
+
+        function assignToMe(workItemId, event) {
+            event.stopPropagation();
+            vscode.postMessage({ command: 'assignToMe', workItemId: workItemId });
+        }
+
+        // Board actions
+        function refresh() {
+            vscode.postMessage({ command: 'refresh' });
+        }
+
+        function openInBrowser() {
+            vscode.postMessage({ command: 'openInBrowser' });
+        }
+
+        // Add item form
+        function showAddForm(columnName) {
+            const formId = 'add-form-' + columnName.replace(/\\s/g, '-');
+            const form = document.getElementById(formId);
+            if (form) {
+                form.classList.add('active');
+                form.querySelector('.add-item-input').focus();
+            }
+        }
+
+        function hideAddForm(columnName) {
+            const formId = 'add-form-' + columnName.replace(/\\s/g, '-');
+            const form = document.getElementById(formId);
+            if (form) {
+                form.classList.remove('active');
+                form.querySelector('.add-item-input').value = '';
+            }
+        }
+
+        function handleAddKeydown(event, columnName) {
+            if (event.key === 'Enter') {
+                createItem(columnName);
+            } else if (event.key === 'Escape') {
+                hideAddForm(columnName);
+            }
+        }
+
+        function createItem(columnName) {
+            const formId = 'add-form-' + columnName.replace(/\\s/g, '-');
+            const form = document.getElementById(formId);
+            const input = form.querySelector('.add-item-input');
+            const title = input.value.trim();
+
+            if (title) {
+                vscode.postMessage({
+                    command: 'createWorkItem',
+                    columnName: columnName,
+                    title: title
+                });
+                hideAddForm(columnName);
+            }
+        }
+
+        // Toast notifications
+        function showToast(message, type) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = 'toast show ' + type;
+
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (event) => {
+            if (!event.target.closest('.board-selector')) {
+                document.getElementById('boardDropdown').classList.remove('show');
+            }
+        });
+
+        // ========== FILTER FUNCTIONALITY ==========
+        let currentUserEmail = ''; // Will be set when user info is available
+        let hideDoneActive = false;
+        let myItemsActive = false;
+
+        // Initialize filters on load
+        document.addEventListener('DOMContentLoaded', () => {
+            updateFilterCounts();
+            // Request current user info from extension
+            vscode.postMessage({ command: 'getCurrentUser' });
+        });
+
+        function toggleFilterBar() {
+            const filterBar = document.getElementById('filterBar');
+            const filterBtn = document.getElementById('filterToggleBtn');
+            filterBar.classList.toggle('collapsed');
+            if (filterBar.classList.contains('collapsed')) {
+                filterBtn.textContent = '🔍 Filter';
+            } else {
+                filterBtn.textContent = '🔍 Hide Filter';
+            }
+        }
+
+        function applyFilters() {
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
+            const assigneeFilter = document.getElementById('assigneeFilter').value;
+            const typeFilter = document.getElementById('typeFilter').value;
+            const priorityFilter = document.getElementById('priorityFilter').value;
+
+            const cards = document.querySelectorAll('.card');
+            let visibleCount = 0;
+            let totalCount = cards.length;
+
+            cards.forEach(card => {
+                let visible = true;
+
+                // Search filter (ID or title)
+                if (searchTerm) {
+                    const cardId = card.dataset.id.toLowerCase();
+                    const cardTitle = card.dataset.title.toLowerCase();
+                    if (!cardId.includes(searchTerm) && !cardTitle.includes(searchTerm)) {
+                        visible = false;
+                    }
+                }
+
+                // Assignee filter
+                if (visible && assigneeFilter !== 'all') {
+                    const assignee = card.dataset.assignee;
+                    if (assigneeFilter === 'me') {
+                        if (!assignee || (currentUserEmail && !assignee.toLowerCase().includes(currentUserEmail.toLowerCase()))) {
+                            visible = false;
+                        }
+                    } else if (assigneeFilter === 'unassigned') {
+                        if (assignee) {
+                            visible = false;
+                        }
+                    }
+                }
+
+                // Type filter
+                if (visible && typeFilter !== 'all') {
+                    if (card.dataset.type !== typeFilter) {
+                        visible = false;
+                    }
+                }
+
+                // Priority filter
+                if (visible && priorityFilter !== 'all') {
+                    if (card.dataset.priority !== priorityFilter) {
+                        visible = false;
+                    }
+                }
+
+                // Hide Done toggle
+                if (visible && hideDoneActive) {
+                    const state = card.dataset.state.toLowerCase();
+                    if (state === 'done' || state === 'closed' || state === 'completed' || state === 'resolved') {
+                        visible = false;
+                    }
+                }
+
+                // My Items toggle (overrides assignee filter if active)
+                if (visible && myItemsActive) {
+                    const assignee = card.dataset.assignee;
+                    if (!assignee || (currentUserEmail && !assignee.toLowerCase().includes(currentUserEmail.toLowerCase()))) {
+                        visible = false;
+                    }
+                }
+
+                if (visible) {
+                    card.classList.remove('filtered-out');
+                    visibleCount++;
+                } else {
+                    card.classList.add('filtered-out');
+                }
+            });
+
+            updateFilterCounts();
+            updateClearFiltersButton();
+            updateColumnVisibleCounts();
+        }
+
+        function updateFilterCounts() {
+            const cards = document.querySelectorAll('.card');
+            const visibleCards = document.querySelectorAll('.card:not(.filtered-out)');
+            document.getElementById('visibleCount').textContent = visibleCards.length;
+            document.getElementById('totalCount').textContent = cards.length;
+        }
+
+        function updateColumnVisibleCounts() {
+            document.querySelectorAll('.column').forEach(column => {
+                const allCards = column.querySelectorAll('.card');
+                const visibleCards = column.querySelectorAll('.card:not(.filtered-out)');
+                const badge = column.querySelector('.wip-badge');
+                const limit = parseInt(column.dataset.limit) || 0;
+
+                // Update badge to show visible count
+                badge.textContent = limit > 0 ? visibleCards.length + '/' + limit : visibleCards.length;
+
+                // Update badge color based on visible count
+                badge.classList.remove('warning', 'danger');
+                if (limit > 0) {
+                    if (visibleCards.length >= limit) {
+                        badge.classList.add('danger');
+                    } else if (visibleCards.length >= limit * 0.8) {
+                        badge.classList.add('warning');
+                    }
+                }
+            });
+        }
+
+        function updateClearFiltersButton() {
+            const hasFilters = isAnyFilterActive();
+            const clearBtn = document.getElementById('clearFiltersBtn');
+            clearBtn.style.display = hasFilters ? 'block' : 'none';
+        }
+
+        function isAnyFilterActive() {
+            return document.getElementById('searchInput').value.trim() !== '' ||
+                   document.getElementById('assigneeFilter').value !== 'all' ||
+                   document.getElementById('typeFilter').value !== 'all' ||
+                   document.getElementById('priorityFilter').value !== 'all' ||
+                   hideDoneActive ||
+                   myItemsActive;
+        }
+
+        function clearSearch() {
+            document.getElementById('searchInput').value = '';
+            applyFilters();
+        }
+
+        function clearAllFilters() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('assigneeFilter').value = 'all';
+            document.getElementById('typeFilter').value = 'all';
+            document.getElementById('priorityFilter').value = 'all';
+
+            hideDoneActive = false;
+            myItemsActive = false;
+            document.getElementById('hideDoneToggle').classList.remove('active');
+            document.getElementById('myItemsToggle').classList.remove('active');
+
+            applyFilters();
+        }
+
+        function toggleHideDone() {
+            hideDoneActive = !hideDoneActive;
+            const toggle = document.getElementById('hideDoneToggle');
+            toggle.classList.toggle('active', hideDoneActive);
+            applyFilters();
+        }
+
+        function toggleMyItems() {
+            myItemsActive = !myItemsActive;
+            const toggle = document.getElementById('myItemsToggle');
+            toggle.classList.toggle('active', myItemsActive);
+
+            // If my items is active, reset the assignee dropdown
+            if (myItemsActive) {
+                document.getElementById('assigneeFilter').value = 'all';
+            }
+
+            applyFilters();
+        }
+
+        // Add 'F' keyboard shortcut to toggle filter bar
+        const originalKeydownHandler = handleGlobalKeydown;
+        function handleGlobalKeydownWithFilter(event) {
+            if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
+                return;
+            }
+            if (event.key === 'f' || event.key === 'F') {
+                if (!event.ctrlKey && !event.metaKey) {
+                    toggleFilterBar();
+                    // Focus search input if filter bar is now visible
+                    const filterBar = document.getElementById('filterBar');
+                    if (!filterBar.classList.contains('collapsed')) {
+                        document.getElementById('searchInput').focus();
+                    }
+                    return;
+                }
+            }
+            // Call original handler for other keys
+            originalKeydownHandler(event);
+        }
+        // Replace the keydown handler
+        document.removeEventListener('keydown', handleGlobalKeydown);
+        document.addEventListener('keydown', handleGlobalKeydownWithFilter);
+
+        // Handle current user response from extension
+        window.addEventListener('message', event => {
+            const message = event.data;
+            if (message.command === 'setCurrentUser') {
+                currentUserEmail = message.email || '';
+            }
+        });
+    </script>
+</body>
+</html>`;
+    }
+
+    private _renderCard(item: BoardWorkItem, colIndex: number = 0, itemIndex: number = 0): string {
+        const typeClass = item.type.toLowerCase().replace(/\s+/g, '-');
+        const initials = item.assignedTo?.displayName
+            ? item.assignedTo.displayName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
+            : '?';
+        const assignedClass = item.assignedTo ? '' : 'unassigned';
+
+        const priorityDots = item.priority
+            ? Array(4).fill(0).map((_, i) =>
+                `<span class="priority-dot ${i < (5 - (item.priority || 4)) ? 'filled' : ''}"></span>`
+              ).join('')
+            : '';
+
+        const tags = item.tags
+            ? item.tags.split(';').slice(0, 3).map(tag =>
+                `<span class="tag">${this._escapeHtml(tag.trim())}</span>`
+              ).join('')
+            : '';
+
+        return `
+        <div class="card"
+             draggable="true"
+             data-id="${item.id}"
+             data-col="${colIndex}"
+             data-item="${itemIndex}"
+             data-title="${this._escapeHtml(item.title)}"
+             data-type="${this._escapeHtml(item.type)}"
+             data-priority="${item.priority || ''}"
+             data-assignee="${item.assignedTo?.uniqueName || ''}"
+             data-assignee-name="${item.assignedTo?.displayName || ''}"
+             data-state="${this._escapeHtml(item.state)}"
+             data-tags="${item.tags || ''}"
+             tabindex="0"
+             ondragstart="handleDragStart(event, ${item.id})"
+             ondragend="handleDragEnd(event)"
+             onclick="openWorkItem(${item.id})"
+             oncontextmenu="showContextMenu(event, ${item.id})"
+             onfocus="selectCard(this)">
+            <div class="card-type-border ${typeClass}"></div>
+            <div class="card-header">
+                <span class="card-id">#${item.id}</span>
+                <span class="card-title">${this._escapeHtml(item.title)}</span>
+            </div>
+            ${tags ? `<div class="card-tags">${tags}</div>` : ''}
+            <div class="card-footer">
+                <div class="card-meta">
+                    <div class="card-avatar ${assignedClass}" title="${item.assignedTo?.displayName || 'Unassigned'}">
+                        ${initials}
+                    </div>
+                    <span class="card-type-icon">${this._getTypeIcon(item.type)}</span>
+                    ${priorityDots ? `<div class="priority-indicator">${priorityDots}</div>` : ''}
+                </div>
+                <div class="card-actions">
+                    <button class="card-action-btn" onclick="assignToMe(${item.id}, event)" title="Assign to me">👤</button>
+                    <button class="card-action-btn" onclick="event.stopPropagation(); vscode.postMessage({ command: 'addComment', workItemId: ${item.id} })" title="Add comment">💬</button>
+                    <button class="card-action-btn" onclick="event.stopPropagation(); showContextMenu(event, ${item.id})" title="More actions">⋯</button>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    private _getTypeIcon(type: string): string {
+        const icons: Record<string, string> = {
+            'User Story': '📖',
+            'Task': '📋',
+            'Bug': '🐛',
+            'Feature': '⭐',
+            'Epic': '🏔️',
+            'Issue': '❗'
+        };
+        return icons[type] || '📄';
+    }
+
+    private _escapeHtml(text: string): string {
+        const map: Record<string, string> = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        };
+        return text.replace(/[&<>"']/g, m => map[m]);
+    }
+
+    public dispose() {
+        BoardPanel.currentPanel = undefined;
+        this._panel.dispose();
+        while (this._disposables.length) {
+            const x = this._disposables.pop();
+            if (x) {
+                x.dispose();
+            }
+        }
+    }
+}

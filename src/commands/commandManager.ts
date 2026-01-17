@@ -8,6 +8,7 @@ import { QueryProvider, Query } from '../views/queryProvider';
 import { GitIntegration } from '../gitIntegration/gitIntegration';
 import { StatusBarManager } from '../utils/statusBarManager';
 import { WorkItemPanel } from '../views/workItemPanel';
+import { BoardPanel } from '../views/boardPanel';
 import { WorkItemTypeEnum } from '../models/workItem';
 
 import { WorkItemLinksManager } from '../utils/workItemLinksManager';
@@ -403,6 +404,76 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
 
             const boardUrl = `${config.organizationUrl}/${config.defaultProject}/_boards/board/t/${config.defaultTeam}/${encodeURIComponent(boardName)}`;
             vscode.env.openExternal(vscode.Uri.parse(boardUrl));
+        })
+    );
+
+    // Open board panel (interactive Kanban) command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.openBoardPanel', async (boardItem?: any) => {
+            if (!components.authenticationManager.isConnected()) {
+                vscode.window.showErrorMessage('Please connect to Azure DevOps first');
+                return;
+            }
+
+            const config = components.authenticationManager.getConfig();
+            if (!config?.defaultProject || !config.defaultTeam) {
+                vscode.window.showErrorMessage('Please select a project and team first');
+                return;
+            }
+
+            let boardId = boardItem?.boardId;
+            let boardName = typeof boardItem?.label === 'string' ? boardItem.label : boardItem?.boardName;
+
+            if (!boardId || !boardName) {
+                // Get available boards and let user select
+                const axiosInstance = components.authenticationManager.getAxiosInstance();
+                if (!axiosInstance) return;
+
+                try {
+                    const response = await axiosInstance.get(
+                        `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/boards`
+                    );
+                    const boards = response.data.value || [];
+
+                    if (boards.length === 0) {
+                        vscode.window.showInformationMessage('No boards found');
+                        return;
+                    }
+
+                    interface BoardQuickPickItem extends vscode.QuickPickItem {
+                        id: string;
+                        name: string;
+                    }
+
+                    const boardItems: BoardQuickPickItem[] = boards.map((b: any) => ({
+                        label: b.name,
+                        id: b.id,
+                        name: b.name
+                    }));
+
+                    const selected = await vscode.window.showQuickPick(boardItems, {
+                        placeHolder: 'Select a board to open'
+                    });
+
+                    if (selected) {
+                        boardId = selected.id;
+                        boardName = selected.name;
+                    } else {
+                        return;
+                    }
+                } catch (error) {
+                    vscode.window.showErrorMessage(`Failed to get boards: ${error}`);
+                    return;
+                }
+            }
+
+            // Open the board panel
+            BoardPanel.createOrShow(
+                components.extensionUri,
+                components.authenticationManager,
+                boardId,
+                boardName
+            );
         })
     );
 
