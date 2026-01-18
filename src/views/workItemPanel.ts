@@ -556,9 +556,11 @@ export class WorkItemPanel {
         const assignedToUniqueName = fields['System.AssignedTo']?.uniqueName || '';
         const createdDate = new Date(fields['System.CreatedDate']).toLocaleDateString();
         const changedDate = new Date(fields['System.ChangedDate']).toLocaleDateString();
-        const priority = fields['Microsoft.VSTS.Common.Priority'] || '';
-        const iterationPath = fields['System.IterationPath']?.split('\\').pop() || '';
-        const areaPath = fields['System.AreaPath']?.split('\\').pop() || '';
+        const priority = fields['Microsoft.VSTS.Common.Priority'] || 0;
+        const effort = fields['Microsoft.VSTS.Scheduling.Effort'] || (fields as any)['Microsoft.VSTS.Scheduling.StoryPoints'] || '';
+        const iterationPath = fields['System.IterationPath'] || '';
+        const iterationPathDisplay = iterationPath.split('\\').pop() || 'None';
+        const areaPath = fields['System.AreaPath'] || '';
         const tags = fields['System.Tags'] || '';
 
         const stateOptions = ['New', 'To Do', 'Active', 'In Progress', 'Resolved', 'Done', 'Closed'];
@@ -767,6 +769,54 @@ export class WorkItemPanel {
             outline: none;
             border-color: var(--vscode-focusBorder);
             box-shadow: 0 0 0 2px var(--vscode-focusBorder);
+        }
+        .meta-input {
+            width: 100%;
+            padding: 8px 10px;
+            background: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        .meta-input:focus {
+            outline: none;
+            border-color: var(--vscode-focusBorder);
+            box-shadow: 0 0 0 2px var(--vscode-focusBorder);
+        }
+        .priority-select-wrapper {
+            display: flex;
+            gap: 6px;
+        }
+        .priority-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: 2px solid var(--vscode-input-border);
+            background: transparent;
+            cursor: pointer;
+            font-weight: 700;
+            font-size: 12px;
+            color: var(--vscode-foreground);
+            transition: all 0.2s;
+        }
+        .priority-btn:hover {
+            border-color: var(--vscode-focusBorder);
+            transform: scale(1.1);
+        }
+        .priority-btn.active {
+            background: #ffa500;
+            border-color: #ffa500;
+            color: white;
+        }
+        .priority-btn.p1.active { background: #d13438; border-color: #d13438; }
+        .priority-btn.p2.active { background: #ffa500; border-color: #ffa500; }
+        .priority-btn.p3.active { background: #0078d4; border-color: #0078d4; }
+        .priority-btn.p4.active { background: #107c10; border-color: #107c10; }
+        .effort-input {
+            width: 80px;
         }
 
         /* ACTION BAR */
@@ -982,19 +1032,26 @@ export class WorkItemPanel {
                 </div>
                 <div class="meta-item">
                     <span class="meta-label">Priority</span>
-                    <span class="meta-value">${priority || 'Not set'}</span>
+                    <div class="priority-select-wrapper">
+                        ${[1, 2, 3, 4].map(p => `<button class="priority-btn p${p} ${priority === p ? 'active' : ''}" onclick="updatePriority(${p})">${p}</button>`).join('')}
+                    </div>
                 </div>
                 <div class="meta-item">
-                    <span class="meta-label">State</span>
-                    <span class="meta-value">${this.escapeHtml(state)}</span>
+                    <span class="meta-label">Effort / Story Points</span>
+                    <input type="number" class="meta-input effort-input" id="effortInput" value="${effort}" placeholder="0" onchange="updateEffort()">
                 </div>
                 <div class="meta-item">
                     <span class="meta-label">Sprint</span>
-                    <span class="meta-value">${this.escapeHtml(iterationPath || 'None')}</span>
+                    <select class="meta-select" id="sprintSelect" onchange="updateSprint()">
+                        <option value="">None</option>
+                        ${this._iterations.map(iter => `<option value="${this.escapeHtml(iter.path)}" ${iter.path === iterationPath ? 'selected' : ''}>${this.escapeHtml(iter.name)}</option>`).join('')}
+                    </select>
                 </div>
                 <div class="meta-item">
                     <span class="meta-label">Area</span>
-                    <span class="meta-value">${this.escapeHtml(areaPath || 'None')}</span>
+                    <select class="meta-select" id="areaSelect" onchange="updateArea()">
+                        ${this._areas.map(area => `<option value="${this.escapeHtml(area.path)}" ${area.path === areaPath ? 'selected' : ''}>${this.escapeHtml(area.path)}</option>`).join('')}
+                    </select>
                 </div>
                 <div class="meta-item">
                     <span class="meta-label">Created</span>
@@ -1115,6 +1172,28 @@ export class WorkItemPanel {
         function updateAssignee() {
             const select = document.getElementById('assigneeSelect');
             vscode.postMessage({ command: 'assignTo', uniqueName: select.value });
+        }
+
+        function updatePriority(priority) {
+            document.querySelectorAll('.priority-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelector('.priority-btn.p' + priority).classList.add('active');
+            vscode.postMessage({ command: 'updateField', field: 'Microsoft.VSTS.Common.Priority', value: priority });
+        }
+
+        function updateEffort() {
+            const input = document.getElementById('effortInput');
+            const value = input.value ? parseFloat(input.value) : null;
+            vscode.postMessage({ command: 'updateField', field: 'Microsoft.VSTS.Scheduling.Effort', value: value });
+        }
+
+        function updateSprint() {
+            const select = document.getElementById('sprintSelect');
+            vscode.postMessage({ command: 'updateField', field: 'System.IterationPath', value: select.value || null });
+        }
+
+        function updateArea() {
+            const select = document.getElementById('areaSelect');
+            vscode.postMessage({ command: 'updateField', field: 'System.AreaPath', value: select.value });
         }
     </script>
 </body>
