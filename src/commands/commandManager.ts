@@ -45,7 +45,7 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
             const connected = await components.authenticationManager.connect();
             if (connected) {
                 // Set context for all views
-                vscode.commands.executeCommand('setContext', 'azureDevOps.connected', true);
+                await vscode.commands.executeCommand('setContext', 'azureDevOps.connected', true);
 
                 components.statusBarManager.updateStatus('connected');
                 components.connectionStatusProvider.refresh();
@@ -57,7 +57,7 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
                 components.sprintProvider.refresh();
                 components.queryProvider.refresh();
             } else {
-                vscode.commands.executeCommand('setContext', 'azureDevOps.connected', false);
+                await vscode.commands.executeCommand('setContext', 'azureDevOps.connected', false);
             }
         })
     );

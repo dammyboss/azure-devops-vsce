@@ -37,7 +37,7 @@ export class ConnectionStatusProvider implements vscode.TreeDataProvider<Connect
         const items: ConnectionItem[] = [];
 
         if (!status.isConnected || !config) {
-            items.push(new ConnectionItem(
+            const notConnectedItem = new ConnectionItem(
                 'Not Connected',
                 'Click to connect',
                 vscode.TreeItemCollapsibleState.None,
@@ -45,74 +45,65 @@ export class ConnectionStatusProvider implements vscode.TreeDataProvider<Connect
                     command: 'azureDevOps.connect',
                     title: 'Connect to Azure DevOps'
                 },
-                '$(plug) Not Connected'
-            ));
+                'Not Connected'
+            );
+            notConnectedItem.iconPath = new vscode.ThemeIcon('plug');
+            items.push(notConnectedItem);
             return items;
         }
 
         // Organization
         if (status.organization) {
             const orgName = status.organization.replace('https://dev.azure.com/', '');
-            items.push(new ConnectionItem(
-                `$(organization) Organization`,
+            const orgItem = new ConnectionItem(
+                'Organization',
                 orgName,
                 vscode.TreeItemCollapsibleState.None,
                 undefined,
                 `Azure DevOps Organization: ${orgName}`
-            ));
+            );
+            orgItem.iconPath = new vscode.ThemeIcon('home');
+            items.push(orgItem);
         }
 
         // Current User
         if (status.user) {
-            items.push(new ConnectionItem(
-                `$(account) User`,
+            const userItem = new ConnectionItem(
+                'User',
                 status.user,
                 vscode.TreeItemCollapsibleState.None,
                 undefined,
                 `Signed in as: ${status.user}`
-            ));
+            );
+            userItem.iconPath = new vscode.ThemeIcon('account');
+            items.push(userItem);
         }
 
         // Project
         if (config.defaultProject) {
-            items.push(new ConnectionItem(
-                `$(project) Project`,
+            const projectItem = new ConnectionItem(
+                'Project',
                 config.defaultProject,
                 vscode.TreeItemCollapsibleState.None,
                 undefined,
                 `Selected Project: ${config.defaultProject}`
-            ));
+            );
+            projectItem.iconPath = new vscode.ThemeIcon('project');
+            items.push(projectItem);
         }
 
         // Team
         if (config.defaultTeam) {
-            items.push(new ConnectionItem(
-                `$(people) Team`,
+            const teamItem = new ConnectionItem(
+                'Team',
                 config.defaultTeam,
                 vscode.TreeItemCollapsibleState.None,
                 undefined,
                 `Selected Team: ${config.defaultTeam}`
-            ));
+            );
+            teamItem.iconPath = new vscode.ThemeIcon('organization');
+            items.push(teamItem);
         }
-
-        // Disconnect button - with special styling
-        const disconnectItem = new ConnectionItem(
-            'Disconnect',
-            'Sign out from Azure DevOps',
-            vscode.TreeItemCollapsibleState.None,
-            {
-                command: 'azureDevOps.disconnect',
-                title: 'Disconnect'
-            },
-            'Click to disconnect from Azure DevOps'
-        );
-        
-        // Make disconnect button stand out with red color and icon
-        disconnectItem.iconPath = new vscode.ThemeIcon('debug-disconnect', new vscode.ThemeColor('errorForeground'));
-        disconnectItem.contextValue = 'disconnect-action';
-        disconnectItem.resourceUri = vscode.Uri.parse('disconnect://action');
-        
-        items.push(disconnectItem);
 
         return items;
     }

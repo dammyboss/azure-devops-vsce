@@ -319,6 +319,16 @@
     "menus": {
       "view/title": [
         {
+          "command": "azureDevOps.disconnect",
+          "when": "view == azureDevOpsConnection && azureDevOps.connected",
+          "group": "navigation"
+        },
+        {
+          "command": "azureDevOps.connect",
+          "when": "view == azureDevOpsConnection && !azureDevOps.connected",
+          "group": "navigation"
+        },
+        {
           "command": "azureDevOps.createWorkItem",
           "when": "view == azureDevOpsWorkItems",
           "group": "navigation@1"
