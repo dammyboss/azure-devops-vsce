@@ -964,8 +964,6 @@ export class SettingsUIProvider {
         }
 
         function saveSettings() {
-            const statusSpan = document.getElementById('saveStatus');
-
             // Collect all settings
             const settings = {
                 provider: currentProvider
@@ -1001,16 +999,16 @@ export class SettingsUIProvider {
                 settings
             });
 
-            statusSpan.className = 'save-status success';
-            statusSpan.textContent = '✓ Settings saved';
-            setTimeout(() => {
-                statusSpan.textContent = '';
-                statusSpan.className = 'save-status';
-            }, 3000);
+            // Close modal immediately
+            closeModal();
         }
 
         function closeModal() {
-            vscode.postMessage({ type: 'closeSettings' });
+            const modal = document.querySelector('.tools-modal');
+            modal.classList.add('closing');
+            setTimeout(() => {
+                vscode.postMessage({ type: 'closeSettings' });
+            }, 200);
         }
 
         let currentMCPServerType = 'remote';
