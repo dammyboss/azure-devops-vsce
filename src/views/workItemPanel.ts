@@ -96,6 +96,12 @@ export class WorkItemPanel {
                             vscode.commands.executeCommand('azureDevOps.viewWorkItemDetails', message.id);
                         }
                         break;
+                    case 'updateField':
+                        await this.updateField(message.field, message.value);
+                        break;
+                    case 'assignTo':
+                        await this.assignTo(message.uniqueName);
+                        break;
                 }
             },
             null,
@@ -189,6 +195,55 @@ export class WorkItemPanel {
             await this.refreshWorkItem();
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to assign: ${error}`);
+        }
+    }
+
+    private async assignTo(uniqueName: string) {
+        if (!this._workItem) return;
+
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            if (!axiosInstance) return;
+
+            const patchOp = uniqueName
+                ? { op: 'replace', path: '/fields/System.AssignedTo', value: uniqueName }
+                : { op: 'remove', path: '/fields/System.AssignedTo' };
+
+            await axiosInstance.patch(
+                `/_apis/wit/workitems/${this._workItem.id}`,
+                [patchOp],
+                { headers: { 'Content-Type': 'application/json-patch+json' } }
+            );
+
+            vscode.window.showInformationMessage(uniqueName ? 'Assignee updated' : 'Assignee removed');
+            await this.refreshWorkItem();
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to update assignee: ${error}`);
+        }
+    }
+
+    private async updateField(field: string, value: any) {
+        if (!this._workItem) return;
+
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            if (!axiosInstance) return;
+
+            const fieldPath = `/fields/${field}`;
+            const patchOp = value !== null && value !== '' && value !== undefined
+                ? { op: 'replace', path: fieldPath, value: value }
+                : { op: 'remove', path: fieldPath };
+
+            await axiosInstance.patch(
+                `/_apis/wit/workitems/${this._workItem.id}`,
+                [patchOp],
+                { headers: { 'Content-Type': 'application/json-patch+json' } }
+            );
+
+            vscode.window.showInformationMessage('Field updated');
+            await this.refreshWorkItem();
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to update field: ${error}`);
         }
     }
 
@@ -498,6 +553,7 @@ export class WorkItemPanel {
         const state = fields['System.State'] || '';
         const type = fields['System.WorkItemType'] || '';
         const assignedTo = fields['System.AssignedTo']?.displayName || 'Unassigned';
+        const assignedToUniqueName = fields['System.AssignedTo']?.uniqueName || '';
         const createdDate = new Date(fields['System.CreatedDate']).toLocaleDateString();
         const changedDate = new Date(fields['System.ChangedDate']).toLocaleDateString();
         const priority = fields['Microsoft.VSTS.Common.Priority'] || '';
@@ -690,6 +746,27 @@ export class WorkItemPanel {
             font-size: 10px;
             font-weight: 500;
             margin-right: 4px;
+        }
+
+        .meta-select {
+            width: 100%;
+            padding: 8px 10px;
+            background: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .meta-select:hover {
+            border-color: var(--vscode-focusBorder);
+        }
+        .meta-select:focus {
+            outline: none;
+            border-color: var(--vscode-focusBorder);
+            box-shadow: 0 0 0 2px var(--vscode-focusBorder);
         }
 
         /* ACTION BAR */
@@ -898,7 +975,10 @@ export class WorkItemPanel {
             <div class="metadata-grid">
                 <div class="meta-item">
                     <span class="meta-label">Assigned To</span>
-                    <span class="meta-value">${this.escapeHtml(assignedTo)}</span>
+                    <select class="meta-select" id="assigneeSelect" onchange="updateAssignee()">
+                        <option value="">Unassigned</option>
+                        ${this._teamMembers.map(m => `<option value="${this.escapeHtml(m.uniqueName)}" ${m.uniqueName === assignedToUniqueName ? 'selected' : ''}>${this.escapeHtml(m.displayName)}</option>`).join('')}
+                    </select>
                 </div>
                 <div class="meta-item">
                     <span class="meta-label">Priority</span>
@@ -1030,6 +1110,11 @@ export class WorkItemPanel {
 
         function openLinkedItem(id) {
             vscode.postMessage({ command: 'openLinkedItem', id });
+        }
+
+        function updateAssignee() {
+            const select = document.getElementById('assigneeSelect');
+            vscode.postMessage({ command: 'assignTo', uniqueName: select.value });
         }
     </script>
 </body>
