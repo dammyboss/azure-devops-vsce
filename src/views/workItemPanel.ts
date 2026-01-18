@@ -102,6 +102,15 @@ export class WorkItemPanel {
                     case 'assignTo':
                         await this.assignTo(message.uniqueName);
                         break;
+                    case 'uploadAttachment':
+                        await this.uploadAttachment();
+                        break;
+                    case 'downloadAttachment':
+                        await this.downloadAttachment(message.url, message.name);
+                        break;
+                    case 'deleteAttachment':
+                        await this.deleteAttachment(message.url);
+                        break;
                 }
             },
             null,
@@ -247,6 +256,120 @@ export class WorkItemPanel {
         }
     }
 
+    private async uploadAttachment() {
+        if (!this._workItem) return;
+
+        const fileUri = await vscode.window.showOpenDialog({
+            canSelectMany: false,
+            openLabel: 'Upload',
+            title: 'Select file to attach'
+        });
+
+        if (!fileUri || fileUri.length === 0) return;
+
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+
+            if (!axiosInstance || !config?.defaultProject) return;
+
+            const filePath = fileUri[0].fsPath;
+            const fileName = filePath.split(/[\\/]/).pop() || 'attachment';
+
+            const fs = require('fs');
+            const fileContent = fs.readFileSync(filePath);
+
+            const uploadResponse = await axiosInstance.post(
+                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/attachments`,
+                fileContent,
+                {
+                    params: { fileName: fileName, 'api-version': '7.0' },
+                    headers: { 'Content-Type': 'application/octet-stream' }
+                }
+            );
+
+            const attachmentUrl = uploadResponse.data.url;
+
+            await axiosInstance.patch(
+                `/_apis/wit/workitems/${this._workItem.id}`,
+                [{
+                    op: 'add',
+                    path: '/relations/-',
+                    value: {
+                        rel: 'AttachedFile',
+                        url: attachmentUrl,
+                        attributes: { comment: `Uploaded from VS Code: ${fileName}` }
+                    }
+                }],
+                { headers: { 'Content-Type': 'application/json-patch+json' } }
+            );
+
+            vscode.window.showInformationMessage(`Uploaded: ${fileName}`);
+            await this.refreshWorkItem();
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to upload attachment: ${error}`);
+        }
+    }
+
+    private async downloadAttachment(url: string, name: string) {
+        try {
+            const saveUri = await vscode.window.showSaveDialog({
+                defaultUri: vscode.Uri.file(name),
+                saveLabel: 'Download'
+            });
+
+            if (!saveUri) return;
+
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            if (!axiosInstance) return;
+
+            const response = await axiosInstance.get(url, { responseType: 'arraybuffer' });
+
+            const fs = require('fs');
+            fs.writeFileSync(saveUri.fsPath, Buffer.from(response.data));
+
+            vscode.window.showInformationMessage(`Downloaded: ${name}`);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to download attachment: ${error}`);
+        }
+    }
+
+    private async deleteAttachment(url: string) {
+        if (!this._workItem) return;
+
+        const confirm = await vscode.window.showWarningMessage(
+            'Are you sure you want to remove this attachment?',
+            { modal: true },
+            'Remove'
+        );
+
+        if (confirm !== 'Remove') return;
+
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            if (!axiosInstance) return;
+
+            const relations = this._workItem.relations || [];
+            const relationIndex = relations.findIndex((r: any) => r.url === url);
+
+            if (relationIndex === -1) {
+                vscode.window.showErrorMessage('Attachment not found');
+                return;
+            }
+
+            await axiosInstance.patch(
+                `/_apis/wit/workitems/${this._workItem.id}`,
+                [{ op: 'remove', path: `/relations/${relationIndex}` }],
+                { headers: { 'Content-Type': 'application/json-patch+json' } }
+            );
+
+            vscode.window.showInformationMessage('Attachment removed');
+            await this.refreshWorkItem();
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to remove attachment: ${error}`);
+        }
+    }
+
     private async addComment(comment: string) {
         if (!this._workItem || !comment.trim()) return;
 
@@ -310,7 +433,7 @@ export class WorkItemPanel {
             this._areas = areas;
             this._teamMembers = teamMembers;
             this._existingTags = existingTags;
-            this._panel.webview.html = this._getHtmlForWebview(comments, linkedItems);
+            this._panel.webview.html = this._getHtmlForWebview(comments, linkedItems, attachments);
         });
     }
 
@@ -544,7 +667,7 @@ export class WorkItemPanel {
         }
     }
 
-    private _getHtmlForWebview(comments: any[] = [], linkedItems: any[] = []): string {
+    private _getHtmlForWebview(comments: any[] = [], linkedItems: any[] = [], attachments: any[] = []): string {
         if (!this._workItem) return '<html><body><p>No work item loaded</p></body></html>';
 
         const fields = this._workItem.fields;
@@ -988,6 +1111,94 @@ export class WorkItemPanel {
             font-weight: 600;
             color: white;
         }
+
+        /* ATTACHMENTS */
+        .attachments-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .upload-btn {
+            padding: 6px 12px;
+            background: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+        .upload-btn:hover {
+            background: var(--vscode-button-secondaryHoverBackground);
+        }
+        .attachments-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .attachment-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 12px;
+            background: var(--vscode-editor-background);
+            border-radius: 6px;
+            border: 1px solid var(--vscode-input-border);
+            transition: all 0.2s;
+        }
+        .attachment-item:hover {
+            border-color: var(--vscode-focusBorder);
+        }
+        .attachment-icon {
+            font-size: 20px;
+        }
+        .attachment-info {
+            flex: 1;
+        }
+        .attachment-name {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--vscode-foreground);
+            cursor: pointer;
+        }
+        .attachment-name:hover {
+            color: var(--vscode-textLink-foreground);
+            text-decoration: underline;
+        }
+        .attachment-meta {
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+        }
+        .attachment-actions {
+            display: flex;
+            gap: 6px;
+        }
+        .attachment-btn {
+            padding: 4px 8px;
+            background: transparent;
+            color: var(--vscode-foreground);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            opacity: 0.7;
+            transition: all 0.2s;
+        }
+        .attachment-btn:hover {
+            opacity: 1;
+            border-color: var(--vscode-focusBorder);
+        }
+        .attachment-btn.delete:hover {
+            color: #d13438;
+            border-color: #d13438;
+        }
+        .no-attachments {
+            text-align: center;
+            padding: 20px;
+            color: var(--vscode-descriptionForeground);
+            font-size: 13px;
+        }
     </style>
 </head>
 <body>
@@ -1092,6 +1303,32 @@ export class WorkItemPanel {
         </div>
         ` : ''}
 
+        <div class="card">
+            <div class="attachments-header">
+                <div class="card-title" style="margin-bottom: 0;">📎 Attachments (${attachments.length})</div>
+                <button class="upload-btn" onclick="uploadAttachment()">+ Upload File</button>
+            </div>
+            ${attachments.length > 0 ? `
+            <div class="attachments-list">
+                ${attachments.map((att: any) => `
+                    <div class="attachment-item">
+                        <span class="attachment-icon">${this.getFileIcon(att.name)}</span>
+                        <div class="attachment-info">
+                            <div class="attachment-name" onclick="downloadAttachment('${this.escapeHtml(att.url)}', '${this.escapeHtml(att.name)}')">${this.escapeHtml(att.name)}</div>
+                            <div class="attachment-meta">${att.resourceSize ? this.formatFileSize(att.resourceSize) : ''}${att.comment ? ' • ' + this.escapeHtml(att.comment) : ''}</div>
+                        </div>
+                        <div class="attachment-actions">
+                            <button class="attachment-btn" onclick="downloadAttachment('${this.escapeHtml(att.url)}', '${this.escapeHtml(att.name)}')" title="Download">↓</button>
+                            <button class="attachment-btn delete" onclick="deleteAttachment('${this.escapeHtml(att.url)}')" title="Remove">×</button>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+            ` : `
+            <div class="no-attachments">No attachments yet. Click "Upload File" to add one.</div>
+            `}
+        </div>
+
         <div class="card" id="stateSection">
             <div class="card-title">Change State</div>
             <div class="state-pills">
@@ -1195,6 +1432,18 @@ export class WorkItemPanel {
             const select = document.getElementById('areaSelect');
             vscode.postMessage({ command: 'updateField', field: 'System.AreaPath', value: select.value });
         }
+
+        function uploadAttachment() {
+            vscode.postMessage({ command: 'uploadAttachment' });
+        }
+
+        function downloadAttachment(url, name) {
+            vscode.postMessage({ command: 'downloadAttachment', url, name });
+        }
+
+        function deleteAttachment(url) {
+            vscode.postMessage({ command: 'deleteAttachment', url });
+        }
     </script>
 </body>
 </html>`;
@@ -1240,6 +1489,28 @@ export class WorkItemPanel {
             'Removed': '#d13438'
         };
         return map[state] || '#8b8b8b';
+    }
+
+    private getFileIcon(fileName: string): string {
+        const ext = fileName.split('.').pop()?.toLowerCase() || '';
+        const iconMap: Record<string, string> = {
+            'pdf': '📄',
+            'doc': '📝', 'docx': '📝',
+            'xls': '📊', 'xlsx': '📊',
+            'png': '🖼️', 'jpg': '🖼️', 'jpeg': '🖼️', 'gif': '🖼️',
+            'zip': '📦', 'rar': '📦',
+            'txt': '📃', 'md': '📃',
+            'js': '💻', 'ts': '💻', 'py': '💻'
+        };
+        return iconMap[ext] || '📎';
+    }
+
+    private formatFileSize(bytes: number): string {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     }
 
     public dispose() {
