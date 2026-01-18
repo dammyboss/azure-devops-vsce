@@ -588,20 +588,44 @@ export class WorkItemPanel {
             const axiosInstance = this.authenticationManager.getAxiosInstance();
             const config = this.authenticationManager.getConfig();
 
-            if (!axiosInstance || !config?.defaultProject || !config?.defaultTeam) return [];
+            if (!axiosInstance || !config?.defaultProject || !config?.defaultTeam) {
+                console.log('Team members: Missing config', { project: config?.defaultProject, team: config?.defaultTeam });
+                // Fallback: add current user if available
+                const currentUser = await this.authenticationManager.getCurrentUser();
+                if (currentUser?.uniqueName && currentUser?.displayName) {
+                    return [{
+                        id: currentUser.id || '',
+                        displayName: currentUser.displayName,
+                        uniqueName: currentUser.uniqueName
+                    }];
+                }
+                return [];
+            }
 
             const response = await axiosInstance.get(
                 `/_apis/projects/${encodeURIComponent(config.defaultProject)}/teams/${encodeURIComponent(config.defaultTeam)}/members`,
                 { params: { 'api-version': '7.0' } }
             );
 
-            return (response.data.value || []).map((member: any) => ({
+            const members = (response.data.value || []).map((member: any) => ({
                 id: member.identity?.id || '',
                 displayName: member.identity?.displayName || '',
                 uniqueName: member.identity?.uniqueName || ''
             }));
+            
+            console.log('Team members loaded:', members.length);
+            return members;
         } catch (error) {
             console.error('Failed to load team members:', error);
+            // Fallback: add current user
+            const currentUser = await this.authenticationManager.getCurrentUser();
+            if (currentUser?.uniqueName && currentUser?.displayName) {
+                return [{
+                    id: currentUser.id || '',
+                    displayName: currentUser.displayName,
+                    uniqueName: currentUser.uniqueName
+                }];
+            }
             return [];
         }
     }
@@ -837,6 +861,8 @@ export class WorkItemPanel {
             display: flex;
             flex-direction: column;
             gap: 6px;
+            position: relative;
+            z-index: 1;
         }
         .meta-label {
             font-size: 10px;
@@ -884,6 +910,8 @@ export class WorkItemPanel {
             font-size: 13px;
             cursor: pointer;
             transition: all 0.2s;
+            position: relative;
+            z-index: 10;
         }
         .meta-select:hover {
             border-color: var(--vscode-focusBorder);
@@ -1367,6 +1395,10 @@ export class WorkItemPanel {
 
     <script>
         const vscode = acquireVsCodeApi();
+        console.log('WorkItem panel script loaded');
+        console.log('Team members count:', ${this._teamMembers.length});
+        console.log('Iterations count:', ${this._iterations.length});
+        console.log('Areas count:', ${this._areas.length});
 
         function saveWorkItem() {
             const title = document.getElementById('title').value;
@@ -1407,29 +1439,41 @@ export class WorkItemPanel {
         }
 
         function updateAssignee() {
+            console.log('updateAssignee called');
             const select = document.getElementById('assigneeSelect');
+            console.log('Assignee select element:', select);
+            console.log('Selected value:', select.value);
             vscode.postMessage({ command: 'assignTo', uniqueName: select.value });
         }
 
         function updatePriority(priority) {
+            console.log('updatePriority called:', priority);
             document.querySelectorAll('.priority-btn').forEach(btn => btn.classList.remove('active'));
             document.querySelector('.priority-btn.p' + priority).classList.add('active');
             vscode.postMessage({ command: 'updateField', field: 'Microsoft.VSTS.Common.Priority', value: priority });
         }
 
         function updateEffort() {
+            console.log('updateEffort called');
             const input = document.getElementById('effortInput');
             const value = input.value ? parseFloat(input.value) : null;
+            console.log('Effort value:', value);
             vscode.postMessage({ command: 'updateField', field: 'Microsoft.VSTS.Scheduling.Effort', value: value });
         }
 
         function updateSprint() {
+            console.log('updateSprint called');
             const select = document.getElementById('sprintSelect');
+            console.log('Sprint select element:', select);
+            console.log('Selected value:', select.value);
             vscode.postMessage({ command: 'updateField', field: 'System.IterationPath', value: select.value || null });
         }
 
         function updateArea() {
+            console.log('updateArea called');
             const select = document.getElementById('areaSelect');
+            console.log('Area select element:', select);
+            console.log('Selected value:', select.value);
             vscode.postMessage({ command: 'updateField', field: 'System.AreaPath', value: select.value });
         }
 
