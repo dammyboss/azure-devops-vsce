@@ -37,72 +37,58 @@ export class ConnectionStatusProvider implements vscode.TreeDataProvider<Connect
         const items: ConnectionItem[] = [];
 
         if (!status.isConnected || !config) {
-            const notConnectedItem = new ConnectionItem(
+            items.push(new ConnectionItem(
                 'Not Connected',
-                'Click to connect',
+                '',
                 vscode.TreeItemCollapsibleState.None,
-                {
-                    command: 'azureDevOps.connect',
-                    title: 'Connect to Azure DevOps'
-                },
-                'Not Connected'
-            );
-            notConnectedItem.iconPath = new vscode.ThemeIcon('plug');
-            items.push(notConnectedItem);
+                undefined,
+                'notConnected'
+            ));
             return items;
         }
 
         // Organization
         if (status.organization) {
-            const orgName = status.organization.replace('https://dev.azure.com/', '');
-            const orgItem = new ConnectionItem(
+            items.push(new ConnectionItem(
                 'Organization',
-                orgName,
+                status.organization.replace('https://dev.azure.com/', ''),
                 vscode.TreeItemCollapsibleState.None,
                 undefined,
-                `Azure DevOps Organization: ${orgName}`
-            );
-            orgItem.iconPath = new vscode.ThemeIcon('home');
-            items.push(orgItem);
+                'organization'
+            ));
         }
 
         // Current User
         if (status.user) {
-            const userItem = new ConnectionItem(
+            items.push(new ConnectionItem(
                 'User',
                 status.user,
                 vscode.TreeItemCollapsibleState.None,
                 undefined,
-                `Signed in as: ${status.user}`
-            );
-            userItem.iconPath = new vscode.ThemeIcon('account');
-            items.push(userItem);
+                'user'
+            ));
         }
 
         // Project
         if (config.defaultProject) {
-            const projectItem = new ConnectionItem(
+            items.push(new ConnectionItem(
                 'Project',
                 config.defaultProject,
                 vscode.TreeItemCollapsibleState.None,
                 undefined,
-                `Selected Project: ${config.defaultProject}`
-            );
-            projectItem.iconPath = new vscode.ThemeIcon('project');
-            items.push(projectItem);
+                'project'
+            ));
         }
 
         // Team
         if (config.defaultTeam) {
-            const teamItem = new ConnectionItem(
+            items.push(new ConnectionItem(
                 'Team',
                 config.defaultTeam,
                 vscode.TreeItemCollapsibleState.None,
                 undefined,
-                `Selected Team: ${config.defaultTeam}`
-            );
-            teamItem.iconPath = new vscode.ThemeIcon('organization');
-            items.push(teamItem);
+                'team'
+            ));
         }
 
         return items;
@@ -115,13 +101,29 @@ class ConnectionItem extends vscode.TreeItem {
         description: string,
         collapsibleState: vscode.TreeItemCollapsibleState = vscode.TreeItemCollapsibleState.None,
         command?: vscode.Command,
+        type?: string,
         tooltip?: string
     ) {
         super(label, collapsibleState);
         this.description = description;
-        this.tooltip = tooltip || `${label}: ${description}`;
+        this.tooltip = tooltip || `${label}${description ? ': ' + description : ''}`;
+        
+        // Add icons and colors based on type
+        if (type === 'organization') {
+            this.iconPath = new vscode.ThemeIcon('home', new vscode.ThemeColor('charts.blue'));
+        } else if (type === 'user') {
+            this.iconPath = new vscode.ThemeIcon('account', new vscode.ThemeColor('charts.green'));
+        } else if (type === 'project') {
+            this.iconPath = new vscode.ThemeIcon('layers', new vscode.ThemeColor('charts.orange'));
+        } else if (type === 'team') {
+            this.iconPath = new vscode.ThemeIcon('organization', new vscode.ThemeColor('charts.red'));
+        } else if (type === 'notConnected') {
+            this.iconPath = new vscode.ThemeIcon('error', new vscode.ThemeColor('errorForeground'));
+        }
+        
         if (command) {
             this.command = command;
         }
     }
 }
+

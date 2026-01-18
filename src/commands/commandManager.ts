@@ -15,6 +15,7 @@ import { OrganizationManager } from '../authentication/organizationManager';
 import { ConnectionStatusProvider } from '../authentication/connectionStatusProvider';
 
 import { WorkItemLinksManager } from '../utils/workItemLinksManager';
+import { SettingsUIProvider } from '../ai/settings-ui';
 
 interface ExtensionComponents {
     authenticationManager: AuthenticationManager;
@@ -27,7 +28,7 @@ interface ExtensionComponents {
     statusBarManager: StatusBarManager;
     extensionUri: vscode.Uri;
     workItemLinksManager: WorkItemLinksManager;
-    connectionStatusProvider: ConnectionStatusProvider;
+    connectionStatusProvider: any;
 }
 
 interface WorkItemQuickPickItem extends vscode.QuickPickItem {
@@ -45,10 +46,9 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
             const connected = await components.authenticationManager.connect();
             if (connected) {
                 // Set context for all views
-                await vscode.commands.executeCommand('setContext', 'azureDevOps.connected', true);
+                vscode.commands.executeCommand('setContext', 'azureDevOps.connected', true);
 
                 components.statusBarManager.updateStatus('connected');
-                components.connectionStatusProvider.refresh();
                 
                 // Refresh ALL views
                 components.workItemProvider.refresh();
@@ -56,8 +56,9 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
                 components.boardProvider.refresh();
                 components.sprintProvider.refresh();
                 components.queryProvider.refresh();
+                components.connectionStatusProvider.refresh();
             } else {
-                await vscode.commands.executeCommand('setContext', 'azureDevOps.connected', false);
+                vscode.commands.executeCommand('setContext', 'azureDevOps.connected', false);
             }
         })
     );
@@ -79,12 +80,12 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
                     if (connected) {
                         vscode.commands.executeCommand('setContext', 'azureDevOps.connected', true);
                         components.statusBarManager.updateStatus('connected');
-                        components.connectionStatusProvider.refresh();
                         components.workItemProvider.refresh();
                         components.backlogProvider.refresh();
                         components.boardProvider.refresh();
                         components.sprintProvider.refresh();
                         components.queryProvider.refresh();
+                        components.connectionStatusProvider.refresh();
                     }
                 }
             } catch (error: any) {
@@ -99,7 +100,6 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
             await components.authenticationManager.disconnect();
             vscode.commands.executeCommand('setContext', 'azureDevOps.connected', false);
             components.statusBarManager.updateStatus('disconnected');
-            components.connectionStatusProvider.refresh();
             
             // Refresh ALL views to show disconnected state
             components.workItemProvider.refresh();
@@ -107,6 +107,7 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
             components.boardProvider.refresh();
             components.sprintProvider.refresh();
             components.queryProvider.refresh();
+            components.connectionStatusProvider.refresh();
         })
     );
 
@@ -1942,6 +1943,14 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
             } else {
                 vscode.window.showErrorMessage('Work item created but failed to link');
             }
+        })
+    );
+
+    // AI Settings command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.openAISettings', async () => {
+            const outputChannel = vscode.window.createOutputChannel('Azure DevOps AI');
+            SettingsUIProvider.createSettingsPanel(context, outputChannel);
         })
     );
 }

@@ -4,6 +4,14 @@ A Visual Studio Code extension that integrates Azure DevOps Boards directly into
 
 ## Features
 
+### 🤖 AI Assistant (NEW!)
+- Multi-provider LLM support (Anthropic Claude, OpenAI, Azure OpenAI, DeepSeek, Grok)
+- Natural language queries for work items and sprints
+- MCP (Model Context Protocol) client for extended capabilities
+- Connect to local or remote MCP servers
+- Real-time streaming responses
+- [Quick Start Guide](./AI_QUICKSTART.md) | [Full Documentation](./AI_INTEGRATION.md)
+
 ### 🔐 Authentication
 - Personal Access Token (PAT) based authentication
 - Secure token storage using VSCode's SecretStorage API

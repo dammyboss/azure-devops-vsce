@@ -147,8 +147,7 @@ export class AuthenticationManager {
 
     public async connect(): Promise<boolean> {
         try {
-            // Get Microsoft session - use scopes that Azure DevOps recognizes
-            // The '499b84d6-255a-44c2-8dab-4c5dae438d15' is the Azure DevOps app ID
+            // Get Microsoft session for auth using Azure DevOps app scope
             const session = await vscode.authentication.getSession('microsoft', [
                 'https://app.vssps.visualstudio.com/.default'
             ], { createIfNone: true });
@@ -286,13 +285,6 @@ export class AuthenticationManager {
     public setConfig(config: AzureDevOpsConfig): void {
         this.config = config;
         this.createAxiosInstance();
-        
-        // Update connection status
-        this.connectionStatus = {
-            isConnected: true,
-            organization: config.organizationUrl,
-            project: config.defaultProject
-        };
     }
 
     public async getCurrentUser(): Promise<any> {

@@ -31,30 +31,63 @@ export class OrganizationManager {
     }
 
     /**
-     * Get user's organizations from Azure DevOps
+     * Get user's organizations by prompting for organization name
+     * Since we're using Azure DevOps app scope, we'll prompt the user
      */
     async getOrganizations(accessToken: string): Promise<Organization[]> {
         try {
-            // Try multiple endpoints - Azure DevOps API that accepts bearer tokens
-            const response = await axios.get('https://dev.azure.com/_apis/organizations', {
+            // With Azure DevOps app scope, automatic organization discovery via API may not work
+            // Instead, prompt the user for their organization name
+            const orgName = await vscode.window.showInputBox({
+                title: 'Enter Azure DevOps Organization',
+                placeHolder: 'e.g., myorg or https://dev.azure.com/myorg',
+                prompt: 'Enter your Azure DevOps organization name or full URL'
+            });
+
+            if (!orgName) {
+                throw new Error('Organization name is required');
+            }
+
+            // Parse organization name from URL or use as-is
+            let cleanOrgName = orgName.trim();
+            if (cleanOrgName.includes('/')) {
+                // Extract from URL like https://dev.azure.com/myorg
+                const parts = cleanOrgName.split('/');
+                cleanOrgName = parts[parts.length - 1];
+            }
+
+            // Verify the organization exists by trying to fetch its projects
+            const verifyUrl = `https://dev.azure.com/${cleanOrgName}/_apis/projects`;
+            await axios.get(verifyUrl, {
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
                     'Content-Type': 'application/json'
                 },
-                params: { 'api-version': '7.1-preview.1' }
+                params: { 'api-version': '7.1' }
             });
 
-            const organizations: Organization[] = (response.data.value || []).map((org: any) => ({
-                id: org.id,
-                name: org.name,
-                url: `https://dev.azure.com/${org.name}`,
-                accountUri: `https://dev.azure.com/${org.name}`
-            }));
+            // If verification succeeds, return the organization
+            const organization: Organization = {
+                id: cleanOrgName,
+                name: cleanOrgName,
+                url: `https://dev.azure.com/${cleanOrgName}`,
+                accountUri: `https://dev.azure.com/${cleanOrgName}`
+            };
 
-            return organizations;
+            return [organization];
         } catch (error: any) {
             console.error('Failed to fetch organizations:', error.message);
-            throw new Error('Failed to fetch organizations. Make sure your account has proper permissions.');
+            if (error.response?.status === 404) {
+                vscode.window.showErrorMessage(`Organization not found or not accessible: "${error.config?.url}"`);
+            } else if (error.response?.status === 401) {
+                vscode.window.showErrorMessage('Authentication failed. Your token may have expired.');
+            } else if (error.message === 'Organization name is required') {
+                // User cancelled
+                throw error;
+            } else {
+                vscode.window.showErrorMessage('Failed to verify organization. Please check the name and try again.');
+            }
+            throw new Error('Failed to fetch organizations.');
         }
     }
 

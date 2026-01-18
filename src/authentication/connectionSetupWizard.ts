@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import axios from 'axios';
 import { AuthenticationManager } from './authenticationManager';
 import { OrganizationManager, Organization, Project, Team } from './organizationManager';
 
@@ -87,68 +86,34 @@ export class ConnectionSetupWizard {
     }
 
     /**
-     * Step 2: Get organization name
+     * Step 2: Select organization
      */
     private async selectOrganizationStep(accessToken: string): Promise<Organization | undefined> {
         try {
-            // Prompt user for organization name
-            const orgInput = await vscode.window.showInputBox({
-                prompt: 'Enter your Azure DevOps organization name',
-                placeHolder: 'e.g., myorganization (or https://dev.azure.com/myorganization)',
-                ignoreFocusOut: true
-            });
-
-            if (!orgInput) {
-                throw new Error('Organization name is required.');
-            }
-
-            // Extract organization name from URL or use as-is
-            let orgName = orgInput.trim();
-            
-            // Handle various URL formats
-            if (orgName.includes('dev.azure.com')) {
-                // Extract from URL like https://dev.azure.com/dammyboss or dev.azure.com/dammyboss
-                const match = orgName.match(/dev\.azure\.com\/([^\/\s]+)/);
-                if (match && match[1]) {
-                    orgName = match[1];
-                }
-            }
-
-            console.log(`Verifying organization: ${orgName}`);
-
-            // Verify the organization exists by trying to fetch projects
+            // Show progress
             return await vscode.window.withProgress(
                 {
                     location: vscode.ProgressLocation.Notification,
-                    title: `Verifying organization: ${orgName}...`,
+                    title: 'Fetching organizations...',
                     cancellable: false
                 },
                 async () => {
-                    try {
-                        // Test if organization exists
-                        const response = await axios.get(`https://dev.azure.com/${orgName}/_apis/projects`, {
-                            headers: {
-                                'Authorization': `Bearer ${accessToken}`,
-                                'Content-Type': 'application/json'
-                            },
-                            params: { '$top': 1, 'api-version': '7.1-preview.4' }
-                        });
+                    // Try to fetch fresh organizations
+                    let organizations = await this.orgManager.getOrganizations(accessToken);
 
-                        console.log(`Organization ${orgName} verified successfully`);
-
-                        // Organization exists
-                        const org: Organization = {
-                            id: orgName,
-                            name: orgName,
-                            url: `https://dev.azure.com/${orgName}`,
-                            accountUri: `https://dev.azure.com/${orgName}`
-                        };
-
-                        return org;
-                    } catch (error: any) {
-                        console.error(`Failed to access organization ${orgName}:`, error.response?.status, error.message);
-                        throw new Error(`Organization "${orgName}" not found or access denied. Status: ${error.response?.status}`);
+                    // If fetch fails, try cached
+                    if (organizations.length === 0) {
+                        organizations = await this.orgManager.getCachedOrganizations();
                     }
+
+                    // If we have organizations, show picker
+                    if (organizations.length > 0) {
+                        // Cache them for next time
+                        await this.orgManager.cacheOrganizations(organizations);
+                        return await this.orgManager.selectOrganization(organizations);
+                    }
+
+                    throw new Error('No organizations found. Make sure you have access to Azure DevOps organizations.');
                 }
             );
         } catch (error: any) {
@@ -168,16 +133,8 @@ export class ConnectionSetupWizard {
                     cancellable: false
                 },
                 async () => {
-                    try {
-                        const projects = await this.orgManager.getProjects(org.url, accessToken);
-                        if (projects.length === 0) {
-                            throw new Error('No projects found in this organization.');
-                        }
-                        return await this.orgManager.selectProject(projects);
-                    } catch (error: any) {
-                        console.error('Project fetch error:', error.message);
-                        throw error;
-                    }
+                    const projects = await this.orgManager.getProjects(org.url, accessToken);
+                    return await this.orgManager.selectProject(projects);
                 }
             );
         } catch (error: any) {

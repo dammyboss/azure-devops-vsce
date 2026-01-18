@@ -2087,7 +2087,7 @@ export class WorkItemPanel {
                 const chip = document.createElement('span');
                 chip.className = 'tag-chip';
                 chip.dataset.tag = tag;
-                chip.innerHTML = tag + '<span class="remove-tag" onclick="removeTag(' + JSON.stringify(tag) + ', event)">×</span>';
+                chip.innerHTML = tag + '<span class="remove-tag" onclick="removeTag(\\''+tag+'\\', event)">×</span>';
                 container.insertBefore(chip, input);
             });
         }
@@ -2112,7 +2112,7 @@ export class WorkItemPanel {
             }
 
             suggestionsDiv.innerHTML = matches.map(tag =>
-                '<div class="tag-suggestion" onclick="selectTagSuggestion(' + JSON.stringify(tag) + ')">' + tag + '</div>'
+                '<div class="tag-suggestion" onclick="selectTagSuggestion(\\''+tag+'\\')">' + tag + '</div>'
             ).join('');
             suggestionsDiv.classList.add('show');
         }

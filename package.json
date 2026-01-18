@@ -16,6 +16,18 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "customEditors": [
+      {
+        "viewType": "azureDevOps.chatEditor",
+        "displayName": "Azure DevOps AI Chat",
+        "selector": [
+          {
+            "filenamePattern": "*.aichat"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
     "commands": [
       {
         "command": "azureDevOps.connect",
@@ -238,6 +250,24 @@
         "title": "Setup Connection Wizard",
         "category": "Azure DevOps",
         "icon": "$(settings-gear)"
+      },
+      {
+        "command": "azureDevOps.openAIChat",
+        "title": "Open AI Assistant",
+        "category": "Azure DevOps",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "azureDevOps.openAIChatEditor",
+        "title": "Open AI Chat in Editor",
+        "category": "Azure DevOps",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "azureDevOps.configureMCP",
+        "title": "Configure MCP Servers",
+        "category": "Azure DevOps",
+        "icon": "$(server)"
       }
     ],
     "viewsContainers": {
@@ -256,6 +286,13 @@
           "name": "Connection",
           "icon": "$(debug-disconnect)",
           "contextualTitle": "Azure DevOps Connection Status"
+        },
+        {
+          "id": "azureDevOpsAIChat",
+          "name": "AI Assistant",
+          "type": "webview",
+          "icon": "$(comment-discussion)",
+          "contextualTitle": "Azure DevOps AI Assistant"
         },
         {
           "id": "azureDevOpsWorkItems",
@@ -292,27 +329,27 @@
     "viewsWelcome": [
       {
         "view": "azureDevOpsWorkItems",
-        "contents": "Not connected to Azure DevOps.\n\nUse the Command Palette (Ctrl+Shift+P) and run:\n**Azure DevOps: Connect to Organization**",
+        "contents": "Not Connected",
         "when": "!azureDevOps.connected"
       },
       {
         "view": "azureDevOpsBacklogs",
-        "contents": "Not connected to Azure DevOps.\n\nUse the Command Palette (Ctrl+Shift+P) and run:\n**Azure DevOps: Connect to Organization**",
+        "contents": "Not Connected",
         "when": "!azureDevOps.connected"
       },
       {
         "view": "azureDevOpsBoards",
-        "contents": "Not connected to Azure DevOps.\n\nUse the Command Palette (Ctrl+Shift+P) and run:\n**Azure DevOps: Connect to Organization**",
+        "contents": "Not Connected",
         "when": "!azureDevOps.connected"
       },
       {
         "view": "azureDevOpsSprints",
-        "contents": "Not connected to Azure DevOps.\n\nUse the Command Palette (Ctrl+Shift+P) and run:\n**Azure DevOps: Connect to Organization**",
+        "contents": "Not Connected",
         "when": "!azureDevOps.connected"
       },
       {
         "view": "azureDevOpsQueries",
-        "contents": "Not connected to Azure DevOps.\n\nUse the Command Palette (Ctrl+Shift+P) and run:\n**Azure DevOps: Connect to Organization**",
+        "contents": "Not Connected",
         "when": "!azureDevOps.connected"
       }
     ],
@@ -569,6 +606,125 @@
           "minimum": 10,
           "maximum": 1000,
           "description": "Maximum number of work items to load in the tree view"
+        },
+        "azureDevOps.ai.provider": {
+          "type": "string",
+          "enum": ["anthropic", "azure", "deepseek", "grok", "openai"],
+          "default": "anthropic",
+          "description": "AI provider to use for chat assistant"
+        },
+        "azureDevOps.ai.anthropic.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Anthropic API key for Claude models"
+        },
+        "azureDevOps.ai.anthropic.model": {
+          "type": "string",
+          "enum": ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"],
+          "default": "claude-sonnet-4-20250514",
+          "description": "Claude model to use"
+        },
+        "azureDevOps.ai.azure.endpoint": {
+          "type": "string",
+          "default": "",
+          "description": "Azure OpenAI endpoint URL"
+        },
+        "azureDevOps.ai.azure.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Azure OpenAI API key"
+        },
+        "azureDevOps.ai.azure.deployment": {
+          "type": "string",
+          "default": "",
+          "description": "Azure OpenAI deployment name"
+        },
+        "azureDevOps.ai.azure.apiVersion": {
+          "type": "string",
+          "default": "2024-02-15-preview",
+          "description": "Azure OpenAI API version"
+        },
+        "azureDevOps.ai.azure.model": {
+          "type": "string",
+          "enum": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-35-turbo"],
+          "default": "gpt-4o",
+          "description": "Azure OpenAI model"
+        },
+        "azureDevOps.ai.deepseek.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "DeepSeek API key"
+        },
+        "azureDevOps.ai.deepseek.model": {
+          "type": "string",
+          "enum": ["deepseek-chat", "deepseek-coder", "deepseek-reasoner"],
+          "default": "deepseek-chat",
+          "description": "DeepSeek model"
+        },
+        "azureDevOps.ai.grok.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Grok API key"
+        },
+        "azureDevOps.ai.grok.model": {
+          "type": "string",
+          "enum": ["grok-beta", "grok-2"],
+          "default": "grok-beta",
+          "description": "Grok model"
+        },
+        "azureDevOps.ai.openai.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "OpenAI API key"
+        },
+        "azureDevOps.ai.openai.model": {
+          "type": "string",
+          "enum": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"],
+          "default": "gpt-4o",
+          "description": "OpenAI model"
+        },
+        "azureDevOps.ai.mcp.servers": {
+          "type": "array",
+          "default": [],
+          "description": "MCP (Model Context Protocol) servers configuration",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Unique name for this MCP server"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["local", "remote"],
+                "description": "Type: 'local' for stdio-based, 'remote' for HTTP-based"
+              },
+              "url": {
+                "type": "string",
+                "description": "URL for remote MCP servers"
+              },
+              "command": {
+                "type": "string",
+                "description": "Command for local MCP servers (e.g., 'node', 'python')"
+              },
+              "args": {
+                "type": "array",
+                "description": "Arguments for the command (local only)",
+                "items": { "type": "string" }
+              },
+              "env": {
+                "type": "object",
+                "description": "Environment variables (local only)",
+                "additionalProperties": { "type": "string" }
+              },
+              "headers": {
+                "type": "object",
+                "description": "HTTP headers (remote only)",
+                "additionalProperties": { "type": "string" }
+              }
+            },
+            "required": ["name", "type"]
+          }
         }
       }
     }

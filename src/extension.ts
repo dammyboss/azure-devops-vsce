@@ -10,6 +10,8 @@ import { registerCommands } from './commands/commandManager';
 import { GitIntegration } from './gitIntegration/gitIntegration';
 import { StatusBarManager } from './utils/statusBarManager';
 import { WorkItemLinksManager } from './utils/workItemLinksManager';
+import { AIChatProvider } from './ai/chat-provider';
+import { ChatEditorProvider, openChatEditor } from './ai/chat-editor';
 
 export let authenticationManager: AuthenticationManager;
 export let workItemProvider: WorkItemProvider;
@@ -21,6 +23,7 @@ export let gitIntegration: GitIntegration;
 export let statusBarManager: StatusBarManager;
 export let workItemLinksManager: WorkItemLinksManager;
 export let connectionStatusProvider: ConnectionStatusProvider;
+export let aiChatProvider: AIChatProvider;
 
 export async function activate(context: vscode.ExtensionContext) {
     console.log('Azure DevOps Boards extension is now active!');
@@ -31,6 +34,31 @@ export async function activate(context: vscode.ExtensionContext) {
     gitIntegration = new GitIntegration();
     workItemLinksManager = new WorkItemLinksManager(authenticationManager);
     connectionStatusProvider = new ConnectionStatusProvider(authenticationManager, context);
+
+    // Initialize AI output channel
+    const aiOutputChannel = vscode.window.createOutputChannel('Azure DevOps AI');
+    context.subscriptions.push(aiOutputChannel);
+
+    // Initialize AI chat provider
+    aiChatProvider = new AIChatProvider(context.extensionUri, aiOutputChannel);
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider('azureDevOpsAIChat', aiChatProvider)
+    );
+
+    // Register chat editor provider
+    context.subscriptions.push(
+        ChatEditorProvider.register(context, aiOutputChannel)
+    );
+
+    // Register command to open chat in editor
+    context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.openAIChatEditor', () => openChatEditor(context))
+    );
+
+    // Alias command for backwards compatibility: openAIChat -> openAIChatEditor
+    context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.openAIChat', () => vscode.commands.executeCommand('azureDevOps.openAIChatEditor'))
+    );
 
     // Initialize providers
     workItemProvider = new WorkItemProvider(context, authenticationManager);
