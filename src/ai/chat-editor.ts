@@ -116,6 +116,7 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Azure DevOps AI Assistant</title>
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@14/dist/markdown-it.min.js"></script>
     <style>
         body {
             padding: 0;
@@ -752,6 +753,8 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
         let loadingInterval = null;
         let loadingMessageIndex = 0;
 
+        const md = window.markdownit({ html: false, breaks: true, linkify: true });
+
         const processingMessages = [
             'Reticulating splines',
             'Marinating',
@@ -889,7 +892,7 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
                 // Assistant message - clean, no header
                 const contentDiv = document.createElement('div');
                 contentDiv.className = 'message-content';
-                contentDiv.textContent = content;
+                contentDiv.innerHTML = md.render(content);
                 messageDiv.appendChild(contentDiv);
             }
 
@@ -957,7 +960,10 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
                     if (currentAssistantMessage) {
                         const contentDiv = currentAssistantMessage.querySelector('.message-content');
                         if (contentDiv) {
-                            contentDiv.textContent += message.text;
+                            const currentText = contentDiv.getAttribute('data-raw') || '';
+                            const newText = currentText + message.text;
+                            contentDiv.setAttribute('data-raw', newText);
+                            contentDiv.innerHTML = md.render(newText);
                         }
                         messagesDiv.scrollTop = messagesDiv.scrollHeight;
                     }

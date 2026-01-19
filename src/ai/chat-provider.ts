@@ -105,6 +105,7 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Assistant</title>
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@14/dist/markdown-it.min.js"></script>
     <style>
         body {
             padding: 0;
@@ -741,6 +742,8 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
         let loadingMessageIndex = 0;
         let isGenerating = false;
 
+        const md = window.markdownit({ html: false, breaks: true, linkify: true });
+
         const processingMessages = [
             'Reticulating splines',
             'Marinating',
@@ -854,7 +857,7 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
                 // Assistant message - clean, no header
                 const contentDiv = document.createElement('div');
                 contentDiv.className = 'message-content';
-                contentDiv.textContent = content;
+                contentDiv.innerHTML = md.render(content);
                 messageDiv.appendChild(contentDiv);
             }
 
@@ -943,7 +946,10 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
                     if (currentAssistantMessage) {
                         const contentDiv = currentAssistantMessage.querySelector('.message-content');
                         if (contentDiv) {
-                            contentDiv.textContent += message.text;
+                            const currentText = contentDiv.getAttribute('data-raw') || '';
+                            const newText = currentText + message.text;
+                            contentDiv.setAttribute('data-raw', newText);
+                            contentDiv.innerHTML = md.render(newText);
                         }
                         messagesDiv.scrollTop = messagesDiv.scrollHeight;
                     }
