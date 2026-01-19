@@ -652,6 +652,31 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
 
         let currentAssistantMessage = null;
         let loadingElement = null;
+        let loadingInterval = null;
+        let loadingMessageIndex = 0;
+
+        const processingMessages = [
+            'Reticulating splines',
+            'Marinating',
+            'Discombobulating',
+            'Percolating',
+            'Cogitating',
+            'Ruminating',
+            'Contemplating',
+            'Brainstorming',
+            'Synthesizing',
+            'Pondering deeply',
+            'Consulting the oracle',
+            'Channeling inspiration',
+            'Untangling thoughts',
+            'Brewing ideas',
+            'Assembling neurons',
+            'Calibrating wisdom',
+            'Defragmenting thoughts',
+            'Loading creativity',
+            'Warming up circuits',
+            'Connecting dots'
+        ];
 
         function showAnimatedLoading() {
             hideAnimatedLoading();
@@ -662,14 +687,27 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
                 <div class="loading-dots">
                     <span></span><span></span><span></span>
                 </div>
-                <span class="loading-text">Thinking...</span>
+                <span class="loading-text">\${processingMessages[0]}</span>
             \`;
             
             messagesDiv.appendChild(loadingElement);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+            loadingMessageIndex = 0;
+            loadingInterval = setInterval(() => {
+                loadingMessageIndex = (loadingMessageIndex + 1) % processingMessages.length;
+                const textEl = loadingElement?.querySelector('.loading-text');
+                if (textEl) {
+                    textEl.textContent = processingMessages[loadingMessageIndex];
+                }
+            }, 2000);
         }
 
         function hideAnimatedLoading() {
+            if (loadingInterval) {
+                clearInterval(loadingInterval);
+                loadingInterval = null;
+            }
             if (loadingElement) {
                 loadingElement.remove();
                 loadingElement = null;
