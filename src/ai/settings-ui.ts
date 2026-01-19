@@ -1539,14 +1539,22 @@ export class SettingsUIProvider {
     private async sendMCPServers(context: vscode.ExtensionContext) {
         try {
             const config = vscode.workspace.getConfiguration('azureDevOps.ai');
-            const servers = config.get<any>('mcp.servers', {});
+            const serversArray = config.get<any[]>('mcp.servers', []);
+
+            // Convert array to object for UI display
+            const servers: any = {};
+            serversArray.forEach((server: any) => {
+                if (server.name) {
+                    servers[server.name] = server;
+                }
+            });
 
             // Send servers to webview
             if (this.panel) {
                 this.panel.webview.postMessage({
                     type: 'mcpServersData',
                     servers: servers,
-                    statuses: {} // We can add status tracking later
+                    statuses: {}
                 });
             }
         } catch (error: any) {
@@ -1557,45 +1565,63 @@ export class SettingsUIProvider {
     private async saveMCPServer(server: any, context: vscode.ExtensionContext) {
         try {
             const config = vscode.workspace.getConfiguration('azureDevOps.ai');
-            const servers = config.get<any>('mcp.servers', {});
+            const serversArray = config.get<any[]>('mcp.servers', []);
 
-            // Add or update server
-            servers[server.name] = {
+            // Remove existing server with same name
+            const filteredServers = serversArray.filter((s: any) => s.name !== server.name);
+
+            // Add protocol to URL if missing
+            if (server.type === 'remote' && server.url && !server.url.startsWith('http')) {
+                server.url = 'https://' + server.url;
+            }
+
+            // Add new server
+            filteredServers.push({
+                name: server.name,
                 type: server.type,
-                url: server.url,
-                command: server.command,
-                args: server.args,
-                env: server.env,
-                enabled: true
-            };
+                ...(server.url && { url: server.url }),
+                ...(server.command && { command: server.command }),
+                ...(server.args && { args: server.args }),
+                ...(server.env && { env: server.env })
+            });
 
-            await config.update('mcp.servers', servers, vscode.ConfigurationTarget.Global);
+            await config.update('mcp.servers', filteredServers, vscode.ConfigurationTarget.Global);
 
             this.outputChannel.appendLine(`✅ MCP server saved: ${server.name}`);
+            vscode.window.showInformationMessage(`MCP server '${server.name}' added successfully`);
 
             // Refresh the server list
             await this.sendMCPServers(context);
+
+            // Reload MCP servers in the chat providers
+            vscode.commands.executeCommand('azureDevOps.reloadMCPServers');
         } catch (error: any) {
             this.outputChannel.appendLine(`❌ Error saving MCP server: ${error.message}`);
+            vscode.window.showErrorMessage(`Failed to save MCP server: ${error.message}`);
         }
     }
 
     private async removeMCPServer(serverName: string, context: vscode.ExtensionContext) {
         try {
             const config = vscode.workspace.getConfiguration('azureDevOps.ai');
-            const servers = config.get<any>('mcp.servers', {});
+            const serversArray = config.get<any[]>('mcp.servers', []);
 
             // Remove server
-            delete servers[serverName];
+            const filteredServers = serversArray.filter((s: any) => s.name !== serverName);
 
-            await config.update('mcp.servers', servers, vscode.ConfigurationTarget.Global);
+            await config.update('mcp.servers', filteredServers, vscode.ConfigurationTarget.Global);
 
             this.outputChannel.appendLine(`✅ MCP server removed: ${serverName}`);
+            vscode.window.showInformationMessage(`MCP server '${serverName}' removed successfully`);
 
             // Refresh the server list
             await this.sendMCPServers(context);
+
+            // Reload MCP servers in the chat providers
+            vscode.commands.executeCommand('azureDevOps.reloadMCPServers');
         } catch (error: any) {
             this.outputChannel.appendLine(`❌ Error removing MCP server: ${error.message}`);
+            vscode.window.showErrorMessage(`Failed to remove MCP server: ${error.message}`);
         }
     }
 }

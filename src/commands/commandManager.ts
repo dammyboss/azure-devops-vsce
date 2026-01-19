@@ -2003,4 +2003,11 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
             SettingsUIProvider.createSettingsPanel(context, outputChannel);
         })
     );
+
+    // Reload MCP Servers command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.reloadMCPServers', async () => {
+            vscode.commands.executeCommand('azureDevOps.updateConfig');
+        })
+    );
 }
