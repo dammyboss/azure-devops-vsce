@@ -344,6 +344,12 @@ export class MCPClient {
         this.servers.clear();
 
         for (const config of configs) {
+            // Skip disabled servers
+            if ((config as any).enabled === false) {
+                this.outputChannel.appendLine(`Skipping disabled MCP server: ${config.name}`);
+                continue;
+            }
+
             try {
                 const server = new MCPServerConnection(config, this.outputChannel);
                 await server.connect();
