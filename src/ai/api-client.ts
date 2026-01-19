@@ -43,6 +43,7 @@ export interface ProviderConfig {
 }
 
 export class APIClient {
+    private static instance: APIClient | null = null;
     private provider: Provider;
     private anthropicApiKey: string = '';
     private anthropicModel: string = 'claude-opus-4-1-20250805';
@@ -69,6 +70,13 @@ export class APIClient {
         this.provider = 'anthropic';
         this.systemPrompt = this.buildSystemPrompt();
         this.loadConfig();
+    }
+
+    public static getInstance(outputChannel: vscode.OutputChannel): APIClient {
+        if (!APIClient.instance) {
+            APIClient.instance = new APIClient(outputChannel);
+        }
+        return APIClient.instance;
     }
 
     private buildSystemPrompt(): string {

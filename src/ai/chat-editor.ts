@@ -13,7 +13,7 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
         outputChannel: vscode.OutputChannel
     ) {
         this.outputChannel = outputChannel;
-        this.apiClient = new APIClient(outputChannel);
+        this.apiClient = APIClient.getInstance(outputChannel);
         this.mcpClient = new MCPClient(outputChannel);
         this.loadMCPServers();
     }
