@@ -1,12 +1,14 @@
 import * as vscode from 'vscode';
 import { APIClient, StreamCallbacks } from './api-client';
 import { MCPClient } from './mcp-client';
+import { ChatHistoryManager } from './chat-history-manager';
 
 export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
     private static viewType = 'azureDevOps.chatEditor';
     private outputChannel: vscode.OutputChannel;
     private apiClient: APIClient;
     private mcpClient: MCPClient;
+    private historyManager: ChatHistoryManager;
 
     constructor(
         private readonly context: vscode.ExtensionContext,
@@ -15,6 +17,7 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
         this.outputChannel = outputChannel;
         this.apiClient = APIClient.getInstance(outputChannel);
         this.mcpClient = new MCPClient(outputChannel);
+        this.historyManager = ChatHistoryManager.getInstance(context);
         this.loadMCPServers();
     }
 
@@ -51,6 +54,13 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
 
         webviewPanel.webview.html = this.getHtmlContent(webviewPanel.webview);
 
+        this.historyManager.registerWebview(webviewPanel.webview);
+
+        // Send initial history to webview
+        this.historyManager.getHistory().then(history => {
+            webviewPanel.webview.postMessage({ type: 'historyUpdated', history });
+        });
+
         webviewPanel.webview.onDidReceiveMessage(async (message) => {
             switch (message.type) {
                 case 'sendMessage':
@@ -68,6 +78,13 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
                     break;
                 case 'openSettings':
                     await vscode.commands.executeCommand('azureDevOps.openAISettings');
+                    break;
+                case 'getHistory':
+                    const history = await this.historyManager.getHistory();
+                    webviewPanel.webview.postMessage({ type: 'historyUpdated', history });
+                    break;
+                case 'saveChat':
+                    await this.historyManager.saveChat(message.chat);
                     break;
             }
         });
@@ -769,16 +786,11 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
         const md = window.markdownit({ html: false, breaks: true, linkify: true });
 
         function loadHistory() {
-            const saved = localStorage.getItem('azuredevops-chatHistory');
-            if (saved) {
-                chatHistory = JSON.parse(saved);
-                updateHistoryPanel();
-            }
+            vscode.postMessage({ type: 'getHistory' });
         }
 
         function saveHistory() {
-            localStorage.setItem('azuredevops-chatHistory', JSON.stringify(chatHistory));
-            updateHistoryPanel();
+            // History is saved when newChat is called
         }
 
         function updateHistoryPanel() {
@@ -826,6 +838,8 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
             currentChatId = chat.id;
             toggleHistory();
         }
+
+        loadHistory();
 
         loadHistory();
 
@@ -1012,7 +1026,7 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
             if (messages.length > 0) {
                 const firstUserMsg = messages.find(m => m.classList.contains('user'));
                 const preview = firstUserMsg ? firstUserMsg.textContent.substring(0, 50) : 'New conversation';
-                chatHistory.unshift({
+                const chat = {
                     id: currentChatId,
                     timestamp: Date.now(),
                     preview: preview,
@@ -1020,9 +1034,8 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
                         role: m.classList.contains('user') ? 'user' : 'assistant',
                         content: m.textContent
                     }))
-                });
-                if (chatHistory.length > 20) chatHistory = chatHistory.slice(0, 20);
-                saveHistory();
+                };
+                vscode.postMessage({ type: 'saveChat', chat });
             }
             vscode.postMessage({ type: 'clearHistory' });
             messagesDiv.innerHTML = '';
@@ -1094,6 +1107,11 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
                     currentAssistantMessage = null;
                     tokenInfo.textContent = \`Tokens: \${message.inputTokens} in / \${message.outputTokens} out\`;
                     break;
+
+                case 'historyUpdated':
+                    chatHistory = message.history;
+                    updateHistoryPanel();
+                    break;
             }
         });
     </script>
@@ -1112,10 +1130,15 @@ export async function openChatEditor(context: vscode.ExtensionContext) {
 
     const provider = new ChatEditorProvider(context, vscode.window.createOutputChannel('Azure DevOps AI'));
     
-    // Create a dummy document content for initialization
     panel.webview.html = provider.getHtmlContent(panel.webview);
 
-    // Handle messages from the webview
+    const historyManager = (provider as any).historyManager;
+    historyManager.registerWebview(panel.webview);
+    
+    historyManager.getHistory().then((history: any) => {
+        panel.webview.postMessage({ type: 'historyUpdated', history });
+    });
+
     panel.webview.onDidReceiveMessage(async (message) => {
         switch (message.type) {
             case 'sendMessage':
@@ -1129,6 +1152,13 @@ export async function openChatEditor(context: vscode.ExtensionContext) {
                 break;
             case 'openSettings':
                 await vscode.commands.executeCommand('azureDevOps.openAISettings');
+                break;
+            case 'getHistory':
+                const hist = await historyManager.getHistory();
+                panel.webview.postMessage({ type: 'historyUpdated', history: hist });
+                break;
+            case 'saveChat':
+                await historyManager.saveChat(message.chat);
                 break;
         }
     });

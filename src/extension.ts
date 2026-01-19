@@ -40,7 +40,7 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(aiOutputChannel);
 
     // Initialize AI chat provider
-    aiChatProvider = new AIChatProvider(context.extensionUri, aiOutputChannel);
+    aiChatProvider = new AIChatProvider(context.extensionUri, aiOutputChannel, context);
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider('azureDevOpsAIChat', aiChatProvider)
     );

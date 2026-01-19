@@ -1,20 +1,24 @@
 import * as vscode from 'vscode';
 import { APIClient, StreamCallbacks } from './api-client';
 import { MCPClient } from './mcp-client';
+import { ChatHistoryManager } from './chat-history-manager';
 
 export class AIChatProvider implements vscode.WebviewViewProvider {
     private view?: vscode.WebviewView;
     private apiClient: APIClient;
     private mcpClient: MCPClient;
     private outputChannel: vscode.OutputChannel;
+    private historyManager: ChatHistoryManager;
 
     constructor(
         private readonly extensionUri: vscode.Uri,
-        outputChannel: vscode.OutputChannel
+        outputChannel: vscode.OutputChannel,
+        private readonly context: vscode.ExtensionContext
     ) {
         this.outputChannel = outputChannel;
         this.apiClient = APIClient.getInstance(outputChannel);
         this.mcpClient = new MCPClient(outputChannel);
+        this.historyManager = ChatHistoryManager.getInstance(context);
         this.loadMCPServers();
     }
 
@@ -46,6 +50,13 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
 
         webviewView.webview.html = this.getHtmlContent(webviewView.webview);
 
+        this.historyManager.registerWebview(webviewView.webview);
+
+        // Send initial history to webview
+        this.historyManager.getHistory().then(history => {
+            webviewView.webview.postMessage({ type: 'historyUpdated', history });
+        });
+
         webviewView.webview.onDidReceiveMessage(async (message) => {
             switch (message.type) {
                 case 'sendMessage':
@@ -63,6 +74,13 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'openSettings':
                     await vscode.commands.executeCommand('azureDevOps.openAISettings');
+                    break;
+                case 'getHistory':
+                    const history = await this.historyManager.getHistory();
+                    this.view?.webview.postMessage({ type: 'historyUpdated', history });
+                    break;
+                case 'saveChat':
+                    await this.historyManager.saveChat(message.chat);
                     break;
             }
         });
@@ -759,16 +777,11 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
 
         // Load history from localStorage
         function loadHistory() {
-            const saved = localStorage.getItem('azuredevops-chatHistory');
-            if (saved) {
-                chatHistory = JSON.parse(saved);
-                updateHistoryPanel();
-            }
+            vscode.postMessage({ type: 'getHistory' });
         }
 
         function saveHistory() {
-            localStorage.setItem('azuredevops-chatHistory', JSON.stringify(chatHistory));
-            updateHistoryPanel();
+            // History is saved when newChat is called
         }
 
         function updateHistoryPanel() {
@@ -816,6 +829,8 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             currentChatId = chat.id;
             toggleHistory();
         }
+
+        loadHistory();
 
         loadHistory();
 
@@ -977,7 +992,7 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             if (messages.length > 0) {
                 const firstUserMsg = messages.find(m => m.classList.contains('user'));
                 const preview = firstUserMsg ? firstUserMsg.textContent.substring(0, 50) : 'New conversation';
-                chatHistory.unshift({
+                const chat = {
                     id: currentChatId,
                     timestamp: Date.now(),
                     preview: preview,
@@ -985,9 +1000,8 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
                         role: m.classList.contains('user') ? 'user' : 'assistant',
                         content: m.textContent
                     }))
-                });
-                if (chatHistory.length > 20) chatHistory = chatHistory.slice(0, 20);
-                saveHistory();
+                };
+                vscode.postMessage({ type: 'saveChat', chat });
             }
             vscode.postMessage({ type: 'clearHistory' });
             messagesDiv.innerHTML = '';
@@ -1083,6 +1097,11 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
                     updateSendButton();
                     currentAssistantMessage = null;
                     tokenInfo.textContent = \`Tokens: \${message.inputTokens} in / \${message.outputTokens} out\`;
+                    break;
+
+                case 'historyUpdated':
+                    chatHistory = message.history;
+                    updateHistoryPanel();
                     break;
             }
         });
