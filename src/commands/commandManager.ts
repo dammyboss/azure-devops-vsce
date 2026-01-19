@@ -2004,6 +2004,15 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
         })
     );
 
+    // Update Config command (for AI providers)
+    context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.updateConfig', async () => {
+            // This command is called when AI configuration changes
+            // The actual config update is handled by the AI providers themselves
+            vscode.window.showInformationMessage('AI configuration updated');
+        })
+    );
+
     // Reload MCP Servers command
     context.subscriptions.push(
         vscode.commands.registerCommand('azureDevOps.reloadMCPServers', async () => {
