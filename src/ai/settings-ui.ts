@@ -529,6 +529,59 @@ export class SettingsUIProvider {
             color: var(--vscode-button-foreground);
             border: 1px solid var(--vscode-button-background);
         }
+
+        /* MCP Toggle Switch Styles */
+        .mcp-toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 40px;
+            height: 20px;
+        }
+
+        .mcp-toggle-input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .mcp-toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: var(--vscode-input-background);
+            border: 1px solid var(--vscode-widget-border);
+            border-radius: 20px;
+            transition: 0.3s;
+        }
+
+        .mcp-toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 14px;
+            width: 14px;
+            left: 2px;
+            bottom: 2px;
+            background-color: var(--vscode-foreground);
+            border-radius: 50%;
+            transition: 0.3s;
+        }
+
+        .mcp-toggle-input:checked + .mcp-toggle-slider {
+            background-color: var(--vscode-button-background);
+            border-color: var(--vscode-button-background);
+        }
+
+        .mcp-toggle-input:checked + .mcp-toggle-slider:before {
+            transform: translateX(20px);
+            background-color: var(--vscode-button-foreground);
+        }
+
+        .mcp-toggle-slider:hover {
+            border-color: var(--vscode-focusBorder);
+        }
     </style>
 </head>
 <body>
@@ -1142,6 +1195,9 @@ export class SettingsUIProvider {
 
         function saveMCPServer() {
             const name = document.getElementById('mcpServerName').value.trim();
+            const formEl = document.getElementById('addMCPServerForm');
+            const isEditMode = formEl.getAttribute('data-edit-mode') === 'true';
+            const originalName = formEl.getAttribute('data-original-name');
             
             if (!name) {
                 alert('Server name is required');
@@ -1182,8 +1238,9 @@ export class SettingsUIProvider {
             }
 
             vscode.postMessage({
-                type: 'saveMCPServer',
-                server: serverConfig
+                type: isEditMode ? 'updateMCPServer' : 'saveMCPServer',
+                server: serverConfig,
+                originalName: originalName
             });
 
             cancelAddMCPServer();
@@ -1206,24 +1263,31 @@ export class SettingsUIProvider {
             serverNames.forEach(name => {
                 const server = servers[name];
                 const isRemote = server.type === 'remote';
-                const statusIcon = server.enabled ? '🟢' : '⚫';
+                const isEnabled = server.enabled !== false; // Default to enabled
                 const info = isRemote ? server.url : server.command;
+                const serverNameEscaped = name.replace(/'/g, "\\\\'");
+                const serverJsonEscaped = JSON.stringify(server).replace(/"/g, '&quot;');
 
                 html += \`
-                    <div class="mcp-server-item">
-                        <div style="display: flex; justify-content: space-between; align-items: start;">
+                    <div class="mcp-server-item" style="border: 1px solid var(--vscode-widget-border); border-radius: 6px; padding: 12px; margin-bottom: 8px; background: var(--vscode-editor-background);">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
                             <div style="flex: 1;">
-                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-                                    <strong style="font-size: 12px;">\${name}</strong>
-                                    <span class="mcp-server-type-badge">\${isRemote ? 'Remote' : 'Local'}</span>
-                                    <span style="font-size: 11px;">\${statusIcon} \${server.enabled ? 'Enabled' : 'Disabled'}</span>
+                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap;">
+                                    <span style="font-weight: 600; font-size: 12px;">\${name}</span>
+                                    <span class="mcp-server-type-badge" style="font-size: 9px; padding: 2px 6px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); border-radius: 3px;">\${isRemote ? 'Remote' : 'Local'}</span>
                                 </div>
-                                <div style="font-size: 10px; color: var(--vscode-descriptionForeground); margin-bottom: 4px;">
-                                    \${info}
-                                </div>
+                                <div style="font-size: 10px; color: var(--vscode-descriptionForeground); margin-bottom: 6px; word-break: break-all; font-family: monospace;">\${info}</div>
                             </div>
-                            <div style="display: flex; gap: 8px;">
-                                <button class="btn" onclick="removeMCPServer('\${name}')" style="font-size: 10px; padding: 4px 8px; background: transparent; border: 1px solid var(--vscode-errorForeground); color: var(--vscode-errorForeground);">Remove</button>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <!-- Toggle Switch -->
+                                <label class="mcp-toggle-switch" style="position: relative; display: inline-block; width: 40px; height: 20px;">
+                                    <input type="checkbox" class="mcp-toggle-input" data-server-name="\${serverNameEscaped}" \${isEnabled ? 'checked' : ''} style="opacity: 0; width: 0; height: 0;">
+                                    <span class="mcp-toggle-slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--vscode-input-background); border: 1px solid var(--vscode-widget-border); border-radius: 20px; transition: 0.3s;"></span>
+                                </label>
+                                <!-- Edit Button -->
+                                <button class="btn" onclick="editMCPServer('\${serverNameEscaped}', \${serverJsonEscaped})" title="Edit server" style="font-size: 10px; padding: 4px 12px;">Edit</button>
+                                <!-- Remove Button -->
+                                <button class="btn" onclick="removeMCPServer('\${serverNameEscaped}')" title="Remove server" style="font-size: 10px; padding: 4px 12px; color: var(--vscode-errorForeground); border-color: var(--vscode-errorForeground);">Remove</button>
                             </div>
                         </div>
                     </div>
@@ -1233,11 +1297,65 @@ export class SettingsUIProvider {
             serverList.innerHTML = html;
         }
 
+        function editMCPServer(serverName, server) {
+            // Populate the form with server data
+            document.getElementById('mcpServerName').value = server.name;
+            document.getElementById('mcpServerName').disabled = true; // Can't change name during edit
+
+            if (server.url) {
+                // Remote server
+                currentMCPServerType = 'remote';
+                document.getElementById('mcpServerURL').value = server.url;
+                selectMCPType('remote');
+            } else {
+                // Local server
+                currentMCPServerType = 'local';
+                document.getElementById('mcpServerCommand').value = server.command || '';
+                document.getElementById('mcpServerArgs').value = server.args ? server.args.join(', ') : '';
+
+                if (server.env) {
+                    const envString = Object.entries(server.env).map(([k, v]) => \`\${k}=\${v}\`).join(', ');
+                    document.getElementById('mcpServerEnv').value = envString;
+                }
+                selectMCPType('local');
+            }
+
+            // Show the form in edit mode
+            document.getElementById('showAddMCPServerBtn').style.display = 'none';
+            document.getElementById('addMCPServerForm').style.display = 'block';
+
+            // Change the form title and button text
+            document.querySelector('#addMCPServerForm h4').textContent = 'Edit MCP Server';
+            const submitBtn = document.querySelector('#addMCPServerForm .btn:last-child');
+            if (submitBtn) submitBtn.textContent = 'Save Changes';
+
+            // Store that we're in edit mode
+            document.getElementById('addMCPServerForm').setAttribute('data-edit-mode', 'true');
+            document.getElementById('addMCPServerForm').setAttribute('data-original-name', serverName);
+        }
+
         function removeMCPServer(serverName) {
             if (confirm(\`Are you sure you want to remove the MCP server "\${serverName}"?\`)) {
                 vscode.postMessage({ type: 'removeMCPServer', serverName });
             }
         }
+
+        // Add event delegation for MCP server toggle
+        document.addEventListener('change', function(event) {
+            const target = event.target;
+
+            // Handle toggle switch
+            if (target.classList.contains('mcp-toggle-input')) {
+                const serverName = target.getAttribute('data-server-name');
+                if (serverName) {
+                    vscode.postMessage({
+                        type: 'toggleMCPServer',
+                        serverName: serverName,
+                        enabled: target.checked
+                    });
+                }
+            }
+        });
 
         // Listen for messages from extension
         window.addEventListener('message', event => {
@@ -1306,8 +1424,14 @@ export class SettingsUIProvider {
             case 'saveMCPServer':
                 await this.saveMCPServer(message.server, context);
                 break;
+            case 'updateMCPServer':
+                await this.updateMCPServer(message.server, message.originalName, context);
+                break;
             case 'removeMCPServer':
                 await this.removeMCPServer(message.serverName, context);
+                break;
+            case 'toggleMCPServer':
+                await this.toggleMCPServer(message.serverName, message.enabled, context);
                 break;
         }
     }
@@ -1567,25 +1691,29 @@ export class SettingsUIProvider {
             const config = vscode.workspace.getConfiguration('azureDevOps.ai');
             const serversArray = config.get<any[]>('mcp.servers', []);
 
-            // Remove existing server with same name
-            const filteredServers = serversArray.filter((s: any) => s.name !== server.name);
+            // Check for duplicate names
+            if (serversArray.some((s: any) => s.name === server.name)) {
+                vscode.window.showErrorMessage(`MCP server '${server.name}' already exists`);
+                return;
+            }
 
             // Add protocol to URL if missing
             if (server.type === 'remote' && server.url && !server.url.startsWith('http')) {
                 server.url = 'https://' + server.url;
             }
 
-            // Add new server
-            filteredServers.push({
+            // Add new server with enabled flag
+            serversArray.push({
                 name: server.name,
                 type: server.type,
+                enabled: true, // Default to enabled
                 ...(server.url && { url: server.url }),
                 ...(server.command && { command: server.command }),
                 ...(server.args && { args: server.args }),
                 ...(server.env && { env: server.env })
             });
 
-            await config.update('mcp.servers', filteredServers, vscode.ConfigurationTarget.Global);
+            await config.update('mcp.servers', serversArray, vscode.ConfigurationTarget.Global);
 
             this.outputChannel.appendLine(`✅ MCP server saved: ${server.name}`);
             vscode.window.showInformationMessage(`MCP server '${server.name}' added successfully`);
@@ -1598,6 +1726,77 @@ export class SettingsUIProvider {
         } catch (error: any) {
             this.outputChannel.appendLine(`❌ Error saving MCP server: ${error.message}`);
             vscode.window.showErrorMessage(`Failed to save MCP server: ${error.message}`);
+        }
+    }
+
+    private async updateMCPServer(server: any, originalName: string, context: vscode.ExtensionContext) {
+        try {
+            const config = vscode.workspace.getConfiguration('azureDevOps.ai');
+            const serversArray = config.get<any[]>('mcp.servers', []);
+
+            // Find and update the server
+            const serverIndex = serversArray.findIndex((s: any) => s.name === originalName);
+            if (serverIndex === -1) {
+                vscode.window.showErrorMessage(`MCP server '${originalName}' not found`);
+                return;
+            }
+
+            // Add protocol to URL if missing
+            if (server.type === 'remote' && server.url && !server.url.startsWith('http')) {
+                server.url = 'https://' + server.url;
+            }
+
+            // Preserve enabled state
+            const wasEnabled = serversArray[serverIndex].enabled !== false;
+
+            // Update server
+            serversArray[serverIndex] = {
+                name: server.name,
+                type: server.type,
+                enabled: wasEnabled,
+                ...(server.url && { url: server.url }),
+                ...(server.command && { command: server.command }),
+                ...(server.args && { args: server.args }),
+                ...(server.env && { env: server.env })
+            };
+
+            await config.update('mcp.servers', serversArray, vscode.ConfigurationTarget.Global);
+
+            this.outputChannel.appendLine(`✅ MCP server updated: ${server.name}`);
+            vscode.window.showInformationMessage(`MCP server '${server.name}' updated successfully`);
+
+            // Refresh the server list
+            await this.sendMCPServers(context);
+
+            // Reload MCP servers in the chat providers
+            vscode.commands.executeCommand('azureDevOps.reloadMCPServers');
+        } catch (error: any) {
+            this.outputChannel.appendLine(`❌ Error updating MCP server: ${error.message}`);
+            vscode.window.showErrorMessage(`Failed to update MCP server: ${error.message}`);
+        }
+    }
+
+    private async toggleMCPServer(serverName: string, enabled: boolean, context: vscode.ExtensionContext) {
+        try {
+            const config = vscode.workspace.getConfiguration('azureDevOps.ai');
+            const serversArray = config.get<any[]>('mcp.servers', []);
+
+            // Find and toggle the server
+            const server = serversArray.find((s: any) => s.name === serverName);
+            if (server) {
+                server.enabled = enabled;
+                await config.update('mcp.servers', serversArray, vscode.ConfigurationTarget.Global);
+
+                this.outputChannel.appendLine(`✅ MCP server ${enabled ? 'enabled' : 'disabled'}: ${serverName}`);
+
+                // Refresh the server list
+                await this.sendMCPServers(context);
+
+                // Reload MCP servers in the chat providers
+                vscode.commands.executeCommand('azureDevOps.reloadMCPServers');
+            }
+        } catch (error: any) {
+            this.outputChannel.appendLine(`❌ Error toggling MCP server: ${error.message}`);
         }
     }
 
