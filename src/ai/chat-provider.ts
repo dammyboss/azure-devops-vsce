@@ -38,6 +38,7 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
         const format = provider === 'anthropic' ? 'anthropic' : 'azure';
         const tools = this.mcpClient.getToolsForAPI(format);
         this.apiClient.setMCPTools(tools);
+        this.apiClient.setMCPClient(this.mcpClient);
         // Update session info when tools change
         this.sendSessionInfo();
     }

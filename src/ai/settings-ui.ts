@@ -1784,18 +1784,19 @@ export class SettingsUIProvider {
                 server.url = 'https://' + server.url;
             }
 
-            // Preserve enabled state
-            const wasEnabled = serversArray[serverIndex].enabled !== false;
+            // Preserve enabled state and other fields
+            const existingServer = serversArray[serverIndex];
 
-            // Update server
+            // Update server while preserving existing fields
             serversArray[serverIndex] = {
+                ...existingServer,
                 name: server.name,
                 type: server.type,
-                enabled: wasEnabled,
-                ...(server.url && { url: server.url }),
-                ...(server.command && { command: server.command }),
-                ...(server.args && { args: server.args }),
-                ...(server.env && { env: server.env })
+                ...(server.url !== undefined && { url: server.url }),
+                ...(server.command !== undefined && { command: server.command }),
+                ...(server.args !== undefined && { args: server.args }),
+                ...(server.env !== undefined && { env: server.env }),
+                ...(server.headers !== undefined && { headers: server.headers })
             };
 
             await config.update('mcp.servers', serversArray, vscode.ConfigurationTarget.Global);
@@ -1827,11 +1828,11 @@ export class SettingsUIProvider {
 
                 this.outputChannel.appendLine(`✅ MCP server ${enabled ? 'enabled' : 'disabled'}: ${serverName}`);
 
+                // Reload MCP servers in the chat providers
+                await vscode.commands.executeCommand('azureDevOps.reloadMCPServers', serverName, enabled);
+
                 // Refresh the server list
                 await this.sendMCPServers(context);
-
-                // Reload MCP servers in the chat providers
-                vscode.commands.executeCommand('azureDevOps.reloadMCPServers');
             }
         } catch (error: any) {
             this.outputChannel.appendLine(`❌ Error toggling MCP server: ${error.message}`);

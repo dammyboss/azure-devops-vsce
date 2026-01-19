@@ -33,6 +33,7 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
         const format = provider === 'anthropic' ? 'anthropic' : 'azure';
         const tools = this.mcpClient.getToolsForAPI(format);
         this.apiClient.setMCPTools(tools);
+        this.apiClient.setMCPClient(this.mcpClient);
         this.sendSessionInfo();
     }
 

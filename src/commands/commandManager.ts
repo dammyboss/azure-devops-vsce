@@ -2006,17 +2006,22 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
 
     // Update Config command (for AI providers)
     context.subscriptions.push(
-        vscode.commands.registerCommand('azureDevOps.updateConfig', async () => {
-            // This command is called when AI configuration changes
-            // The actual config update is handled by the AI providers themselves
-            vscode.window.showInformationMessage('AI configuration updated');
+        vscode.commands.registerCommand('azureDevOps.updateConfig', async (serverName?: string, enabled?: boolean) => {
+            // Show specific message if server name is provided
+            if (serverName !== undefined && enabled !== undefined) {
+                if (enabled) {
+                    vscode.window.showInformationMessage(`MCP server "${serverName}" enabled`);
+                } else {
+                    vscode.window.showInformationMessage(`MCP server "${serverName}" disabled`);
+                }
+            }
         })
     );
 
     // Reload MCP Servers command
     context.subscriptions.push(
-        vscode.commands.registerCommand('azureDevOps.reloadMCPServers', async () => {
-            vscode.commands.executeCommand('azureDevOps.updateConfig');
+        vscode.commands.registerCommand('azureDevOps.reloadMCPServers', async (serverName?: string, enabled?: boolean) => {
+            await vscode.commands.executeCommand('azureDevOps.updateConfig', serverName, enabled);
         })
     );
 }

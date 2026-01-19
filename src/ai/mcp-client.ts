@@ -338,15 +338,26 @@ export class MCPClient {
     }
 
     async loadServers(configs: MCPServerConfig[]): Promise<void> {
+        // Disconnect servers that are no longer in config or are now disabled
         for (const [name, server] of this.servers) {
-            server.disconnect();
+            const configServer = configs.find(c => c.name === name);
+            if (!configServer || (configServer as any).enabled === false) {
+                server.disconnect();
+                this.servers.delete(name);
+            }
         }
-        this.servers.clear();
 
+        // Connect to enabled servers that aren't already connected
         for (const config of configs) {
             // Skip disabled servers
             if ((config as any).enabled === false) {
                 this.outputChannel.appendLine(`Skipping disabled MCP server: ${config.name}`);
+                continue;
+            }
+
+            // Skip if already connected
+            if (this.servers.has(config.name) && this.servers.get(config.name)!.isActive()) {
+                this.outputChannel.appendLine(`MCP server already connected: ${config.name}`);
                 continue;
             }
 

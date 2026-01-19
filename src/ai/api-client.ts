@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { MCPClient } from './mcp-client';
 
 export interface Message {
     role: 'user' | 'assistant';
@@ -64,6 +65,7 @@ export class APIClient {
     private totalInputTokens = 0;
     private totalOutputTokens = 0;
     private mcpTools: any[] = [];
+    private mcpClient: MCPClient | null = null;
 
     constructor(outputChannel: vscode.OutputChannel) {
         this.outputChannel = outputChannel;
@@ -143,6 +145,10 @@ export class APIClient {
         this.mcpTools = tools;
     }
 
+    setMCPClient(client: MCPClient) {
+        this.mcpClient = client;
+    }
+
     clearHistory() {
         this.conversationHistory = [];
         this.totalInputTokens = 0;
@@ -211,12 +217,20 @@ export class APIClient {
             const toolResults: ContentBlock[] = [];
             for (const toolUse of toolUses) {
                 callbacks.onToolUse(toolUse.name!, toolUse.input);
-                const result = { success: true, result: 'Tool executed' };
-                callbacks.onToolResult(toolUse.name!, result.result, !result.success);
+                
+                // Actually call the MCP tool
+                let result: { success: boolean; result: string; error?: string };
+                if (this.mcpClient && toolUse.name) {
+                    result = await this.mcpClient.callTool(toolUse.name, toolUse.input);
+                } else {
+                    result = { success: false, result: '', error: 'MCP client not available' };
+                }
+                
+                callbacks.onToolResult(toolUse.name!, result.result || result.error || 'No result', !result.success);
                 toolResults.push({
                     type: 'tool_result',
                     tool_use_id: toolUse.id,
-                    content: result.result,
+                    content: result.result || result.error || 'Tool execution failed',
                     is_error: !result.success
                 });
             }
