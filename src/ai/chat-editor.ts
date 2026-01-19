@@ -819,6 +819,7 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
         function loadChat(index) {
             const chat = chatHistory[index];
             messagesDiv.innerHTML = '';
+            welcomeScreen.classList.add('hidden');
             chat.messages.forEach(msg => {
                 addMessage(msg.role, msg.content);
             });

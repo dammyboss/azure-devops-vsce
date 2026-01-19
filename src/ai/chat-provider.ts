@@ -809,6 +809,7 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
         function loadChat(index) {
             const chat = chatHistory[index];
             messagesDiv.innerHTML = '';
+            welcomeScreen.classList.add('hidden');
             chat.messages.forEach(msg => {
                 addMessage(msg.role, msg.content);
             });
