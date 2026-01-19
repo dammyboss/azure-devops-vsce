@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
+import { MCPPermissionsManager } from './mcp-permissions';
 
 export interface MCPServerConfig {
     name: string;
@@ -332,9 +333,11 @@ class MCPServerConnection {
 export class MCPClient {
     private servers = new Map<string, MCPServerConnection>();
     private outputChannel: vscode.OutputChannel;
+    private permissionsManager: MCPPermissionsManager;
 
-    constructor(outputChannel: vscode.OutputChannel) {
+    constructor(outputChannel: vscode.OutputChannel, context: vscode.ExtensionContext) {
         this.outputChannel = outputChannel;
+        this.permissionsManager = MCPPermissionsManager.getInstance(context);
     }
 
     async loadServers(configs: MCPServerConfig[]): Promise<void> {
@@ -437,6 +440,12 @@ export class MCPClient {
             return { success: false, result: '', error: `MCP tool not found: ${fullToolName}` };
         }
 
+        // Check permissions
+        const hasPermission = await this.permissionsManager.checkPermission(tool.serverName, tool.name, args);
+        if (!hasPermission) {
+            return { success: false, result: '', error: `Permission denied for tool: ${tool.name}` };
+        }
+
         const server = this.servers.get(tool.serverName);
         if (!server || !server.isActive()) {
             return { success: false, result: '', error: `MCP server not connected: ${tool.serverName}` };
@@ -456,6 +465,10 @@ export class MCPClient {
         } catch (error: any) {
             return { success: false, result: '', error: error.message };
         }
+    }
+
+    public getPermissionsManager(): MCPPermissionsManager {
+        return this.permissionsManager;
     }
 
     getActiveServers(): string[] {

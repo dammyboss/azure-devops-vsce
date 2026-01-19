@@ -17,7 +17,7 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
     ) {
         this.outputChannel = outputChannel;
         this.apiClient = APIClient.getInstance(outputChannel);
-        this.mcpClient = new MCPClient(outputChannel);
+        this.mcpClient = new MCPClient(outputChannel, context);
         this.historyManager = ChatHistoryManager.getInstance(context);
         this.loadMCPServers();
     }

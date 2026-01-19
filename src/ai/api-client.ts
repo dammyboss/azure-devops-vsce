@@ -212,6 +212,11 @@ export class APIClient {
                 break;
             }
 
+            // Send any text that came before the tool use
+            if (response.bufferedText) {
+                callbacks.onText(response.bufferedText);
+            }
+
             this.conversationHistory.push({ role: 'assistant', content: response.content });
 
             const toolResults: ContentBlock[] = [];
@@ -233,10 +238,6 @@ export class APIClient {
                     content: result.result || result.error || 'Tool execution failed',
                     is_error: !result.success
                 });
-            }
-
-            if (response.bufferedText) {
-                callbacks.onText(response.bufferedText);
             }
 
             this.conversationHistory.push({ role: 'user', content: toolResults });

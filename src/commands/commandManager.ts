@@ -2004,6 +2004,13 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
         })
     );
 
+    // Configure MCP Permissions command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.configureMCPPermissions', async () => {
+            vscode.commands.executeCommand('azureDevOps.openAISettings');
+        })
+    );
+
     // Update Config command (for AI providers)
     context.subscriptions.push(
         vscode.commands.registerCommand('azureDevOps.updateConfig', async (serverName?: string, enabled?: boolean) => {
