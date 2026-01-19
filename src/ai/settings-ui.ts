@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { aiChatProvider } from '../extension';
 
 export interface ProviderSettings {
     provider: 'anthropic' | 'azure' | 'deepseek' | 'grok' | 'openai';
@@ -1252,19 +1253,24 @@ export class SettingsUIProvider {
             if (!serverList) return;
 
             const servers = data.servers || {};
+            const statuses = data.statuses || {};
             const serverNames = Object.keys(servers);
 
             if (serverNames.length === 0) {
-                serverList.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--vscode-descriptionForeground); font-size: 11px;">No MCP servers configured</div>';
+                serverList.innerHTML = '<div style="text-align: center; padding: 30px 20px; color: var(--vscode-descriptionForeground);"><div style="font-size: 32px; margin-bottom: 12px;">🔌</div><div style="font-size: 12px; margin-bottom: 8px;">No MCP servers configured</div><div style="font-size: 10px; color: var(--vscode-descriptionForeground);">Add a server to extend capabilities</div></div>';
                 return;
             }
 
             let html = '';
             serverNames.forEach(name => {
                 const server = servers[name];
-                const isRemote = server.type === 'remote';
-                const isEnabled = server.enabled !== false; // Default to enabled
-                const info = isRemote ? server.url : server.command;
+                const status = statuses[name] || { connected: false, toolCount: 0, enabled: true };
+                const isEnabled = status.enabled !== undefined ? status.enabled : (server.enabled !== false);
+                const isConnected = status.connected && isEnabled;
+                const statusText = isEnabled ? (isConnected ? 'Connected' : 'Disconnected') : 'Disabled';
+                const statusIcon = isConnected ? '🟢' : (isEnabled ? '🔴' : '⚫');
+                const serverType = server.url ? 'Remote' : 'Local';
+                const serverInfo = server.url || (server.command ? \`\${server.command}\${server.args ? ' ' + server.args.join(' ') : ''}\` : 'MCP Server');
                 const serverNameEscaped = name.replace(/'/g, "\\\\'");
                 const serverJsonEscaped = JSON.stringify(server).replace(/"/g, '&quot;');
 
@@ -1274,20 +1280,21 @@ export class SettingsUIProvider {
                             <div style="flex: 1;">
                                 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap;">
                                     <span style="font-weight: 600; font-size: 12px;">\${name}</span>
-                                    <span class="mcp-server-type-badge" style="font-size: 9px; padding: 2px 6px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); border-radius: 3px;">\${isRemote ? 'Remote' : 'Local'}</span>
+                                    <span class="mcp-server-type-badge" style="font-size: 9px; padding: 2px 6px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); border-radius: 3px;">\${serverType}</span>
                                 </div>
-                                <div style="font-size: 10px; color: var(--vscode-descriptionForeground); margin-bottom: 6px; word-break: break-all; font-family: monospace;">\${info}</div>
+                                <div style="font-size: 10px; color: var(--vscode-descriptionForeground); margin-bottom: 6px; word-break: break-all; font-family: monospace;">\${serverInfo}</div>
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <span style="font-size: 10px; display: flex; align-items: center; gap: 4px;">\${statusIcon} \${statusText}</span>
+                                    \${isConnected ? \`<span style="font-size: 10px; color: var(--vscode-descriptionForeground);">• \${status.toolCount} tools</span>\` : ''}
+                                </div>
                             </div>
                             <div style="display: flex; align-items: center; gap: 8px;">
-                                <!-- Toggle Switch -->
                                 <label class="mcp-toggle-switch" style="position: relative; display: inline-block; width: 40px; height: 20px;">
                                     <input type="checkbox" class="mcp-toggle-input" data-server-name="\${serverNameEscaped}" \${isEnabled ? 'checked' : ''} style="opacity: 0; width: 0; height: 0;">
                                     <span class="mcp-toggle-slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--vscode-input-background); border: 1px solid var(--vscode-widget-border); border-radius: 20px; transition: 0.3s;"></span>
                                 </label>
-                                <!-- Edit Button -->
-                                <button class="btn" onclick="editMCPServer('\${serverNameEscaped}', \${serverJsonEscaped})" title="Edit server" style="font-size: 10px; padding: 4px 12px;">Edit</button>
-                                <!-- Remove Button -->
-                                <button class="btn" onclick="removeMCPServer('\${serverNameEscaped}')" title="Remove server" style="font-size: 10px; padding: 4px 12px; color: var(--vscode-errorForeground); border-color: var(--vscode-errorForeground);">Remove</button>
+                                <button class="btn outlined" onclick="editMCPServer('\${serverNameEscaped}', \${serverJsonEscaped})" title="Edit server" style="font-size: 10px; padding: 4px 12px; background: transparent; border: 1px solid var(--vscode-widget-border); color: var(--vscode-foreground);">Edit</button>
+                                <button class="btn outlined" onclick="removeMCPServer('\${serverNameEscaped}')" title="Remove server" style="font-size: 10px; padding: 4px 12px; background: transparent; border: 1px solid var(--vscode-errorForeground); color: var(--vscode-errorForeground);">Remove</button>
                             </div>
                         </div>
                     </div>
@@ -1673,12 +1680,43 @@ export class SettingsUIProvider {
                 }
             });
 
+            // Get actual tool counts from MCP client
+            const statuses: any = {};
+            
+            if (aiChatProvider) {
+                const mcpClient = aiChatProvider.getMCPClient();
+                const allTools = mcpClient.getAllTools();
+                serversArray.forEach((server: any) => {
+                    if (server.name) {
+                        const serverTools = allTools.filter((t: any) => t.serverName === server.name);
+                        const isEnabled = server.enabled !== false;
+                        const isConnected = serverTools.length > 0 && isEnabled;
+                        statuses[server.name] = {
+                            connected: isConnected,
+                            toolCount: serverTools.length,
+                            enabled: isEnabled
+                        };
+                    }
+                });
+            } else {
+                // Fallback to basic status
+                serversArray.forEach((server: any) => {
+                    if (server.name) {
+                        statuses[server.name] = {
+                            connected: false,
+                            toolCount: 0,
+                            enabled: server.enabled !== false
+                        };
+                    }
+                });
+            }
+
             // Send servers to webview
             if (this.panel) {
                 this.panel.webview.postMessage({
                     type: 'mcpServersData',
                     servers: servers,
-                    statuses: {}
+                    statuses: statuses
                 });
             }
         } catch (error: any) {

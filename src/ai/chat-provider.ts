@@ -22,6 +22,10 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
         this.loadMCPServers();
     }
 
+    public getMCPClient(): MCPClient {
+        return this.mcpClient;
+    }
+
     private async loadMCPServers() {
         const config = vscode.workspace.getConfiguration('azureDevOps.ai');
         const servers = config.get<any[]>('mcp.servers', []);
@@ -34,6 +38,26 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
         const format = provider === 'anthropic' ? 'anthropic' : 'azure';
         const tools = this.mcpClient.getToolsForAPI(format);
         this.apiClient.setMCPTools(tools);
+        // Update session info when tools change
+        this.sendSessionInfo();
+    }
+
+    private sendSessionInfo() {
+        if (!this.view) return;
+        
+        const provider = vscode.workspace.getConfiguration('azureDevOps.ai').get('provider', 'anthropic');
+        const format = provider === 'anthropic' ? 'anthropic' : 'azure';
+        const tools = this.mcpClient.getToolsForAPI(format);
+        const mcpServers = this.mcpClient.getActiveServers();
+        
+        this.view.webview.postMessage({
+            type: 'sessionInfo',
+            data: {
+                sessionId: `session_${Date.now()}`,
+                tools: tools,
+                mcpServers: mcpServers
+            }
+        });
     }
 
     resolveWebviewView(
@@ -56,6 +80,9 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
         this.historyManager.getHistory().then(history => {
             webviewView.webview.postMessage({ type: 'historyUpdated', history });
         });
+
+        // Send session info with tools count
+        this.sendSessionInfo();
 
         webviewView.webview.onDidReceiveMessage(async (message) => {
             switch (message.type) {
@@ -85,8 +112,43 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
                 case 'openEditorChat':
                     await vscode.commands.executeCommand('azureDevOps.openAIChatEditor');
                     break;
+                case 'getMCPServers':
+                    await this.getMCPServersForSettings();
+                    break;
             }
         });
+    }
+
+    private async getMCPServersForSettings(): Promise<void> {
+        try {
+            const config = vscode.workspace.getConfiguration('azureDevOps.ai');
+            const servers = config.get<any[]>('mcp.servers', []);
+
+            const statuses: Record<string, { connected: boolean; toolCount: number; enabled: boolean }> = {};
+
+            const allTools = this.mcpClient.getAllTools();
+
+            for (const server of servers) {
+                const serverTools = allTools.filter(t => t.serverName === server.name);
+                const isEnabled = server.enabled !== false;
+                const isConnected = serverTools.length > 0 && isEnabled;
+                statuses[server.name] = {
+                    connected: isConnected,
+                    toolCount: serverTools.length,
+                    enabled: isEnabled
+                };
+            }
+
+            this.view?.webview.postMessage({
+                type: 'mcpServersData',
+                data: {
+                    servers: servers,
+                    statuses
+                }
+            });
+        } catch (error) {
+            console.error('Error getting MCP servers:', error);
+        }
     }
 
     private async handleSendMessage(text: string) {

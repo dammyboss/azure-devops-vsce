@@ -33,6 +33,27 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
         const format = provider === 'anthropic' ? 'anthropic' : 'azure';
         const tools = this.mcpClient.getToolsForAPI(format);
         this.apiClient.setMCPTools(tools);
+        this.sendSessionInfo();
+    }
+
+    private currentWebview?: vscode.Webview;
+
+    private sendSessionInfo() {
+        if (!this.currentWebview) return;
+        
+        const provider = vscode.workspace.getConfiguration('azureDevOps.ai').get('provider', 'anthropic');
+        const format = provider === 'anthropic' ? 'anthropic' : 'azure';
+        const tools = this.mcpClient.getToolsForAPI(format);
+        const mcpServers = this.mcpClient.getActiveServers();
+        
+        this.currentWebview.postMessage({
+            type: 'sessionInfo',
+            data: {
+                sessionId: `session_${Date.now()}`,
+                tools: tools,
+                mcpServers: mcpServers
+            }
+        });
     }
 
     public static register(context: vscode.ExtensionContext, outputChannel: vscode.OutputChannel): vscode.Disposable {
@@ -54,12 +75,15 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
 
         webviewPanel.webview.html = this.getHtmlContent(webviewPanel.webview);
 
+        this.currentWebview = webviewPanel.webview;
         this.historyManager.registerWebview(webviewPanel.webview);
 
         // Send initial history to webview
         this.historyManager.getHistory().then(history => {
             webviewPanel.webview.postMessage({ type: 'historyUpdated', history });
         });
+
+        this.sendSessionInfo();
 
         webviewPanel.webview.onDidReceiveMessage(async (message) => {
             switch (message.type) {
@@ -86,8 +110,43 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
                 case 'saveChat':
                     await this.historyManager.saveChat(message.chat);
                     break;
+                case 'getMCPServers':
+                    await this.getMCPServersForSettings(webviewPanel.webview);
+                    break;
             }
         });
+    }
+
+    public async getMCPServersForSettings(webview: vscode.Webview): Promise<void> {
+        try {
+            const config = vscode.workspace.getConfiguration('azureDevOps.ai');
+            const servers = config.get<any[]>('mcp.servers', []);
+
+            const statuses: Record<string, { connected: boolean; toolCount: number; enabled: boolean }> = {};
+
+            const allTools = this.mcpClient.getAllTools();
+
+            for (const server of servers) {
+                const serverTools = allTools.filter(t => t.serverName === server.name);
+                const isEnabled = server.enabled !== false;
+                const isConnected = serverTools.length > 0 && isEnabled;
+                statuses[server.name] = {
+                    connected: isConnected,
+                    toolCount: serverTools.length,
+                    enabled: isEnabled
+                };
+            }
+
+            webview.postMessage({
+                type: 'mcpServersData',
+                data: {
+                    servers: servers,
+                    statuses
+                }
+            });
+        } catch (error) {
+            console.error('Error getting MCP servers:', error);
+        }
     }
 
     public async handleSendMessage(text: string, webview: vscode.Webview) {
@@ -1151,12 +1210,18 @@ export async function openChatEditor(context: vscode.ExtensionContext) {
     
     panel.webview.html = provider.getHtmlContent(panel.webview);
 
+    // Set the webview for session info
+    (provider as any).currentWebview = panel.webview;
+
     const historyManager = (provider as any).historyManager;
     historyManager.registerWebview(panel.webview);
     
     historyManager.getHistory().then((history: any) => {
         panel.webview.postMessage({ type: 'historyUpdated', history });
     });
+
+    // Send session info
+    (provider as any).sendSessionInfo();
 
     panel.webview.onDidReceiveMessage(async (message) => {
         switch (message.type) {
@@ -1178,6 +1243,9 @@ export async function openChatEditor(context: vscode.ExtensionContext) {
                 break;
             case 'saveChat':
                 await historyManager.saveChat(message.chat);
+                break;
+            case 'getMCPServers':
+                await provider.getMCPServersForSettings(panel.webview);
                 break;
         }
     });
