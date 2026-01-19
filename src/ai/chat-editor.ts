@@ -705,8 +705,8 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
                     </button>
                 </div>
             </div>
-            <div id="historySearchContainer" style="padding: 8px; display: none; box-sizing: border-box;">
-                <input type="text" id="historySearch" placeholder="Search history..." style="width: 100%; padding: 8px; background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); border-radius: 4px; color: var(--vscode-input-foreground); font-size: 12px; box-sizing: border-box;" oninput="filterHistory()">
+            <div id="historySearchContainer" style="padding: 0 8px; max-height: 0; overflow: hidden; transition: max-height 0.3s ease, padding 0.3s ease; box-sizing: border-box;">
+                <input type="text" id="historySearch" placeholder="Search history..." style="width: 100%; padding: 8px; background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); border-radius: 4px; color: var(--vscode-input-foreground); font-size: 12px; box-sizing: border-box; margin-bottom: 8px;" oninput="filterHistory()">
             </div>
             <div class="history-content" id="historyContent">
                 <div class="history-empty">No conversation history yet</div>
@@ -994,11 +994,13 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
         function toggleSearch() {
             const container = document.getElementById('historySearchContainer');
             const input = document.getElementById('historySearch');
-            if (container.style.display === 'none') {
-                container.style.display = 'block';
-                input.focus();
+            if (container.style.maxHeight === '0px' || !container.style.maxHeight) {
+                container.style.maxHeight = '60px';
+                container.style.padding = '8px';
+                setTimeout(() => input.focus(), 300);
             } else {
-                container.style.display = 'none';
+                container.style.maxHeight = '0px';
+                container.style.padding = '0 8px';
                 input.value = '';
                 updateHistoryPanel();
             }
