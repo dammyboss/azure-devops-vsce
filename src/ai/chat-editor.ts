@@ -697,6 +697,9 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
                     </svg>
                 </button>
             </div>
+            <div style="padding: 8px;">
+                <input type="text" id="historySearch" placeholder="Search history..." style="width: 100%; padding: 8px; background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); border-radius: 4px; color: var(--vscode-input-foreground); font-size: 12px;" oninput="filterHistory()">
+            </div>
             <div class="history-content" id="historyContent">
                 <div class="history-empty">No conversation history yet</div>
             </div>
@@ -752,8 +755,70 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
         let loadingElement = null;
         let loadingInterval = null;
         let loadingMessageIndex = 0;
+        let chatHistory = [];
+        let currentChatId = Date.now();
 
         const md = window.markdownit({ html: false, breaks: true, linkify: true });
+
+        function loadHistory() {
+            const saved = localStorage.getItem('chatHistory');
+            if (saved) {
+                chatHistory = JSON.parse(saved);
+                updateHistoryPanel();
+            }
+        }
+
+        function saveHistory() {
+            localStorage.setItem('chatHistory', JSON.stringify(chatHistory));
+            updateHistoryPanel();
+        }
+
+        function updateHistoryPanel() {
+            const historyContent = document.getElementById('historyContent');
+            if (chatHistory.length === 0) {
+                historyContent.innerHTML = '<div class="history-empty">No conversation history yet</div>';
+                return;
+            }
+            historyContent.innerHTML = chatHistory.map((chat, index) => \`
+                <div class="history-item" onclick="loadChat(\${index})">
+                    <div class="history-item-preview">\${chat.preview}</div>
+                    <div style="font-size: 10px; color: var(--vscode-descriptionForeground); margin-top: 4px;">\${new Date(chat.timestamp).toLocaleString()}</div>
+                </div>
+            \`).join('');
+        }
+
+        function filterHistory() {
+            const searchTerm = document.getElementById('historySearch').value.toLowerCase();
+            const filtered = chatHistory.filter(chat => 
+                chat.preview.toLowerCase().includes(searchTerm)
+            );
+            const historyContent = document.getElementById('historyContent');
+            if (filtered.length === 0) {
+                historyContent.innerHTML = '<div class="history-empty">No matching conversations</div>';
+                return;
+            }
+            historyContent.innerHTML = filtered.map((chat) => {
+                const index = chatHistory.indexOf(chat);
+                return \`
+                    <div class="history-item" onclick="loadChat(\${index})">
+                        <div class="history-item-preview">\${chat.preview}</div>
+                        <div style="font-size: 10px; color: var(--vscode-descriptionForeground); margin-top: 4px;">\${new Date(chat.timestamp).toLocaleString()}</div>
+                    </div>
+                \`;
+            }).join('');
+        }
+
+        function loadChat(index) {
+            const chat = chatHistory[index];
+            messagesDiv.innerHTML = '';
+            chat.messages.forEach(msg => {
+                addMessage(msg.role, msg.content);
+            });
+            currentChatId = chat.id;
+            toggleHistory();
+        }
+
+        loadHistory();
 
         const processingMessages = [
             'Reticulating splines',
@@ -919,9 +984,26 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
         }
 
         function newChat() {
+            const messages = Array.from(messagesDiv.querySelectorAll('.message'));
+            if (messages.length > 0) {
+                const firstUserMsg = messages.find(m => m.classList.contains('user'));
+                const preview = firstUserMsg ? firstUserMsg.textContent.substring(0, 50) : 'New conversation';
+                chatHistory.unshift({
+                    id: currentChatId,
+                    timestamp: Date.now(),
+                    preview: preview,
+                    messages: messages.map(m => ({
+                        role: m.classList.contains('user') ? 'user' : 'assistant',
+                        content: m.textContent
+                    }))
+                });
+                if (chatHistory.length > 20) chatHistory = chatHistory.slice(0, 20);
+                saveHistory();
+            }
             vscode.postMessage({ type: 'clearHistory' });
             messagesDiv.innerHTML = '';
             welcomeScreen.classList.remove('hidden');
+            currentChatId = Date.now();
         }
 
         function showSlashCommands() {
