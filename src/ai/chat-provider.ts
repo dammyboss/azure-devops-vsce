@@ -531,7 +531,7 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
 </head>
 <body>
     <div class="header">
-        <h2>🤖 AI Assistant</h2>
+        <h2>AI Assistant</h2>
         <div class="header-actions">
             <button class="icon-btn" id="settingsBtn" title="Settings" onclick="openSettings()">
                 <img src="${settingsIconUri}" width="16" height="16" alt="Settings">
@@ -556,7 +556,7 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
         <div id="welcomeScreen" class="welcome-screen">
             <div class="welcome-content">
                 <div class="welcome-logo">
-                    <h1>🤖 Azure DevOps AI Assistant</h1>
+                    <h1>Azure DevOps AI Assistant</h1>
                 </div>
                 <p class="welcome-text">Ready to help with work items, sprints, and Azure DevOps...</p>
             </div>
@@ -636,26 +636,10 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             if (role === 'user') {
                 messageDiv.textContent = content;
             } else {
-                // Assistant message with header and content structure
-                const header = document.createElement('div');
-                header.className = 'message-header';
-
-                const icon = document.createElement('div');
-                icon.className = \`message-icon \${role}\`;
-                icon.textContent = '🤖';
-
-                const label = document.createElement('span');
-                label.className = 'message-label';
-                label.textContent = 'Assistant';
-
-                header.appendChild(icon);
-                header.appendChild(label);
-
+                // Assistant message - clean, no header
                 const contentDiv = document.createElement('div');
                 contentDiv.className = 'message-content';
                 contentDiv.textContent = content;
-
-                messageDiv.appendChild(header);
                 messageDiv.appendChild(contentDiv);
             }
 

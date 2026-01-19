@@ -602,7 +602,7 @@ export class SettingsUIProvider {
                             <input type="password" id="anthropic-api-key" placeholder="sk-ant-api03-...">
                         </div>
                         <div class="button-group">
-                            <button class="btn" onclick="testConnection('anthropic')" id="testAnthropicBtn">Test Connection</button>
+                            <button class="btn" onclick="testAnthropicConnection()" id="testAnthropicBtn">Test Connection</button>
                             <span id="anthropicTestResult" class="test-result"></span>
                         </div>
                     </div>
@@ -626,7 +626,7 @@ export class SettingsUIProvider {
                             <input type="text" id="azure-version" placeholder="2024-02-15-preview" value="2024-02-15-preview">
                         </div>
                         <div class="button-group">
-                            <button class="btn" onclick="testConnection('azure')" id="testAzureBtn">Test Connection</button>
+                            <button class="btn" onclick="testAzureConnection()" id="testAzureBtn">Test Connection</button>
                             <span id="azureTestResult" class="test-result"></span>
                         </div>
                     </div>
@@ -638,7 +638,7 @@ export class SettingsUIProvider {
                             <input type="password" id="deepseek-api-key" placeholder="sk-...">
                         </div>
                         <div class="button-group">
-                            <button class="btn" onclick="testConnection('deepseek')" id="testDeepSeekBtn">Test Connection</button>
+                            <button class="btn" onclick="testDeepSeekConnection()" id="testDeepSeekBtn">Test Connection</button>
                             <span id="deepseekTestResult" class="test-result"></span>
                         </div>
                     </div>
@@ -650,7 +650,7 @@ export class SettingsUIProvider {
                             <input type="password" id="grok-api-key" placeholder="xai-...">
                         </div>
                         <div class="button-group">
-                            <button class="btn" onclick="testConnection('grok')" id="testGrokBtn">Test Connection</button>
+                            <button class="btn" onclick="testGrokConnection()" id="testGrokBtn">Test Connection</button>
                             <span id="grokTestResult" class="test-result"></span>
                         </div>
                     </div>
@@ -662,7 +662,7 @@ export class SettingsUIProvider {
                             <input type="password" id="openai-api-key" placeholder="sk-...">
                         </div>
                         <div class="button-group">
-                            <button class="btn" onclick="testConnection('openai')" id="testOpenAIBtn">Test Connection</button>
+                            <button class="btn" onclick="testOpenAIConnection()" id="testOpenAIBtn">Test Connection</button>
                             <span id="openaiTestResult" class="test-result"></span>
                         </div>
                     </div>
@@ -920,47 +920,120 @@ export class SettingsUIProvider {
             vscode.postMessage({ type: 'getMCPServers' });
         }
 
-        async function testConnection(provider) {
-            const btnId = 'test' + provider.charAt(0).toUpperCase() + provider.slice(1) + 'Btn';
-            const resultId = provider + 'TestResult';
-            const btn = document.getElementById(btnId);
-            const resultSpan = document.getElementById(resultId);
-            const originalText = btn.textContent;
-
-            btn.textContent = 'Testing...';
-            btn.disabled = true;
-
-            // Get API key
-            let apiKey = '';
-            if (provider === 'anthropic') apiKey = document.getElementById('anthropic-api-key').value;
-            else if (provider === 'openai') apiKey = document.getElementById('openai-api-key').value;
-            else if (provider === 'deepseek') apiKey = document.getElementById('deepseek-api-key').value;
-            else if (provider === 'grok') apiKey = document.getElementById('grok-api-key').value;
-            else if (provider === 'azure') apiKey = document.getElementById('azure-api-key').value;
+        function testAnthropicConnection() {
+            const apiKey = document.getElementById('anthropic-api-key').value.trim();
+            const resultSpan = document.getElementById('anthropicTestResult');
+            const testBtn = document.getElementById('testAnthropicBtn');
 
             if (!apiKey) {
+                resultSpan.textContent = 'Please enter an API key';
                 resultSpan.className = 'test-result error';
-                resultSpan.textContent = '✕ Please enter API key';
-                btn.textContent = originalText;
-                btn.disabled = false;
                 return;
             }
 
+            testBtn.disabled = true;
+            resultSpan.textContent = 'Testing...';
+            resultSpan.className = 'test-result loading';
+
             vscode.postMessage({
                 type: 'testConnection',
-                provider,
-                apiKey,
-                endpoint: document.getElementById('azure-endpoint')?.value,
-                deployment: document.getElementById('azure-deployment')?.value,
-                version: document.getElementById('azure-version')?.value
+                provider: 'anthropic',
+                apiKey
             });
+        }
 
-            setTimeout(() => {
-                resultSpan.className = 'test-result success';
-                resultSpan.textContent = '✓ Connection successful';
-                btn.textContent = originalText;
-                btn.disabled = false;
-            }, 1500);
+        function testAzureConnection() {
+            const apiKey = document.getElementById('azure-api-key').value.trim();
+            const endpoint = document.getElementById('azure-endpoint').value.trim();
+            const deployment = document.getElementById('azure-deployment').value.trim();
+            const version = document.getElementById('azure-version').value.trim();
+            const resultSpan = document.getElementById('azureTestResult');
+            const testBtn = document.getElementById('testAzureBtn');
+
+            if (!apiKey || !endpoint || !deployment) {
+                resultSpan.textContent = 'Please fill all required fields';
+                resultSpan.className = 'test-result error';
+                return;
+            }
+
+            testBtn.disabled = true;
+            resultSpan.textContent = 'Testing...';
+            resultSpan.className = 'test-result loading';
+
+            vscode.postMessage({
+                type: 'testConnection',
+                provider: 'azure',
+                apiKey,
+                endpoint,
+                deployment,
+                version
+            });
+        }
+
+        function testDeepSeekConnection() {
+            const apiKey = document.getElementById('deepseek-api-key').value.trim();
+            const resultSpan = document.getElementById('deepseekTestResult');
+            const testBtn = document.getElementById('testDeepSeekBtn');
+
+            if (!apiKey) {
+                resultSpan.textContent = 'Please enter an API key';
+                resultSpan.className = 'test-result error';
+                return;
+            }
+
+            testBtn.disabled = true;
+            resultSpan.textContent = 'Testing...';
+            resultSpan.className = 'test-result loading';
+
+            vscode.postMessage({
+                type: 'testConnection',
+                provider: 'deepseek',
+                apiKey
+            });
+        }
+
+        function testGrokConnection() {
+            const apiKey = document.getElementById('grok-api-key').value.trim();
+            const resultSpan = document.getElementById('grokTestResult');
+            const testBtn = document.getElementById('testGrokBtn');
+
+            if (!apiKey) {
+                resultSpan.textContent = 'Please enter an API key';
+                resultSpan.className = 'test-result error';
+                return;
+            }
+
+            testBtn.disabled = true;
+            resultSpan.textContent = 'Testing...';
+            resultSpan.className = 'test-result loading';
+
+            vscode.postMessage({
+                type: 'testConnection',
+                provider: 'grok',
+                apiKey
+            });
+        }
+
+        function testOpenAIConnection() {
+            const apiKey = document.getElementById('openai-api-key').value.trim();
+            const resultSpan = document.getElementById('openaiTestResult');
+            const testBtn = document.getElementById('testOpenAIBtn');
+
+            if (!apiKey) {
+                resultSpan.textContent = 'Please enter an API key';
+                resultSpan.className = 'test-result error';
+                return;
+            }
+
+            testBtn.disabled = true;
+            resultSpan.textContent = 'Testing...';
+            resultSpan.className = 'test-result loading';
+
+            vscode.postMessage({
+                type: 'testConnection',
+                provider: 'openai',
+                apiKey
+            });
         }
 
         function saveSettings() {
@@ -1173,8 +1246,32 @@ export class SettingsUIProvider {
                 case 'mcpServersData':
                     renderMCPServers(message);
                     break;
+                case 'testConnectionResult':
+                    handleTestConnectionResult(message);
+                    break;
             }
         });
+
+        function handleTestConnectionResult(message) {
+            const provider = message.provider;
+            const btnId = 'test' + provider.charAt(0).toUpperCase() + provider.slice(1) + 'Btn';
+            const resultId = provider + 'TestResult';
+            const btn = document.getElementById(btnId);
+            const resultSpan = document.getElementById(resultId);
+
+            if (btn && resultSpan) {
+                btn.textContent = 'Test Connection';
+                btn.disabled = false;
+
+                if (message.success) {
+                    resultSpan.className = 'test-result success';
+                    resultSpan.textContent = '✓ Connection successful';
+                } else {
+                    resultSpan.className = 'test-result error';
+                    resultSpan.textContent = '✕ ' + (message.error || 'Connection failed');
+                }
+            }
+        }
 
         // Initialize on load
         function initialize() {
@@ -1256,45 +1353,186 @@ export class SettingsUIProvider {
         try {
             this.outputChannel.appendLine(`Testing connection for ${message.provider}...`);
 
-            let isValid = false;
-            let url = '';
-            let headers: any = {
-                'Content-Type': 'application/json'
-            };
-
             if (message.provider === 'anthropic') {
-                url = 'https://api.anthropic.com/v1/messages';
-                headers['x-api-key'] = message.apiKey;
+                await this.testAnthropicConnection(message.apiKey);
             } else if (message.provider === 'openai') {
-                url = 'https://api.openai.com/v1/models';
-                headers['Authorization'] = `Bearer ${message.apiKey}`;
+                await this.testOpenAIConnection(message.apiKey);
             } else if (message.provider === 'azure') {
-                if (!message.endpoint || !message.deployment) {
-                    this.outputChannel.appendLine(`⚠️ Azure endpoint and deployment required`);
-                    return;
-                }
-                url = `${message.endpoint}/openai/deployments/${message.deployment}/chat/completions?api-version=${message.version || '2024-02-15-preview'}`;
-                headers['api-key'] = message.apiKey;
+                await this.testAzureConnection(message);
             } else if (message.provider === 'deepseek') {
-                url = 'https://api.deepseek.com/v1/models';
-                headers['Authorization'] = `Bearer ${message.apiKey}`;
+                await this.testDeepSeekConnection(message.apiKey);
             } else if (message.provider === 'grok') {
-                url = 'https://api.x.ai/v1/models';
-                headers['Authorization'] = `Bearer ${message.apiKey}`;
-            }
-
-            if (url) {
-                const response = await fetch(url, { method: 'GET', headers });
-                isValid = response.ok || response.status === 401 || response.status === 403;
-
-                if (isValid || response.status < 500) {
-                    this.outputChannel.appendLine(`✅ API key validated for ${message.provider}`);
-                } else {
-                    this.outputChannel.appendLine(`⚠️ Connection test returned status ${response.status}`);
-                }
+                await this.testGrokConnection(message.apiKey);
             }
         } catch (error: any) {
             this.outputChannel.appendLine(`❌ Connection test failed: ${error.message}`);
+            this.sendTestResult(message.provider, false, error.message);
+        }
+    }
+
+    private async testAnthropicConnection(apiKey: string) {
+        try {
+            const response = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': apiKey,
+                    'anthropic-version': '2023-06-01'
+                },
+                body: JSON.stringify({
+                    model: 'claude-3-5-sonnet-20241022',
+                    messages: [{ role: 'user', content: 'Hi' }],
+                    max_tokens: 10
+                })
+            });
+
+            if (response.ok) {
+                this.outputChannel.appendLine('✅ Anthropic API key validated');
+                this.sendTestResult('anthropic', true);
+            } else {
+                const errorData: any = await response.json().catch(() => ({}));
+                const errorMessage = errorData?.error?.message || `HTTP ${response.status}`;
+                this.outputChannel.appendLine(`⚠️ Anthropic test failed: ${errorMessage}`);
+                this.sendTestResult('anthropic', false, errorMessage);
+            }
+        } catch (error: any) {
+            this.outputChannel.appendLine(`❌ Anthropic test error: ${error.message}`);
+            this.sendTestResult('anthropic', false, error.message);
+        }
+    }
+
+    private async testOpenAIConnection(apiKey: string) {
+        try {
+            const response = await fetch('https://api.openai.com/v1/models', {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`
+                }
+            });
+
+            if (response.ok) {
+                this.outputChannel.appendLine('✅ OpenAI API key validated');
+                this.sendTestResult('openai', true);
+            } else {
+                const errorData: any = await response.json().catch(() => ({}));
+                const errorMessage = errorData?.error?.message || `HTTP ${response.status}`;
+                this.outputChannel.appendLine(`⚠️ OpenAI test failed: ${errorMessage}`);
+                this.sendTestResult('openai', false, errorMessage);
+            }
+        } catch (error: any) {
+            this.outputChannel.appendLine(`❌ OpenAI test error: ${error.message}`);
+            this.sendTestResult('openai', false, error.message);
+        }
+    }
+
+    private async testAzureConnection(message: any) {
+        try {
+            if (!message.endpoint || !message.deployment) {
+                this.sendTestResult('azure', false, 'Azure endpoint and deployment required');
+                return;
+            }
+
+            const response = await fetch(
+                `${message.endpoint}/openai/deployments/${message.deployment}/chat/completions?api-version=${message.version || '2024-02-15-preview'}`,
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'api-key': message.apiKey
+                    },
+                    body: JSON.stringify({
+                        messages: [{ role: 'user', content: 'Hi' }],
+                        max_tokens: 10
+                    })
+                }
+            );
+
+            if (response.ok) {
+                this.outputChannel.appendLine('✅ Azure OpenAI validated');
+                this.sendTestResult('azure', true);
+            } else {
+                const errorData: any = await response.json().catch(() => ({}));
+                const errorMessage = errorData?.error?.message || `HTTP ${response.status}`;
+                this.outputChannel.appendLine(`⚠️ Azure test failed: ${errorMessage}`);
+                this.sendTestResult('azure', false, errorMessage);
+            }
+        } catch (error: any) {
+            this.outputChannel.appendLine(`❌ Azure test error: ${error.message}`);
+            this.sendTestResult('azure', false, error.message);
+        }
+    }
+
+    private async testDeepSeekConnection(apiKey: string) {
+        try {
+            const response = await fetch('https://api.deepseek.com/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
+                body: JSON.stringify({
+                    model: 'deepseek-chat',
+                    messages: [{ role: 'user', content: 'Hi' }],
+                    max_tokens: 10
+                })
+            });
+
+            if (response.ok) {
+                this.outputChannel.appendLine('✅ DeepSeek API key validated');
+                this.sendTestResult('deepseek', true);
+            } else {
+                const errorData: any = await response.json().catch(() => ({}));
+                const errorMessage = errorData?.error?.message || `HTTP ${response.status}`;
+                this.outputChannel.appendLine(`⚠️ DeepSeek test failed: ${errorMessage}`);
+                this.sendTestResult('deepseek', false, errorMessage);
+            }
+        } catch (error: any) {
+            this.outputChannel.appendLine(`❌ DeepSeek test error: ${error.message}`);
+            this.sendTestResult('deepseek', false, error.message);
+        }
+    }
+
+    private async testGrokConnection(apiKey: string) {
+        try {
+            const response = await fetch('https://api.x.ai/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
+                body: JSON.stringify({
+                    model: 'grok-beta',
+                    messages: [{ role: 'user', content: 'Hi' }],
+                    max_tokens: 10,
+                    temperature: 0
+                })
+            });
+
+            if (response.ok) {
+                this.outputChannel.appendLine('✅ Grok API key validated');
+                this.sendTestResult('grok', true);
+            } else {
+                const errorData: any = await response.json().catch(() => ({}));
+                const errorMessage = typeof errorData?.error === 'string'
+                    ? errorData.error
+                    : errorData?.error?.message || `HTTP ${response.status}`;
+                this.outputChannel.appendLine(`⚠️ Grok test failed: ${errorMessage}`);
+                this.sendTestResult('grok', false, errorMessage);
+            }
+        } catch (error: any) {
+            this.outputChannel.appendLine(`❌ Grok test error: ${error.message}`);
+            this.sendTestResult('grok', false, error.message);
+        }
+    }
+
+    private sendTestResult(provider: string, success: boolean, error?: string) {
+        if (this.panel) {
+            this.panel.webview.postMessage({
+                type: 'testConnectionResult',
+                provider,
+                success,
+                error
+            });
         }
     }
 
