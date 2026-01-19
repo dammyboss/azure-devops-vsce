@@ -588,6 +588,73 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             color: var(--vscode-descriptionForeground);
             font-style: italic;
         }
+
+        /* History Panel */
+        .history-panel {
+            position: absolute;
+            top: 0;
+            right: -300px;
+            width: 300px;
+            height: 100%;
+            background: var(--vscode-sideBar-background);
+            border-left: 1px solid var(--vscode-panel-border);
+            transition: right 0.3s ease;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .history-panel.open {
+            right: 0;
+        }
+
+        .history-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--vscode-panel-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .history-header h3 {
+            margin: 0;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .history-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+        }
+
+        .history-item {
+            padding: 8px 12px;
+            margin-bottom: 4px;
+            background: var(--vscode-editor-background);
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            border: 1px solid transparent;
+        }
+
+        .history-item:hover {
+            border-color: var(--vscode-focusBorder);
+        }
+
+        .history-item-preview {
+            color: var(--vscode-descriptionForeground);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .history-empty {
+            padding: 20px;
+            text-align: center;
+            color: var(--vscode-descriptionForeground);
+            font-size: 12px;
+        }
     </style>
 </head>
 <body>
@@ -607,6 +674,21 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
     </div>
     <div class="chat-container">
         <div class="messages" id="messages"></div>
+
+        <!-- History Panel -->
+        <div class="history-panel" id="historyPanel">
+            <div class="history-header">
+                <h3>Chat History</h3>
+                <button class="icon-btn" onclick="toggleHistory()" title="Close">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16">
+                        <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="history-content" id="historyContent">
+                <div class="history-empty">No conversation history yet</div>
+            </div>
+        </div>
 
         <!-- Scroll to Bottom Button -->
         <button class="scroll-to-bottom-btn" id="scrollToBottomBtn" onclick="scrollToBottom()" style="display: none;" title="Scroll to bottom">
@@ -794,7 +876,8 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
         }
 
         function toggleHistory() {
-            vscode.postMessage({ type: 'toggleHistory' });
+            const panel = document.getElementById('historyPanel');
+            panel.classList.toggle('open');
         }
 
         function newChat() {
