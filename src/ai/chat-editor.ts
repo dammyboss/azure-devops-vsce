@@ -541,6 +541,64 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
         ::-webkit-scrollbar-thumb:hover {
             background: var(--vscode-scrollbarSlider-hoverBackground);
         }
+
+        /* Animated Loading Indicator */
+        .animated-loading {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px;
+            color: var(--vscode-descriptionForeground);
+            font-size: 13px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .loading-dots {
+            display: flex;
+            gap: 4px;
+        }
+
+        .loading-dots span {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--vscode-textLink-foreground);
+            opacity: 0.4;
+            animation: loadingDot 1.4s ease-in-out infinite;
+        }
+
+        .loading-dots span:nth-child(1) {
+            animation-delay: 0s;
+        }
+
+        .loading-dots span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .loading-dots span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes loadingDot {
+            0%, 80%, 100% {
+                opacity: 0.4;
+                transform: scale(1);
+            }
+            40% {
+                opacity: 1;
+                transform: scale(1.2);
+            }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .loading-text {
+            color: var(--vscode-descriptionForeground);
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
@@ -608,6 +666,68 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
 
         let currentAssistantMessage = null;
         let isGenerating = false;
+        let loadingElement = null;
+        let loadingInterval = null;
+        let loadingMessageIndex = 0;
+
+        const processingMessages = [
+            'Reticulating splines',
+            'Marinating',
+            'Discombobulating',
+            'Percolating',
+            'Cogitating',
+            'Ruminating',
+            'Contemplating',
+            'Brainstorming',
+            'Synthesizing',
+            'Pondering deeply',
+            'Consulting the oracle',
+            'Channeling inspiration',
+            'Untangling thoughts',
+            'Brewing ideas',
+            'Assembling neurons',
+            'Calibrating wisdom',
+            'Defragmenting thoughts',
+            'Loading creativity',
+            'Warming up circuits',
+            'Connecting dots'
+        ];
+
+        function showAnimatedLoading() {
+            hideAnimatedLoading();
+            
+            loadingElement = document.createElement('div');
+            loadingElement.className = 'animated-loading';
+            loadingElement.innerHTML = \`
+                <div class="loading-dots">
+                    <span></span><span></span><span></span>
+                </div>
+                <span class="loading-text">\${processingMessages[0]}</span>
+            \`;
+            
+            messagesDiv.appendChild(loadingElement);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+            loadingMessageIndex = 0;
+            loadingInterval = setInterval(() => {
+                loadingMessageIndex = (loadingMessageIndex + 1) % processingMessages.length;
+                const textEl = loadingElement?.querySelector('.loading-text');
+                if (textEl) {
+                    textEl.textContent = processingMessages[loadingMessageIndex];
+                }
+            }, 2000);
+        }
+
+        function hideAnimatedLoading() {
+            if (loadingInterval) {
+                clearInterval(loadingInterval);
+                loadingInterval = null;
+            }
+            if (loadingElement) {
+                loadingElement.remove();
+                loadingElement = null;
+            }
+        }
 
         // Auto-resize textarea
         function autoResizeTextarea() {
@@ -649,6 +769,7 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
             
             isGenerating = true;
             updateSendButton();
+            showAnimatedLoading();
 
             currentAssistantMessage = addMessage('assistant', '');
 
@@ -659,6 +780,7 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
             vscode.postMessage({ type: 'stopGeneration' });
             isGenerating = false;
             updateSendButton();
+            hideAnimatedLoading();
         }
 
         function updateSendButton() {
@@ -748,6 +870,7 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
 
             switch (message.type) {
                 case 'streamText':
+                    hideAnimatedLoading();
                     if (currentAssistantMessage) {
                         const contentDiv = currentAssistantMessage.querySelector('.message-content');
                         if (contentDiv) {
@@ -762,6 +885,7 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
                     break;
 
                 case 'error':
+                    hideAnimatedLoading();
                     addMessage('assistant', \`Error: \${message.error}\`);
                     isGenerating = false;
                     updateSendButton();
@@ -769,6 +893,7 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
                     break;
 
                 case 'complete':
+                    hideAnimatedLoading();
                     isGenerating = false;
                     updateSendButton();
                     currentAssistantMessage = null;
