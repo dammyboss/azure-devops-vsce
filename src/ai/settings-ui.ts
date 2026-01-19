@@ -1271,7 +1271,7 @@ export class SettingsUIProvider {
                 const statusIcon = isConnected ? '🟢' : (isEnabled ? '🔴' : '⚫');
                 const serverType = server.url ? 'Remote' : 'Local';
                 const serverInfo = server.url || (server.command ? \`\${server.command}\${server.args ? ' ' + server.args.join(' ') : ''}\` : 'MCP Server');
-                const serverNameEscaped = name.replace(/'/g, "\\\\'");
+                const serverNameEscaped = name.replace(/'/g, "\\'");
                 const serverJsonEscaped = JSON.stringify(server).replace(/"/g, '&quot;');
 
                 html += \`
@@ -1342,9 +1342,7 @@ export class SettingsUIProvider {
         }
 
         function removeMCPServer(serverName) {
-            if (confirm('Are you sure you want to remove the MCP server "' + serverName + '"?')) {
-                vscode.postMessage({ type: 'removeMCPServer', serverName });
-            }
+            vscode.postMessage({ type: 'removeMCPServer', serverName });
         }
 
         // Add event delegation for MCP server toggle
