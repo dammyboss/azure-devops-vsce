@@ -689,7 +689,7 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
 </head>
 <body>
     <div class="header">
-        <h2>🤖 Azure DevOps AI Assistant</h2>
+        <h2>Azure DevOps AI Assistant</h2>
         <div class="header-actions">
             <button class="icon-btn" id="settingsBtn" title="Settings" onclick="openSettings()">
                 <img src="${settingsIconUri}" width="16" height="16" alt="Settings">
@@ -739,7 +739,7 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
         <div id="welcomeScreen" class="welcome-screen">
             <div class="welcome-content">
                 <div class="welcome-logo">
-                    <h1>🤖 Azure DevOps AI Assistant</h1>
+                    <h1>Azure DevOps AI Assistant</h1>
                 </div>
                 <p class="welcome-text">Ready to help with work items, sprints, and Azure DevOps...</p>
             </div>
