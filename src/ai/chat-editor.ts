@@ -614,6 +614,7 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
             z-index: 1000;
             display: flex;
             flex-direction: column;
+            overflow: hidden;
         }
 
         .history-panel.open {
@@ -704,8 +705,8 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
                     </button>
                 </div>
             </div>
-            <div id="historySearchContainer" style="padding: 8px; display: none;">
-                <input type="text" id="historySearch" placeholder="Search history..." style="width: 100%; padding: 8px; background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); border-radius: 4px; color: var(--vscode-input-foreground); font-size: 12px;" oninput="filterHistory()">
+            <div id="historySearchContainer" style="padding: 8px; display: none; box-sizing: border-box;">
+                <input type="text" id="historySearch" placeholder="Search history..." style="width: 100%; padding: 8px; background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); border-radius: 4px; color: var(--vscode-input-foreground); font-size: 12px; box-sizing: border-box;" oninput="filterHistory()">
             </div>
             <div class="history-content" id="historyContent">
                 <div class="history-empty">No conversation history yet</div>
