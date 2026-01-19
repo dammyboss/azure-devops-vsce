@@ -658,12 +658,12 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             
             loadingElement = document.createElement('div');
             loadingElement.className = 'animated-loading';
-            loadingElement.innerHTML = `
+            loadingElement.innerHTML = \`
                 <div class="loading-dots">
                     <span></span><span></span><span></span>
                 </div>
                 <span class="loading-text">Thinking...</span>
-            `;
+            \`;
             
             messagesDiv.appendChild(loadingElement);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
