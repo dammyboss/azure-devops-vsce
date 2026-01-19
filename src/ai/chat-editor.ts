@@ -769,7 +769,7 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
         const md = window.markdownit({ html: false, breaks: true, linkify: true });
 
         function loadHistory() {
-            const saved = localStorage.getItem('chatHistory');
+            const saved = localStorage.getItem('azuredevops-chatHistory');
             if (saved) {
                 chatHistory = JSON.parse(saved);
                 updateHistoryPanel();
@@ -777,7 +777,7 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
         }
 
         function saveHistory() {
-            localStorage.setItem('chatHistory', JSON.stringify(chatHistory));
+            localStorage.setItem('azuredevops-chatHistory', JSON.stringify(chatHistory));
             updateHistoryPanel();
         }
 

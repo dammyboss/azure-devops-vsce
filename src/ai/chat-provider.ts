@@ -759,7 +759,7 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
 
         // Load history from localStorage
         function loadHistory() {
-            const saved = localStorage.getItem('chatHistory');
+            const saved = localStorage.getItem('azuredevops-chatHistory');
             if (saved) {
                 chatHistory = JSON.parse(saved);
                 updateHistoryPanel();
@@ -767,7 +767,7 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
         }
 
         function saveHistory() {
-            localStorage.setItem('chatHistory', JSON.stringify(chatHistory));
+            localStorage.setItem('azuredevops-chatHistory', JSON.stringify(chatHistory));
             updateHistoryPanel();
         }
 
