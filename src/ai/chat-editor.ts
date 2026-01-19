@@ -432,7 +432,7 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
         /* Welcome Screen */
         .welcome-screen {
             position: absolute;
-            top: 85px;
+            top: 20px;
             left: 0;
             right: 0;
             bottom: 0;

@@ -426,7 +426,7 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
         /* Welcome Screen */
         .welcome-screen {
             position: absolute;
-            top: 85px;
+            top: 20px;
             left: 0;
             right: 0;
             bottom: 0;
