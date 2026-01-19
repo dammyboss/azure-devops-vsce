@@ -1293,8 +1293,8 @@ export class SettingsUIProvider {
                                     <input type="checkbox" class="mcp-toggle-input" data-server-name="\${serverNameEscaped}" \${isEnabled ? 'checked' : ''} style="opacity: 0; width: 0; height: 0;">
                                     <span class="mcp-toggle-slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--vscode-input-background); border: 1px solid var(--vscode-widget-border); border-radius: 20px; transition: 0.3s;"></span>
                                 </label>
-                                <button class="btn outlined" onclick="editMCPServer('\${serverNameEscaped}', \${serverJsonEscaped})" title="Edit server" style="font-size: 10px; padding: 4px 12px; background: transparent; border: 1px solid var(--vscode-widget-border); color: var(--vscode-foreground);">Edit</button>
-                                <button class="btn outlined" onclick="removeMCPServer('\${serverNameEscaped}')" title="Remove server" style="font-size: 10px; padding: 4px 12px; background: transparent; border: 1px solid var(--vscode-errorForeground); color: var(--vscode-errorForeground);">Remove</button>
+                                <button class="btn outlined" onclick="editMCPServer('\${serverNameEscaped}', \${serverJsonEscaped})" title="Edit server" style="font-size: 10px; padding: 4px 12px; background: transparent; border: 1px solid var(--vscode-widget-border); color: var(--vscode-foreground); cursor: pointer; transition: all 0.2s ease;">Edit</button>
+                                <button class="btn outlined" onclick="removeMCPServer('\${serverNameEscaped}')" title="Remove server" style="font-size: 10px; padding: 4px 12px; background: transparent; border: 1px solid var(--vscode-errorForeground); color: var(--vscode-errorForeground); cursor: pointer; transition: all 0.2s ease;">Remove</button>
                             </div>
                         </div>
                     </div>
@@ -1342,7 +1342,7 @@ export class SettingsUIProvider {
         }
 
         function removeMCPServer(serverName) {
-            if (confirm(\`Are you sure you want to remove the MCP server "\${serverName}"?\`)) {
+            if (confirm('Are you sure you want to remove the MCP server "' + serverName + '"?')) {
                 vscode.postMessage({ type: 'removeMCPServer', serverName });
             }
         }

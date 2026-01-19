@@ -429,11 +429,7 @@ export class MCPClient {
         }
     }
 
-    async callTool(
-        fullToolName: string, 
-        args: any,
-        onPermissionPrompt: (id: string, serverName: string, toolName: string, toolInput: any) => void
-    ): Promise<{ success: boolean; result: string; error?: string }> {
+    async callTool(fullToolName: string, args: any): Promise<{ success: boolean; result: string; error?: string }> {
         const allTools = this.getAllTools();
         const tool = allTools.find(t => {
             const name = `mcp_${t.serverName}_${t.name}`.substring(0, 64);
@@ -442,18 +438,6 @@ export class MCPClient {
 
         if (!tool) {
             return { success: false, result: '', error: `MCP tool not found: ${fullToolName}` };
-        }
-
-        // Check permissions
-        const hasPermission = await this.permissionsManager.checkPermission(
-            tool.serverName, 
-            tool.name, 
-            args,
-            onPermissionPrompt
-        );
-        
-        if (!hasPermission) {
-            return { success: false, result: '', error: `Permission denied for tool: ${tool.name}` };
         }
 
         const server = this.servers.get(tool.serverName);
@@ -475,6 +459,29 @@ export class MCPClient {
         } catch (error: any) {
             return { success: false, result: '', error: error.message };
         }
+    }
+
+    async checkToolPermission(
+        fullToolName: string,
+        args: any,
+        onPermissionPrompt: (id: string, serverName: string, toolName: string, toolInput: any) => void
+    ): Promise<boolean> {
+        const allTools = this.getAllTools();
+        const tool = allTools.find(t => {
+            const name = `mcp_${t.serverName}_${t.name}`.substring(0, 64);
+            return fullToolName === name;
+        });
+
+        if (!tool) {
+            return false;
+        }
+
+        return await this.permissionsManager.checkPermission(
+            tool.serverName,
+            tool.name,
+            args,
+            onPermissionPrompt
+        );
     }
 
     public getPermissionsManager(): MCPPermissionsManager {

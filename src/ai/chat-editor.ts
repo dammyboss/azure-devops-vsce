@@ -1115,6 +1115,43 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
             currentChatId = Date.now();
         }
 
+        function showPermissionPrompt(id, serverName, toolName, toolInput) {
+            const promptDiv = document.createElement('div');
+            promptDiv.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--vscode-editor-background); border: 2px solid var(--vscode-focusBorder); border-radius: 8px; padding: 20px; max-width: 500px; z-index: 10000; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);';
+
+            promptDiv.innerHTML = '<h3 style="margin: 0 0 12px 0; font-size: 14px;">MCP Tool Permission</h3>' +
+                '<p style="margin: 0 0 8px 0; font-size: 12px; color: var(--vscode-descriptionForeground);"><strong>' + serverName + '</strong> wants to use tool: <strong>' + toolName + '</strong></p>' +
+                '<details style="margin: 8px 0; font-size: 11px;"><summary style="cursor: pointer; color: var(--vscode-textLink-foreground);">View tool input</summary>' +
+                '<pre style="margin-top: 8px; padding: 8px; background: var(--vscode-textCodeBlock-background); border-radius: 4px; overflow-x: auto;">' + JSON.stringify(toolInput, null, 2) + '</pre></details>' +
+                '<div style="display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end;">' +
+                '<button id="deny-always-' + id + '" style="padding: 6px 12px; background: transparent; border: 1px solid var(--vscode-button-border); border-radius: 4px; cursor: pointer; font-size: 12px;">Deny Always</button>' +
+                '<button id="deny-' + id + '" style="padding: 6px 12px; background: transparent; border: 1px solid var(--vscode-button-border); border-radius: 4px; cursor: pointer; font-size: 12px;">Deny</button>' +
+                '<button id="allow-' + id + '" style="padding: 6px 12px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Allow</button>' +
+                '<button id="allow-always-' + id + '" style="padding: 6px 12px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Allow Always</button></div>';
+
+            document.body.appendChild(promptDiv);
+
+            document.getElementById('allow-' + id).onclick = function() {
+                vscode.postMessage({ type: 'permissionResponse', id: id, action: 'allow' });
+                promptDiv.remove();
+            };
+
+            document.getElementById('allow-always-' + id).onclick = function() {
+                vscode.postMessage({ type: 'permissionResponse', id: id, action: 'allow-always' });
+                promptDiv.remove();
+            };
+
+            document.getElementById('deny-' + id).onclick = function() {
+                vscode.postMessage({ type: 'permissionResponse', id: id, action: 'deny' });
+                promptDiv.remove();
+            };
+
+            document.getElementById('deny-always-' + id).onclick = function() {
+                vscode.postMessage({ type: 'permissionResponse', id: id, action: 'deny-always' });
+                promptDiv.remove();
+            };
+        }
+
         function showSlashCommands() {
             // Placeholder for slash commands functionality
             messageInput.value = '/';
@@ -1162,6 +1199,10 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
 
                 case 'toolUse':
                     addToolUse(message.toolName, message.toolInput);
+                    break;
+
+                case 'permissionPrompt':
+                    showPermissionPrompt(message.id, message.serverName, message.toolName, message.toolInput);
                     break;
 
                 case 'error':

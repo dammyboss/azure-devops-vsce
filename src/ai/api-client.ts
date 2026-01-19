@@ -228,7 +228,17 @@ export class APIClient {
                 let result: { success: boolean; result: string; error?: string };
                 if (this.mcpClient && toolUse.name) {
                     try {
-                        result = await this.mcpClient.callTool(toolUse.name, toolUse.input, callbacks.onPermissionPrompt);
+                        const hasPermission = await this.mcpClient.checkToolPermission(
+                            toolUse.name,
+                            toolUse.input,
+                            callbacks.onPermissionPrompt || (() => {})
+                        );
+
+                        if (!hasPermission) {
+                            result = { success: false, result: '', error: 'Permission denied by user' };
+                        } else {
+                            result = await this.mcpClient.callTool(toolUse.name, toolUse.input);
+                        }
                     } catch (error: any) {
                         result = { success: false, result: '', error: error.message || 'Tool execution failed' };
                     }
