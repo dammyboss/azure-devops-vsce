@@ -246,6 +246,12 @@
         "icon": "$(project)"
       },
       {
+        "command": "azureDevOps.openAzureKanban",
+        "title": "Open Azure DevOps Board",
+        "category": "Azure DevOps",
+        "icon": "$(layout)"
+      },
+      {
         "command": "azureDevOps.setupWizard",
         "title": "Setup Connection Wizard",
         "category": "Azure DevOps",
@@ -391,14 +397,19 @@
           "group": "navigation@5"
         },
         {
-          "command": "azureDevOps.openBoardPanel",
+          "command": "azureDevOps.openAzureKanban",
           "when": "view == azureDevOpsBoards",
           "group": "navigation@1"
         },
         {
-          "command": "azureDevOps.refreshBoards",
+          "command": "azureDevOps.openBoardPanel",
           "when": "view == azureDevOpsBoards",
           "group": "navigation@2"
+        },
+        {
+          "command": "azureDevOps.refreshBoards",
+          "when": "view == azureDevOpsBoards",
+          "group": "navigation@3"
         },
         {
           "command": "azureDevOps.refreshSprints",
@@ -503,14 +514,19 @@
           "group": "navigation@2"
         },
         {
-          "command": "azureDevOps.openBoardPanel",
+          "command": "azureDevOps.openAzureKanban",
           "when": "view == azureDevOpsBoards && viewItem == board",
           "group": "navigation@1"
         },
         {
-          "command": "azureDevOps.openBoard",
+          "command": "azureDevOps.openBoardPanel",
           "when": "view == azureDevOpsBoards && viewItem == board",
           "group": "navigation@2"
+        },
+        {
+          "command": "azureDevOps.openBoard",
+          "when": "view == azureDevOpsBoards && viewItem == board",
+          "group": "navigation@3"
         },
         {
           "command": "azureDevOps.openSprint",

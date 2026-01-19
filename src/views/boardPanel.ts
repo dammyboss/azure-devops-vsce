@@ -751,11 +751,10 @@ export class BoardPanel {
             flex: 0 0 280px;
             min-width: 280px;
             background: var(--vscode-sideBar-background);
-            border-radius: 8px;
+            border-radius: 4px;
             display: flex;
             flex-direction: column;
             max-height: calc(100vh - 92px);
-            transition: all 0.2s ease;
         }
 
         .column.collapsed {
@@ -780,12 +779,11 @@ export class BoardPanel {
         }
 
         .column.drag-over {
-            background: var(--vscode-list-hoverBackground);
-            box-shadow: 0 0 0 2px var(--vscode-focusBorder);
+            /* No visual change */
         }
 
         .column.keyboard-focus {
-            box-shadow: 0 0 0 2px var(--vscode-focusBorder);
+            /* Removed box-shadow */
         }
 
         .column-header {
@@ -862,48 +860,38 @@ export class BoardPanel {
 
         /* Drop Placeholder */
         .drop-placeholder {
-            height: 80px;
-            border: 2px dashed var(--vscode-focusBorder);
-            border-radius: 6px;
-            background: var(--vscode-list-hoverBackground);
             display: none;
-        }
-
-        .column.drag-over .drop-placeholder {
-            display: block;
         }
 
         /* Work Item Cards */
         .card {
             background: var(--vscode-editor-background);
             border: 1px solid var(--vscode-panel-border);
-            border-radius: 6px;
-            padding: 12px;
-            cursor: grab;
-            transition: all 0.15s ease;
+            border-radius: 4px;
+            padding: 10px 12px 10px 16px;
+            cursor: pointer;
             position: relative;
-        }
-
-        .card:hover {
-            border-color: var(--vscode-focusBorder);
-            transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         }
 
+        .card:hover {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            
+        }
+
         .card.selected {
-            border-color: var(--vscode-focusBorder);
-            box-shadow: 0 0 0 2px var(--vscode-focusBorder);
+            
+            
         }
 
         .card.dragging {
             opacity: 0.5;
-            transform: rotate(3deg);
             cursor: grabbing;
         }
 
         .card.keyboard-moving {
-            border-color: var(--vscode-charts-orange);
-            box-shadow: 0 0 0 2px var(--vscode-charts-orange);
+            outline: 2px solid var(--vscode-charts-orange);
+            box-shadow: 0 0 0 4px rgba(255, 123, 0, 0.2);
         }
 
         .card-type-border {
@@ -912,43 +900,53 @@ export class BoardPanel {
             top: 0;
             bottom: 0;
             width: 4px;
-            border-radius: 6px 0 0 6px;
+            border-radius: 4px 0 0 4px;
         }
 
-        .card-type-border.user-story { background: #009ccc; }
-        .card-type-border.task { background: #f2cb1d; }
-        .card-type-border.bug { background: #cc293d; }
-        .card-type-border.feature { background: #773b93; }
-        .card-type-border.epic { background: #ff7b00; }
+
 
         .card-header {
             display: flex;
-            align-items: flex-start;
-            gap: 8px;
+            align-items: center;
+            gap: 6px;
             margin-bottom: 8px;
         }
 
+        .card-type-icon {
+            font-size: 14px;
+            line-height: 1;
+        }
+
         .card-id {
-            font-family: 'Consolas', 'Monaco', monospace;
-            font-size: 11px;
-            color: var(--vscode-descriptionForeground);
+            font-size: 12px;
+            color: var(--vscode-textLink-foreground);
             font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        .card-id:hover {
+            text-decoration: underline;
+        }
+
+        .state-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-left: auto;
         }
 
         .card-title {
             font-size: 13px;
-            font-weight: 500;
-            color: var(--vscode-foreground);
+            margin-bottom: 8px;
             line-height: 1.4;
-            flex: 1;
-            word-break: break-word;
         }
 
         .card-footer {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-top: 10px;
+            margin-top: 8px;
         }
 
         .card-meta {
@@ -975,18 +973,10 @@ export class BoardPanel {
             color: var(--vscode-descriptionForeground);
         }
 
-        .card-type-icon {
-            font-size: 11px;
-            padding: 2px 6px;
-            border-radius: 3px;
-            background: var(--vscode-badge-background);
-            color: var(--vscode-badge-foreground);
-            font-weight: 600;
-        }
+
 
         .priority-indicator {
-            display: flex;
-            gap: 2px;
+            display: none;
         }
 
         .priority-dot {
@@ -1030,15 +1020,16 @@ export class BoardPanel {
             display: flex;
             flex-wrap: wrap;
             gap: 4px;
-            margin-top: 8px;
+            margin: 8px 0;
         }
 
         .tag {
             font-size: 10px;
-            padding: 2px 6px;
+            padding: 3px 8px;
             background: var(--vscode-badge-background);
             color: var(--vscode-badge-foreground);
-            border-radius: 3px;
+            border-radius: 12px;
+            font-weight: 500;
         }
 
         /* Context Menu */
@@ -1549,6 +1540,7 @@ export class BoardPanel {
                     ${items.length === 0 ? '<div class="empty-column">No items</div>' : ''}
                     <div class="drop-placeholder"></div>
                 </div>
+                ${colIndex === 0 ? `
                 <div class="add-item">
                     <button class="add-item-btn" onclick="showAddForm('${this._escapeHtml(column.name)}')">+ New item</button>
                     <div class="add-item-form" id="add-form-${this._escapeHtml(column.name).replace(/\s/g, '-')}">
@@ -1560,6 +1552,7 @@ export class BoardPanel {
                         </div>
                     </div>
                 </div>
+                ` : ''}
             </div>
             `;
         }).join('')}
@@ -2312,12 +2305,8 @@ export class BoardPanel {
             ? item.assignedTo.displayName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
             : '?';
         const assignedClass = item.assignedTo ? '' : 'unassigned';
-
-        const priorityDots = item.priority
-            ? Array(4).fill(0).map((_, i) =>
-                `<span class="priority-dot ${i < (5 - (item.priority || 4)) ? 'filled' : ''}"></span>`
-              ).join('')
-            : '';
+        const typeIcon = this._getTypeIcon(item.type);
+        const stateColor = this._getStateColor(item.state);
 
         const tags = item.tags
             ? item.tags.split(';').slice(0, 3).map(tag =>
@@ -2344,24 +2333,23 @@ export class BoardPanel {
              onclick="openWorkItem(${item.id})"
              oncontextmenu="showContextMenu(event, ${item.id})"
              onfocus="selectCard(this)">
-            <div class="card-type-border ${typeClass}"></div>
+            <div class="card-type-border" style="background: ${stateColor}"></div>
             <div class="card-header">
-                <span class="card-id">#${item.id}</span>
-                <span class="card-title">${this._escapeHtml(item.title)}</span>
+                <span class="card-type-icon" title="${this._escapeHtml(item.type)}">${typeIcon}</span>
+                <span class="card-id" onclick="event.stopPropagation(); openWorkItem(${item.id})">#${item.id}</span>
+                <span class="state-indicator" style="background: ${stateColor}" title="${this._escapeHtml(item.state)}"></span>
+                <div class="card-actions">
+                    <button class="card-action-btn" onclick="event.stopPropagation(); showContextMenu(event, ${item.id})" title="More actions">⋯</button>
+                </div>
             </div>
+            <div class="card-title">${this._escapeHtml(item.title)}</div>
             ${tags ? `<div class="card-tags">${tags}</div>` : ''}
             <div class="card-footer">
                 <div class="card-meta">
                     <div class="card-avatar ${assignedClass}" title="${item.assignedTo?.displayName || 'Unassigned'}">
                         ${initials}
                     </div>
-                    <span class="card-type-icon">${this._getTypeIcon(item.type)}</span>
-                    ${priorityDots ? `<div class="priority-indicator">${priorityDots}</div>` : ''}
-                </div>
-                <div class="card-actions">
-                    <button class="card-action-btn" onclick="assignToMe(${item.id}, event)" title="Assign to me">👤</button>
-                    <button class="card-action-btn" onclick="event.stopPropagation(); vscode.postMessage({ command: 'addComment', workItemId: ${item.id} })" title="Add comment">💬</button>
-                    <button class="card-action-btn" onclick="event.stopPropagation(); showContextMenu(event, ${item.id})" title="More actions">⋯</button>
+
                 </div>
             </div>
         </div>`;
@@ -2370,13 +2358,22 @@ export class BoardPanel {
     private _getTypeIcon(type: string): string {
         const icons: Record<string, string> = {
             'User Story': '📖',
-            'Task': '📋',
+            'Task': '✓',
             'Bug': '🐛',
             'Feature': '⭐',
-            'Epic': '🏔️',
+            'Epic': '⚡',
             'Issue': '❗'
         };
         return icons[type] || '📄';
+    }
+
+    private _getStateColor(state: string): string {
+        const stateLower = state.toLowerCase();
+        if (stateLower.includes('new') || stateLower.includes('proposed')) return '#b4b4b4';
+        if (stateLower.includes('active') || stateLower.includes('committed')) return '#007acc';
+        if (stateLower.includes('resolved') || stateLower.includes('completed')) return '#68217a';
+        if (stateLower.includes('done') || stateLower.includes('closed')) return '#339933';
+        return '#b4b4b4';
     }
 
     private _escapeHtml(text: string): string {

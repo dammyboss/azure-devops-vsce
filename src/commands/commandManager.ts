@@ -9,6 +9,7 @@ import { GitIntegration } from '../gitIntegration/gitIntegration';
 import { StatusBarManager } from '../utils/statusBarManager';
 import { WorkItemPanel } from '../views/workItemPanel';
 import { BoardPanel } from '../views/boardPanel';
+import { AzureDevOpsKanbanPanel } from '../boards/azureDevOpsKanban';
 import { WorkItemTypeEnum } from '../models/workItem';
 import { ConnectionSetupWizard } from '../authentication/connectionSetupWizard';
 import { OrganizationManager } from '../authentication/organizationManager';
@@ -439,6 +440,55 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
 
             const boardUrl = `${config.organizationUrl}/${config.defaultProject}/_boards/board/t/${config.defaultTeam}/${encodeURIComponent(boardName)}`;
             vscode.env.openExternal(vscode.Uri.parse(boardUrl));
+        })
+    );
+
+    // Open Azure DevOps Kanban board
+    context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.openAzureKanban', async (boardItem?: any) => {
+            if (!components.authenticationManager.isConnected()) {
+                vscode.window.showErrorMessage('Please connect to Azure DevOps first');
+                return;
+            }
+
+            const config = components.authenticationManager.getConfig();
+            if (!config?.defaultProject || !config.defaultTeam) {
+                vscode.window.showErrorMessage('Please select a project and team first');
+                return;
+            }
+
+            const axiosInstance = components.authenticationManager.getAxiosInstance();
+            if (!axiosInstance) return;
+
+            try {
+                let boardId = boardItem?.boardId;
+                let boardName = boardItem?.boardName || boardItem?.label;
+
+                if (!boardId) {
+                    const boardsResponse = await axiosInstance.get(
+                        `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/boards`
+                    );
+                    const boards = boardsResponse.data.value || [];
+
+                    if (boards.length === 0) {
+                        vscode.window.showInformationMessage('No boards found');
+                        return;
+                    }
+
+                    const selected = await vscode.window.showQuickPick(
+                        boards.map((b: any) => ({ label: b.name, id: b.id, name: b.name })),
+                        { placeHolder: 'Select a board' }
+                    );
+
+                    if (!selected) return;
+                    boardId = (selected as any).id;
+                    boardName = (selected as any).name;
+                }
+
+                await AzureDevOpsKanbanPanel.show(components.authenticationManager, boardId, boardName);
+            } catch (error) {
+                vscode.window.showErrorMessage(`Failed to open board: ${error}`);
+            }
         })
     );
 
