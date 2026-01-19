@@ -459,7 +459,7 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
         }
 
         .welcome-logo h1 {
-            font-size: 20px;
+            font-size: 16px;
             font-weight: 300;
             margin: 0;
             color: var(--vscode-foreground);
@@ -736,7 +736,7 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
         <div id="welcomeScreen" class="welcome-screen">
             <div class="welcome-content">
                 <div class="welcome-logo">
-                    <h1>Azure DevOps AI Assistant</h1>
+                    <h1>Azure DevOps Boards AI Assistant</h1>
                 </div>
                 <p class="welcome-text">Ready to help with work items, sprints, and Azure DevOps...</p>
             </div>
