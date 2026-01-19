@@ -382,13 +382,16 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
             transition: all 0.15s ease;
         }
 
-        .send-btn:hover {
+        .send-btn:hover:not(.generating) {
             background-color: rgba(255, 255, 255, 0.15);
         }
 
-        .send-btn:disabled {
-            opacity: 0.3;
-            cursor: not-allowed;
+        .send-btn.generating {
+            background-color: rgba(255, 100, 100, 0.2);
+        }
+
+        .send-btn.generating:hover {
+            background-color: rgba(255, 100, 100, 0.3);
         }
 
         .send-btn-content {
@@ -660,10 +663,15 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
 
         function updateSendButton() {
             const btnContent = sendButton.querySelector('.send-btn-content');
+            console.log('Updating button, isGenerating:', isGenerating);
             if (isGenerating) {
+                sendButton.classList.add('generating');
                 btnContent.innerHTML = '<span>Stop</span><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="12" height="12"><rect x="6" y="6" width="12" height="12" fill="currentColor" rx="2"/></svg>';
+                console.log('Button changed to Stop');
             } else {
+                sendButton.classList.remove('generating');
                 btnContent.innerHTML = '<span>Send</span><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="M20 4v9a4 4 0 0 1-4 4H6.914l2.5 2.5L8 20.914L3.086 16L8 11.086L9.414 12.5l-2.5 2.5H16a2 2 0 0 0 2-2V4z"></path></svg>';
+                console.log('Button changed to Send');
             }
         }
 
