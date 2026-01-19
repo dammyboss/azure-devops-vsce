@@ -371,21 +371,16 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             transition: all 0.15s ease;
         }
 
-        .send-btn:hover {
+        .send-btn:hover:not(.generating) {
             background-color: rgba(255, 255, 255, 0.15);
         }
 
-        .send-btn:disabled {
-            opacity: 0.3;
-            cursor: not-allowed;
+        .send-btn.generating {
+            background-color: rgba(255, 100, 100, 0.2);
         }
 
-        .send-btn.stop-mode {
-            background-color: rgba(239, 68, 68, 0.2);
-        }
-
-        .send-btn.stop-mode:hover {
-            background-color: rgba(239, 68, 68, 0.3);
+        .send-btn.generating:hover {
+            background-color: rgba(255, 100, 100, 0.3);
         }
 
         .send-btn-content {
@@ -739,9 +734,11 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             }
         });
         messageInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey && !isGenerating) {
+            if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                sendMessage();
+                if (!isGenerating) {
+                    sendMessage();
+                }
             }
         });
 
@@ -757,8 +754,9 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             addMessage('user', text);
             messageInput.value = '';
             messageInput.style.height = 'auto';
-            sendButton.disabled = true;
-
+            
+            isGenerating = true;
+            updateSendButton();
             showAnimatedLoading();
 
             vscode.postMessage({ type: 'sendMessage', text });
@@ -803,6 +801,24 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             vscode.postMessage({ type: 'clearHistory' });
             messagesDiv.innerHTML = '';
             welcomeScreen.classList.remove('hidden');
+        }
+
+        function stopGeneration() {
+            vscode.postMessage({ type: 'stopGeneration' });
+            isGenerating = false;
+            updateSendButton();
+            hideAnimatedLoading();
+        }
+
+        function updateSendButton() {
+            const btnContent = sendButton.querySelector('.send-btn-content');
+            if (isGenerating) {
+                sendButton.classList.add('generating');
+                btnContent.innerHTML = '<span>Stop</span><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="12" height="12"><rect x="6" y="6" width="12" height="12" fill="currentColor" rx="2"/></svg>';
+            } else {
+                sendButton.classList.remove('generating');
+                btnContent.innerHTML = '<span>Send</span><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="M20 4v9a4 4 0 0 1-4 4H6.914l2.5 2.5L8 20.914L3.086 16L8 11.086L9.414 12.5l-2.5 2.5H16a2 2 0 0 0 2-2V4z"></path></svg>';
+            }
         }
 
         function showSlashCommands() {
@@ -861,13 +877,15 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
                 case 'error':
                     hideAnimatedLoading();
                     addMessage('assistant', \`Error: \${message.error}\`);
-                    sendButton.disabled = false;
+                    isGenerating = false;
+                    updateSendButton();
                     currentAssistantMessage = null;
                     break;
 
                 case 'complete':
                     hideAnimatedLoading();
-                    sendButton.disabled = false;
+                    isGenerating = false;
+                    updateSendButton();
                     currentAssistantMessage = null;
                     tokenInfo.textContent = \`Tokens: \${message.inputTokens} in / \${message.outputTokens} out\`;
                     break;
