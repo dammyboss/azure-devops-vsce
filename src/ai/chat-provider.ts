@@ -380,6 +380,14 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             cursor: not-allowed;
         }
 
+        .send-btn.stop-mode {
+            background-color: rgba(239, 68, 68, 0.2);
+        }
+
+        .send-btn.stop-mode:hover {
+            background-color: rgba(239, 68, 68, 0.3);
+        }
+
         .send-btn-content {
             display: flex;
             align-items: center;
@@ -654,6 +662,7 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
         let loadingElement = null;
         let loadingInterval = null;
         let loadingMessageIndex = 0;
+        let isGenerating = false;
 
         const processingMessages = [
             'Reticulating splines',
@@ -722,9 +731,15 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
 
         messageInput.addEventListener('input', autoResizeTextarea);
 
-        sendButton.addEventListener('click', sendMessage);
+        sendButton.addEventListener('click', () => {
+            if (isGenerating) {
+                stopGeneration();
+            } else {
+                sendMessage();
+            }
+        });
         messageInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
+            if (e.key === 'Enter' && !e.shiftKey && !isGenerating) {
                 e.preventDefault();
                 sendMessage();
             }

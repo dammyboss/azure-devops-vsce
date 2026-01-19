@@ -604,6 +604,7 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
         const welcomeScreen = document.getElementById('welcomeScreen');
 
         let currentAssistantMessage = null;
+        let isGenerating = false;
 
         // Auto-resize textarea
         function autoResizeTextarea() {
@@ -613,11 +614,20 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
 
         messageInput.addEventListener('input', autoResizeTextarea);
 
-        sendButton.addEventListener('click', sendMessage);
+        sendButton.addEventListener('click', () => {
+            if (isGenerating) {
+                stopGeneration();
+            } else {
+                sendMessage();
+            }
+        });
+        
         messageInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                sendMessage();
+                if (!isGenerating) {
+                    sendMessage();
+                }
             }
         });
 
@@ -633,11 +643,28 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
             addMessage('user', text);
             messageInput.value = '';
             messageInput.style.height = 'auto';
-            sendButton.disabled = true;
+            
+            isGenerating = true;
+            updateSendButton();
 
             currentAssistantMessage = addMessage('assistant', '');
 
             vscode.postMessage({ type: 'sendMessage', text });
+        }
+
+        function stopGeneration() {
+            vscode.postMessage({ type: 'stopGeneration' });
+            isGenerating = false;
+            updateSendButton();
+        }
+
+        function updateSendButton() {
+            const btnContent = sendButton.querySelector('.send-btn-content');
+            if (isGenerating) {
+                btnContent.innerHTML = '<span>Stop</span><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="12" height="12"><rect x="6" y="6" width="12" height="12" fill="currentColor" rx="2"/></svg>';
+            } else {
+                btnContent.innerHTML = '<span>Send</span><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="M20 4v9a4 4 0 0 1-4 4H6.914l2.5 2.5L8 20.914L3.086 16L8 11.086L9.414 12.5l-2.5 2.5H16a2 2 0 0 0 2-2V4z"></path></svg>';
+            }
         }
 
         function addMessage(role, content) {
@@ -744,12 +771,14 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
 
                 case 'error':
                     addMessage('assistant', \`Error: \${message.error}\`);
-                    sendButton.disabled = false;
+                    isGenerating = false;
+                    updateSendButton();
                     currentAssistantMessage = null;
                     break;
 
                 case 'complete':
-                    sendButton.disabled = false;
+                    isGenerating = false;
+                    updateSendButton();
                     currentAssistantMessage = null;
                     tokenInfo.textContent = \`Tokens: \${message.inputTokens} in / \${message.outputTokens} out\`;
                     break;
