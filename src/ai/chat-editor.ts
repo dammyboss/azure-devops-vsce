@@ -1123,9 +1123,10 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
 let activeChatPanel: vscode.WebviewPanel | undefined;
 
 export async function openChatEditor(context: vscode.ExtensionContext) {
-    // If panel already exists, reveal it
+    // If panel already exists, reveal it and close sidebar
     if (activeChatPanel) {
         activeChatPanel.reveal(vscode.ViewColumn.One);
+        await vscode.commands.executeCommand('workbench.action.closeSidebar');
         return;
     }
 
@@ -1142,6 +1143,9 @@ export async function openChatEditor(context: vscode.ExtensionContext) {
     panel.onDidDispose(() => {
         activeChatPanel = undefined;
     });
+
+    // Close the sidebar after opening the editor
+    await vscode.commands.executeCommand('workbench.action.closeSidebar');
 
     const provider = new ChatEditorProvider(context, vscode.window.createOutputChannel('Azure DevOps AI'));
     
