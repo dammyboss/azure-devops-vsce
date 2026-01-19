@@ -82,6 +82,9 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
                 case 'saveChat':
                     await this.historyManager.saveChat(message.chat);
                     break;
+                case 'openEditorChat':
+                    await vscode.commands.executeCommand('azureDevOps.openAIChatEditor');
+                    break;
             }
         });
     }
@@ -116,6 +119,7 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
         const historyIconUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'history.png'));
         const newChatIconUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'new-chat.png'));
         const scrollToBottomIconUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'scroll-to-bottom.png'));
+        const editorIconUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'editor.png'));
 
         return `<!DOCTYPE html>
 <html lang="en">
@@ -681,6 +685,11 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
     <div class="header">
         <h2>AI Assistant</h2>
         <div class="header-actions">
+            <button class="icon-btn" id="editorBtn" title="Open in Editor" onclick="openEditorChat()">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+                    <path fill="currentColor" d="M1.75 2.5a.25.25 0 00-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 00.25-.25V2.75a.25.25 0 00-.25-.25H1.75zM0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0114.25 15H1.75A1.75 1.75 0 010 13.25V2.75zm9.22 3.72a.75.75 0 000 1.06l1.97 1.97-1.97 1.97a.75.75 0 101.06 1.06l2.5-2.5a.75.75 0 000-1.06l-2.5-2.5a.75.75 0 00-1.06 0z"/>
+                </svg>
+            </button>
             <button class="icon-btn" id="settingsBtn" title="Settings" onclick="openSettings()">
                 <img src="${settingsIconUri}" width="16" height="16" alt="Settings">
             </button>
@@ -965,6 +974,10 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
 
         function openSettings() {
             vscode.postMessage({ type: 'openSettings' });
+        }
+
+        function openEditorChat() {
+            vscode.postMessage({ type: 'openEditorChat' });
         }
 
         function toggleHistory() {
