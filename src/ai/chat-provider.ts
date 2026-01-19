@@ -116,6 +116,9 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
                 case 'getMCPServers':
                     await this.getMCPServersForSettings();
                     break;
+                case 'permissionResponse':
+                    this.mcpClient.getPermissionsManager().respondToPermission(message.id, message.action);
+                    break;
             }
         });
     }
@@ -170,6 +173,15 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             },
             onComplete: (inputTokens: number, outputTokens: number) => {
                 this.view?.webview.postMessage({ type: 'complete', inputTokens, outputTokens });
+            },
+            onPermissionPrompt: (id: string, serverName: string, toolName: string, toolInput: any) => {
+                this.view?.webview.postMessage({ 
+                    type: 'permissionPrompt', 
+                    id, 
+                    serverName, 
+                    toolName, 
+                    toolInput 
+                });
             }
         };
 

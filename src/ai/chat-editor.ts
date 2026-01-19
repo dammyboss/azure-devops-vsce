@@ -114,6 +114,9 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
                 case 'getMCPServers':
                     await this.getMCPServersForSettings(webviewPanel.webview);
                     break;
+                case 'permissionResponse':
+                    this.mcpClient.getPermissionsManager().respondToPermission(message.id, message.action);
+                    break;
             }
         });
     }
@@ -166,6 +169,15 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
             },
             onComplete: (inputTokens: number, outputTokens: number) => {
                 webview.postMessage({ type: 'complete', inputTokens, outputTokens });
+            },
+            onPermissionPrompt: (id: string, serverName: string, toolName: string, toolInput: any) => {
+                webview.postMessage({ 
+                    type: 'permissionPrompt', 
+                    id, 
+                    serverName, 
+                    toolName, 
+                    toolInput 
+                });
             }
         };
 
@@ -1247,6 +1259,9 @@ export async function openChatEditor(context: vscode.ExtensionContext) {
                 break;
             case 'getMCPServers':
                 await provider.getMCPServersForSettings(panel.webview);
+                break;
+            case 'permissionResponse':
+                (provider as any).mcpClient.getPermissionsManager().respondToPermission(message.id, message.action);
                 break;
         }
     });

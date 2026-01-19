@@ -8,9 +8,19 @@ export interface ToolPermission {
     action: 'allow' | 'deny';
 }
 
+export interface PendingPermission {
+    id: string;
+    serverName: string;
+    toolName: string;
+    toolInput: any;
+    resolve: (action: PermissionAction) => void;
+}
+
 export class MCPPermissionsManager {
     private static instance: MCPPermissionsManager;
     private context: vscode.ExtensionContext;
+    private pendingPermissions = new Map<string, PendingPermission>();
+    private permissionCallbacks = new Map<string, (action: PermissionAction) => void>();
 
     private constructor(context: vscode.ExtensionContext) {
         this.context = context;
@@ -31,7 +41,12 @@ export class MCPPermissionsManager {
         await this.context.globalState.update('mcp.permissions', permissions);
     }
 
-    public async checkPermission(serverName: string, toolName: string, toolInput: any): Promise<boolean> {
+    public async checkPermission(
+        serverName: string, 
+        toolName: string, 
+        toolInput: any,
+        onPrompt: (id: string, serverName: string, toolName: string, toolInput: any) => void
+    ): Promise<boolean> {
         const permissions = this.getPermissions();
         const existing = permissions.find(p => p.serverName === serverName && p.toolName === toolName);
 
@@ -39,43 +54,34 @@ export class MCPPermissionsManager {
             return existing.action === 'allow';
         }
 
-        // Ask user for permission
-        const action = await this.promptForPermission(serverName, toolName, toolInput);
+        // Create pending permission request
+        const id = `${serverName}_${toolName}_${Date.now()}`;
         
-        if (action === 'allow-always') {
-            await this.setPermission(serverName, toolName, 'allow');
-            return true;
-        } else if (action === 'deny-always') {
-            await this.setPermission(serverName, toolName, 'deny');
-            return false;
-        } else if (action === 'allow') {
-            return true;
-        } else {
-            return false;
-        }
+        return new Promise<boolean>((resolve) => {
+            this.permissionCallbacks.set(id, async (action: PermissionAction) => {
+                if (action === 'allow-always') {
+                    await this.setPermission(serverName, toolName, 'allow');
+                    resolve(true);
+                } else if (action === 'deny-always') {
+                    await this.setPermission(serverName, toolName, 'deny');
+                    resolve(false);
+                } else if (action === 'allow') {
+                    resolve(true);
+                } else {
+                    resolve(false);
+                }
+                this.permissionCallbacks.delete(id);
+            });
+
+            // Notify UI to show permission prompt
+            onPrompt(id, serverName, toolName, toolInput);
+        });
     }
 
-    private async promptForPermission(serverName: string, toolName: string, toolInput: any): Promise<PermissionAction> {
-        const inputPreview = JSON.stringify(toolInput, null, 2).substring(0, 200);
-        
-        const choice = await vscode.window.showWarningMessage(
-            `MCP Tool Permission Required`,
-            {
-                modal: true,
-                detail: `Server: ${serverName}\nTool: ${toolName}\n\nInput:\n${inputPreview}${inputPreview.length >= 200 ? '...' : ''}\n\nDo you want to allow this tool to execute?`
-            },
-            'Allow Once',
-            'Allow Always',
-            'Deny Once',
-            'Deny Always'
-        );
-
-        switch (choice) {
-            case 'Allow Once': return 'allow';
-            case 'Allow Always': return 'allow-always';
-            case 'Deny Once': return 'deny';
-            case 'Deny Always': return 'deny-always';
-            default: return 'deny';
+    public respondToPermission(id: string, action: PermissionAction): void {
+        const callback = this.permissionCallbacks.get(id);
+        if (callback) {
+            callback(action);
         }
     }
 

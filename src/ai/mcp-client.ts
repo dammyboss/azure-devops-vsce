@@ -429,7 +429,11 @@ export class MCPClient {
         }
     }
 
-    async callTool(fullToolName: string, args: any): Promise<{ success: boolean; result: string; error?: string }> {
+    async callTool(
+        fullToolName: string, 
+        args: any,
+        onPermissionPrompt: (id: string, serverName: string, toolName: string, toolInput: any) => void
+    ): Promise<{ success: boolean; result: string; error?: string }> {
         const allTools = this.getAllTools();
         const tool = allTools.find(t => {
             const name = `mcp_${t.serverName}_${t.name}`.substring(0, 64);
@@ -441,7 +445,13 @@ export class MCPClient {
         }
 
         // Check permissions
-        const hasPermission = await this.permissionsManager.checkPermission(tool.serverName, tool.name, args);
+        const hasPermission = await this.permissionsManager.checkPermission(
+            tool.serverName, 
+            tool.name, 
+            args,
+            onPermissionPrompt
+        );
+        
         if (!hasPermission) {
             return { success: false, result: '', error: `Permission denied for tool: ${tool.name}` };
         }

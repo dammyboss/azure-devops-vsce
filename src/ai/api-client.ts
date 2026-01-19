@@ -23,6 +23,7 @@ export interface StreamCallbacks {
     onToolResult: (toolName: string, result: string, isError: boolean) => void;
     onError: (error: string) => void;
     onComplete: (totalInputTokens: number, totalOutputTokens: number) => void;
+    onPermissionPrompt: (id: string, serverName: string, toolName: string, toolInput: any) => void;
 }
 
 export type Provider = 'anthropic' | 'azure' | 'deepseek' | 'grok' | 'openai';
@@ -226,7 +227,11 @@ export class APIClient {
                 // Actually call the MCP tool
                 let result: { success: boolean; result: string; error?: string };
                 if (this.mcpClient && toolUse.name) {
-                    result = await this.mcpClient.callTool(toolUse.name, toolUse.input);
+                    try {
+                        result = await this.mcpClient.callTool(toolUse.name, toolUse.input, callbacks.onPermissionPrompt);
+                    } catch (error: any) {
+                        result = { success: false, result: '', error: error.message || 'Tool execution failed' };
+                    }
                 } else {
                     result = { success: false, result: '', error: 'MCP client not available' };
                 }
