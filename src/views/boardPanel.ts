@@ -160,6 +160,18 @@ export class BoardPanel {
                             email: currentUser?.uniqueName || currentUser?.emailAddress || ''
                         });
                         break;
+                    case 'updateWorkItemTitle':
+                        await this._updateWorkItemTitle(message.workItemId, message.title);
+                        break;
+                    case 'updateWorkItemEffort':
+                        await this._updateWorkItemEffort(message.workItemId, message.effort);
+                        break;
+                    case 'changeAssignee':
+                        await this._changeAssignee(message.workItemId);
+                        break;
+                    case 'deleteWorkItem':
+                        await this._deleteWorkItem(message.workItemId);
+                        break;
                 }
             },
             null,
@@ -312,13 +324,8 @@ export class BoardPanel {
                 { headers: { 'Content-Type': 'application/json-patch+json' } }
             );
 
-            // Send success message to webview
-            this._panel.webview.postMessage({
-                command: 'moveSuccess',
-                workItemId,
-                targetColumn,
-                message: `Moved #${workItemId} to ${targetColumn}`
-            });
+            // Refresh board to update status dots and reflect new state
+            await this._loadAndRender();
 
             vscode.window.showInformationMessage(`Moved #${workItemId} to ${targetColumn}`);
 
@@ -469,6 +476,163 @@ export class BoardPanel {
 
         } catch (error: any) {
             vscode.window.showErrorMessage(`Failed to add comment: ${error?.message || error}`);
+        }
+    }
+
+    private async _updateWorkItemTitle(workItemId: number, title: string): Promise<void> {
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+
+            if (!axiosInstance || !config?.defaultProject) {
+                throw new Error('Not connected');
+            }
+
+            await axiosInstance.patch(
+                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workItems/${workItemId}`,
+                [
+                    {
+                        op: 'replace',
+                        path: '/fields/System.Title',
+                        value: title
+                    }
+                ],
+                {
+                    params: { 'api-version': '7.1' },
+                    headers: { 'Content-Type': 'application/json-patch+json' }
+                }
+            );
+
+            await this._loadAndRender();
+            vscode.window.showInformationMessage(`Updated title for #${workItemId}`);
+
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Failed to update title: ${error?.message || error}`);
+        }
+    }
+
+    private async _updateWorkItemEffort(workItemId: number, effort: number | null): Promise<void> {
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+
+            if (!axiosInstance || !config?.defaultProject) {
+                throw new Error('Not connected');
+            }
+
+            const fieldName = 'Microsoft.VSTS.Scheduling.Effort';
+            const patchOp = effort !== null
+                ? { op: 'replace', path: `/fields/${fieldName}`, value: effort }
+                : { op: 'remove', path: `/fields/${fieldName}` };
+
+            await axiosInstance.patch(
+                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workItems/${workItemId}`,
+                [patchOp],
+                {
+                    params: { 'api-version': '7.1' },
+                    headers: { 'Content-Type': 'application/json-patch+json' }
+                }
+            );
+
+            await this._loadAndRender();
+            vscode.window.showInformationMessage(`Updated effort for #${workItemId}`);
+
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Failed to update effort: ${error?.message || error}`);
+        }
+    }
+
+    private async _changeAssignee(workItemId: number): Promise<void> {
+        const teamMembers = await this._getTeamMembers();
+
+        const items = [
+            { label: 'Unassigned', description: 'Remove assignee', uniqueName: '' },
+            ...teamMembers.map(m => ({
+                label: m.displayName,
+                description: m.uniqueName,
+                uniqueName: m.uniqueName
+            }))
+        ];
+
+        const selected = await vscode.window.showQuickPick(items, {
+            placeHolder: 'Select assignee'
+        });
+
+        if (!selected) return;
+
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+
+            if (!axiosInstance || !config?.defaultProject) {
+                throw new Error('Not connected');
+            }
+
+            const patchOp = selected.uniqueName
+                ? { op: 'replace', path: '/fields/System.AssignedTo', value: selected.uniqueName }
+                : { op: 'remove', path: '/fields/System.AssignedTo' };
+
+            await axiosInstance.patch(
+                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workItems/${workItemId}`,
+                [patchOp],
+                {
+                    params: { 'api-version': '7.1' },
+                    headers: { 'Content-Type': 'application/json-patch+json' }
+                }
+            );
+
+            await this._loadAndRender();
+            vscode.window.showInformationMessage(`Updated assignee for #${workItemId}`);
+
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Failed to update assignee: ${error?.message || error}`);
+        }
+    }
+
+    private async _deleteWorkItem(workItemId: number): Promise<void> {
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+
+            if (!axiosInstance || !config?.defaultProject) {
+                throw new Error('Not connected');
+            }
+
+            await axiosInstance.delete(
+                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workItems/${workItemId}`,
+                {
+                    params: { 'api-version': '7.1' }
+                }
+            );
+
+            await this._loadAndRender();
+            vscode.window.showInformationMessage(`Deleted work item #${workItemId}`);
+
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Failed to delete work item: ${error?.message || error}`);
+        }
+    }
+
+    private async _getTeamMembers(): Promise<Array<{displayName: string, uniqueName: string}>> {
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+
+            if (!axiosInstance || !config?.defaultProject || !config?.defaultTeam) {
+                return [];
+            }
+
+            const response = await axiosInstance.get(
+                `/_apis/projects/${encodeURIComponent(config.defaultProject)}/teams/${encodeURIComponent(config.defaultTeam)}/members`,
+                { params: { 'api-version': '7.0' } }
+            );
+
+            return (response.data.value || []).map((member: any) => ({
+                displayName: member.identity?.displayName || '',
+                uniqueName: member.identity?.uniqueName || ''
+            }));
+        } catch (error) {
+            return [];
         }
     }
 
@@ -740,21 +904,20 @@ export class BoardPanel {
         /* Board Container */
         .board-container {
             display: flex;
-            gap: 12px;
-            padding: 16px;
-            min-height: calc(100vh - 60px);
+            gap: 0;
+            min-height: calc(100vh - 120px);
             overflow-x: auto;
         }
 
         /* Columns */
         .column {
-            flex: 0 0 280px;
-            min-width: 280px;
-            background: var(--vscode-sideBar-background);
-            border-radius: 4px;
+            flex: 0 0 320px;
+            min-width: 320px;
+            background: var(--vscode-editor-background);
+            border-right: 1px solid var(--vscode-panel-border);
             display: flex;
             flex-direction: column;
-            max-height: calc(100vh - 92px);
+            transition: all 0.3s ease;
         }
 
         .column.collapsed {
@@ -852,10 +1015,15 @@ export class BoardPanel {
         .column-body {
             flex: 1;
             overflow-y: auto;
-            padding: 8px;
+            padding: 12px;
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 12px;
+        }
+
+        .column-body.scrollbar-thin {
+            scrollbar-width: thin;
+            scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
         }
 
         /* Drop Placeholder */
@@ -863,173 +1031,319 @@ export class BoardPanel {
             display: none;
         }
 
-        /* Work Item Cards */
+        /* Work Item Cards - MODERN DESIGN */
         .card {
             background: var(--vscode-editor-background);
             border: 1px solid var(--vscode-panel-border);
-            border-radius: 4px;
-            padding: 10px 12px 10px 16px;
+            border-left: 3px solid #f97316;
+            border-radius: 6px;
+            padding: 12px;
             cursor: pointer;
+            transition: all 0.2s ease;
             position: relative;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         }
 
         .card:hover {
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-            
-        }
-
-        .card.selected {
-            
-            
+            background: var(--vscode-list-hoverBackground);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            border-left-color: #ea580c;
         }
 
         .card.dragging {
             opacity: 0.5;
-            cursor: grabbing;
         }
 
         .card.keyboard-moving {
-            outline: 2px solid var(--vscode-charts-orange);
-            box-shadow: 0 0 0 4px rgba(255, 123, 0, 0.2);
+            outline: 2px solid #f97316;
+            box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.2);
         }
 
-        .card-type-border {
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 4px;
-            border-radius: 4px 0 0 4px;
+        /* Card Type Icon */
+        .card-type-icon {
+            width: 18px;
+            height: 18px;
+            font-size: 16px;
+            flex-shrink: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
-
-
 
         .card-header {
             display: flex;
-            align-items: center;
-            gap: 6px;
+            align-items: flex-start;
+            gap: 8px;
             margin-bottom: 8px;
+            position: relative;
         }
 
-        .card-type-icon {
-            font-size: 14px;
+        .card-header-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .card-menu-btn {
+            background: transparent;
+            border: none;
+            color: var(--vscode-foreground);
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 16px;
             line-height: 1;
+            opacity: 0;
+            transition: all 0.2s;
+        }
+
+        .card:hover .card-menu-btn {
+            opacity: 0.6;
+        }
+
+        .card-menu-btn:hover {
+            opacity: 1 !important;
+            background: var(--vscode-toolbar-hoverBackground);
+        }
+
+        .card-id-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
         }
 
         .card-id {
-            font-size: 12px;
-            color: var(--vscode-textLink-foreground);
+            font-size: 13px;
             font-weight: 600;
+            color: var(--vscode-foreground);
             cursor: pointer;
-            text-decoration: none;
         }
 
         .card-id:hover {
             text-decoration: underline;
         }
 
-        .state-indicator {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            margin-left: auto;
-        }
-
         .card-title {
             font-size: 13px;
-            margin-bottom: 8px;
+            color: var(--vscode-foreground);
             line-height: 1.4;
+            word-wrap: break-word;
         }
 
-        .card-footer {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-top: 8px;
+        .card-title-editable {
+            width: 100%;
+            background: var(--vscode-input-background);
+            border: 1px solid var(--vscode-focusBorder);
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 13px;
+            color: var(--vscode-input-foreground);
+            font-family: inherit;
         }
 
-        .card-meta {
+        .card-title-editable:focus {
+            outline: none;
+        }
+
+        /* Status Indicator */
+        .card-status {
             display: flex;
             align-items: center;
             gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .status-dot.todo {
+            background: #71717a;
+        }
+
+        .status-dot.doing {
+            background: #3b82f6;
+        }
+
+        .status-dot.done {
+            background: #22c55e;
+        }
+
+        .status-label {
+            font-size: 12px;
+            color: var(--vscode-descriptionForeground);
+        }
+
+        /* Assignee */
+        .card-assignee {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+            cursor: pointer;
+            padding: 4px;
+            margin: 0 -4px 8px -4px;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .card-assignee:hover {
+            background: var(--vscode-list-hoverBackground);
         }
 
         .card-avatar {
-            width: 24px;
-            height: 24px;
+            width: 20px;
+            height: 20px;
             border-radius: 50%;
-            background: var(--vscode-badge-background);
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 10px;
-            font-weight: 600;
-            color: var(--vscode-badge-foreground);
+            font-weight: 500;
+            background: rgba(34, 197, 94, 0.3);
+            color: #22c55e;
         }
 
         .card-avatar.unassigned {
-            background: var(--vscode-input-border);
+            background: rgba(139, 139, 139, 0.3);
+            color: #8b8b8b;
+        }
+
+        .card-assignee-name {
+            font-size: 12px;
             color: var(--vscode-descriptionForeground);
         }
 
-
-
-        .priority-indicator {
-            display: none;
-        }
-
-        .priority-dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: var(--vscode-input-border);
-        }
-
-        .priority-dot.filled {
-            background: #f59e0b;
-        }
-
-        .card-actions {
-            display: none;
-            gap: 4px;
-        }
-
-        .card:hover .card-actions {
-            display: flex;
-        }
-
-        .card-action-btn {
-            padding: 4px 6px;
-            background: transparent;
-            border: none;
-            border-radius: 3px;
-            cursor: pointer;
-            font-size: 11px;
+        .card-assignee-name.unassigned-text {
             color: var(--vscode-descriptionForeground);
-            transition: all 0.1s;
-        }
-
-        .card-action-btn:hover {
-            background: var(--vscode-toolbar-hoverBackground);
-            color: var(--vscode-foreground);
+            opacity: 0.6;
+            font-style: italic;
         }
 
         /* Tags */
         .card-tags {
             display: flex;
             flex-wrap: wrap;
-            gap: 4px;
-            margin: 8px 0;
+            gap: 6px;
         }
 
         .tag {
-            font-size: 10px;
-            padding: 3px 8px;
-            background: var(--vscode-badge-background);
-            color: var(--vscode-badge-foreground);
-            border-radius: 12px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
             font-weight: 500;
+        }
+
+        .tag.blue {
+            background: rgba(33, 150, 243, 0.2);
+            color: #2196f3;
+        }
+
+        .tag.green {
+            background: rgba(76, 175, 80, 0.2);
+            color: #4caf50;
+        }
+
+        .tag.purple {
+            background: rgba(156, 39, 176, 0.2);
+            color: #9c27b0;
+        }
+
+        .tag.pink {
+            background: rgba(233, 30, 99, 0.2);
+            color: #e91e63;
+        }
+
+        .tag.yellow {
+            background: rgba(255, 193, 7, 0.2);
+            color: #ffc107;
+        }
+
+        .tag.cyan {
+            background: rgba(0, 188, 212, 0.2);
+            color: #00bcd4;
+        }
+
+        /* Card Footer */
+        .card-footer {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid var(--vscode-panel-border);
+        }
+
+        .card-effort-toggle {
+            background: transparent;
+            border: 1px solid var(--vscode-input-border);
+            color: var(--vscode-foreground);
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            transition: all 0.2s;
+            width: 100%;
+            justify-content: center;
+        }
+
+        .card-effort-toggle:hover {
+            background: var(--vscode-list-hoverBackground);
+            border-color: var(--vscode-focusBorder);
+        }
+
+        .effort-icon {
+            font-size: 10px;
+            opacity: 0.7;
+        }
+
+        .effort-value {
+            font-weight: 500;
+        }
+
+        /* Card Menu Dropdown */
+        .card-menu {
+            display: none;
+            position: fixed;
+            min-width: 180px;
+            background: var(--vscode-menu-background);
+            border: 1px solid var(--vscode-menu-border);
+            border-radius: 6px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+            z-index: 1000;
+            padding: 4px 0;
+        }
+
+        .card-menu.show {
+            display: block;
+        }
+
+        .card-menu-item {
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--vscode-menu-foreground);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: all 0.2s;
+        }
+
+        .card-menu-item:hover {
+            background: var(--vscode-menu-selectionBackground);
+            color: var(--vscode-menu-selectionForeground);
+        }
+
+        .card-menu-item.danger:hover {
+            background: rgba(209, 52, 56, 0.2);
+            color: #d13438;
+        }
+
+        .card-menu-separator {
+            height: 1px;
+            background: var(--vscode-menu-separatorBackground);
+            margin: 4px 0;
         }
 
         /* Context Menu */
@@ -1595,6 +1909,30 @@ export class BoardPanel {
         </div>
     </div>
 
+    <!-- Card Menu -->
+    <div class="card-menu" id="cardMenu">
+        <div class="card-menu-item" onclick="cardMenuAction('open')">
+            <span>📄</span> Open Details
+        </div>
+        <div class="card-menu-item" onclick="cardMenuAction('editTitle')">
+            <span>✏️</span> Edit Title
+        </div>
+        <div class="card-menu-separator"></div>
+        <div class="card-menu-item" onclick="cardMenuAction('moveToColumn')">
+            <span>↔️</span> Move to Column
+        </div>
+        <div class="card-menu-item" onclick="cardMenuAction('addTask')">
+            <span>+</span> Add Task
+        </div>
+        <div class="card-menu-item" onclick="cardMenuAction('addBug')">
+            <span>🐛</span> Add Bug
+        </div>
+        <div class="card-menu-separator"></div>
+        <div class="card-menu-item danger" onclick="cardMenuAction('delete')">
+            <span>🗑️</span> Delete
+        </div>
+    </div>
+
     <!-- Keyboard Help -->
     <div class="keyboard-help" id="keyboardHelp">
         <strong>Keyboard Shortcuts:</strong><br>
@@ -2003,6 +2341,162 @@ export class BoardPanel {
             vscode.postMessage({ command: 'openWorkItem', workItemId: workItemId });
         }
 
+        function editCardTitle(titleElement, workItemId) {
+            const currentTitle = titleElement.textContent;
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'card-title-editable';
+            input.value = currentTitle;
+
+            titleElement.replaceWith(input);
+            input.focus();
+            input.select();
+
+            function saveTitle() {
+                const newTitle = input.value.trim();
+                if (newTitle && newTitle !== currentTitle) {
+                    vscode.postMessage({
+                        command: 'updateWorkItemTitle',
+                        workItemId: workItemId,
+                        title: newTitle
+                    });
+                    const span = document.createElement('span');
+                    span.className = 'card-title';
+                    span.textContent = newTitle;
+                    span.ondblclick = (e) => { e.stopPropagation(); editCardTitle(span, workItemId); };
+                    input.replaceWith(span);
+                } else {
+                    const span = document.createElement('span');
+                    span.className = 'card-title';
+                    span.textContent = currentTitle;
+                    span.ondblclick = (e) => { e.stopPropagation(); editCardTitle(span, workItemId); };
+                    input.replaceWith(span);
+                }
+            }
+
+            input.addEventListener('blur', saveTitle);
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    saveTitle();
+                } else if (e.key === 'Escape') {
+                    const span = document.createElement('span');
+                    span.className = 'card-title';
+                    span.textContent = currentTitle;
+                    span.ondblclick = (ev) => { ev.stopPropagation(); editCardTitle(span, workItemId); };
+                    input.replaceWith(span);
+                }
+            });
+        }
+
+        // Card Menu Functions
+        let currentCardMenuWorkItemId = null;
+
+        function showCardMenu(event, workItemId) {
+            const menu = document.getElementById('cardMenu');
+            currentCardMenuWorkItemId = workItemId;
+
+            menu.style.left = event.pageX + 'px';
+            menu.style.top = event.pageY + 'px';
+            menu.classList.add('show');
+
+            setTimeout(() => {
+                document.addEventListener('click', hideCardMenu);
+            }, 10);
+        }
+
+        function hideCardMenu() {
+            const menu = document.getElementById('cardMenu');
+            menu.classList.remove('show');
+            document.removeEventListener('click', hideCardMenu);
+        }
+
+        function cardMenuAction(action) {
+            hideCardMenu();
+            const workItemId = currentCardMenuWorkItemId;
+
+            switch(action) {
+                case 'open':
+                    openWorkItem(workItemId);
+                    break;
+                case 'editTitle':
+                    const card = document.querySelector(\`.card[data-id="\${workItemId}"]\`);
+                    const titleElement = card.querySelector('.card-title');
+                    editCardTitle(titleElement, workItemId);
+                    break;
+                case 'moveToColumn':
+                    vscode.postMessage({ command: 'changeState', workItemId: workItemId });
+                    break;
+                case 'addTask':
+                    vscode.postMessage({ command: 'addChildWorkItem', parentId: workItemId, type: 'Task' });
+                    break;
+                case 'addBug':
+                    vscode.postMessage({ command: 'addChildWorkItem', parentId: workItemId, type: 'Bug' });
+                    break;
+                case 'delete':
+                    if (confirm(\`Delete work item #\${workItemId}?\`)) {
+                        vscode.postMessage({ command: 'deleteWorkItem', workItemId: workItemId });
+                    }
+                    break;
+            }
+        }
+
+        // Assignee Editor
+        function changeCardAssignee(workItemId, currentAssignee) {
+            vscode.postMessage({ command: 'changeAssignee', workItemId: workItemId, currentAssignee: currentAssignee });
+        }
+
+        // Effort/Story Points Editor
+        function toggleEffortEditor(button, workItemId) {
+            const card = button.closest('.card');
+            const currentEffort = card.dataset.effort || '';
+
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.className = 'card-title-editable';
+            input.value = currentEffort;
+            input.style.width = '100%';
+            input.style.textAlign = 'center';
+            input.placeholder = 'Enter points';
+
+            button.replaceWith(input);
+            input.focus();
+            input.select();
+
+            function saveEffort() {
+                const newEffort = input.value.trim();
+                vscode.postMessage({
+                    command: 'updateWorkItemEffort',
+                    workItemId: workItemId,
+                    effort: newEffort ? parseFloat(newEffort) : null
+                });
+
+                const newButton = document.createElement('button');
+                newButton.className = 'card-effort-toggle';
+                newButton.onclick = (e) => { e.stopPropagation(); toggleEffortEditor(newButton, workItemId); };
+                newButton.title = 'Story Points';
+                newButton.innerHTML = \`<span class="effort-icon">▲</span><span class="effort-value">\${newEffort || 'Story Points'}</span>\`;
+                input.replaceWith(newButton);
+
+                card.dataset.effort = newEffort;
+            }
+
+            input.addEventListener('blur', saveEffort);
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    saveEffort();
+                } else if (e.key === 'Escape') {
+                    const newButton = document.createElement('button');
+                    newButton.className = 'card-effort-toggle';
+                    newButton.onclick = (ev) => { ev.stopPropagation(); toggleEffortEditor(newButton, workItemId); };
+                    newButton.title = 'Story Points';
+                    newButton.innerHTML = \`<span class="effort-icon">▲</span><span class="effort-value">\${currentEffort || 'Story Points'}</span>\`;
+                    input.replaceWith(newButton);
+                }
+            });
+        }
+
         function assignToMe(workItemId, event) {
             event.stopPropagation();
             vscode.postMessage({ command: 'assignToMe', workItemId: workItemId });
@@ -2300,18 +2794,23 @@ export class BoardPanel {
     }
 
     private _renderCard(item: BoardWorkItem, colIndex: number = 0, itemIndex: number = 0): string {
-        const typeClass = item.type.toLowerCase().replace(/\s+/g, '-');
         const initials = item.assignedTo?.displayName
             ? item.assignedTo.displayName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
             : '?';
-        const assignedClass = item.assignedTo ? '' : 'unassigned';
+        const stateLower = item.state.toLowerCase();
+        const stateClass = stateLower.includes('done') || stateLower.includes('closed') ? 'done'
+                         : stateLower.includes('active') || stateLower.includes('doing') ? 'doing'
+                         : 'todo';
+
         const typeIcon = this._getTypeIcon(item.type);
-        const stateColor = this._getStateColor(item.state);
+        const effort = (item as any).effort || (item as any).storyPoints || '';
 
         const tags = item.tags
-            ? item.tags.split(';').slice(0, 3).map(tag =>
-                `<span class="tag">${this._escapeHtml(tag.trim())}</span>`
-              ).join('')
+            ? item.tags.split(';').slice(0, 3).map((tag, index) => {
+                const tagColors = ['blue', 'green', 'purple', 'pink', 'yellow', 'cyan'];
+                const color = tagColors[index % tagColors.length];
+                return `<span class="tag ${color}">${this._escapeHtml(tag.trim())}</span>`;
+              }).join('')
             : '';
 
         return `
@@ -2327,30 +2826,36 @@ export class BoardPanel {
              data-assignee-name="${item.assignedTo?.displayName || ''}"
              data-state="${this._escapeHtml(item.state)}"
              data-tags="${item.tags || ''}"
+             data-effort="${effort}"
              tabindex="0"
              ondragstart="handleDragStart(event, ${item.id})"
              ondragend="handleDragEnd(event)"
              onclick="openWorkItem(${item.id})"
-             oncontextmenu="showContextMenu(event, ${item.id})"
              onfocus="selectCard(this)">
-            <div class="card-type-border" style="background: ${stateColor}"></div>
             <div class="card-header">
                 <span class="card-type-icon" title="${this._escapeHtml(item.type)}">${typeIcon}</span>
-                <span class="card-id" onclick="event.stopPropagation(); openWorkItem(${item.id})">#${item.id}</span>
-                <span class="state-indicator" style="background: ${stateColor}" title="${this._escapeHtml(item.state)}"></span>
-                <div class="card-actions">
-                    <button class="card-action-btn" onclick="event.stopPropagation(); showContextMenu(event, ${item.id})" title="More actions">⋯</button>
+                <div class="card-header-content">
+                    <div class="card-id-title">
+                        <span class="card-id" onclick="event.stopPropagation(); openWorkItem(${item.id})">${item.id}</span>
+                        <span class="card-title" ondblclick="event.stopPropagation(); editCardTitle(this, ${item.id})">${this._escapeHtml(item.title)}</span>
+                    </div>
                 </div>
+                <button class="card-menu-btn" onclick="event.stopPropagation(); showCardMenu(event, ${item.id})" title="More options">⋯</button>
             </div>
-            <div class="card-title">${this._escapeHtml(item.title)}</div>
+            <div class="card-status">
+                <span class="status-dot ${stateClass}"></span>
+                <span class="status-label">${this._escapeHtml(item.state)}</span>
+            </div>
+            <div class="card-assignee" onclick="event.stopPropagation(); changeCardAssignee(${item.id}, '${this._escapeHtml(item.assignedTo?.displayName || '')}')">
+                <div class="card-avatar ${!item.assignedTo ? 'unassigned' : ''}">${initials}</div>
+                <span class="card-assignee-name ${!item.assignedTo ? 'unassigned-text' : ''}">${item.assignedTo ? this._escapeHtml(item.assignedTo.displayName) : ''}</span>
+            </div>
             ${tags ? `<div class="card-tags">${tags}</div>` : ''}
             <div class="card-footer">
-                <div class="card-meta">
-                    <div class="card-avatar ${assignedClass}" title="${item.assignedTo?.displayName || 'Unassigned'}">
-                        ${initials}
-                    </div>
-
-                </div>
+                <button class="card-effort-toggle" onclick="event.stopPropagation(); toggleEffortEditor(this, ${item.id})" title="Story Points">
+                    <span class="effort-icon">▲</span>
+                    <span class="effort-value">${effort || 'Story Points'}</span>
+                </button>
             </div>
         </div>`;
     }
@@ -2365,15 +2870,6 @@ export class BoardPanel {
             'Issue': '❗'
         };
         return icons[type] || '📄';
-    }
-
-    private _getStateColor(state: string): string {
-        const stateLower = state.toLowerCase();
-        if (stateLower.includes('new') || stateLower.includes('proposed')) return '#b4b4b4';
-        if (stateLower.includes('active') || stateLower.includes('committed')) return '#007acc';
-        if (stateLower.includes('resolved') || stateLower.includes('completed')) return '#68217a';
-        if (stateLower.includes('done') || stateLower.includes('closed')) return '#339933';
-        return '#b4b4b4';
     }
 
     private _escapeHtml(text: string): string {

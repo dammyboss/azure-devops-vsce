@@ -111,6 +111,9 @@ export class WorkItemPanel {
                     case 'deleteAttachment':
                         await this.deleteAttachment(message.url);
                         break;
+                    case 'updateTags':
+                        await this.updateTags(message.tags);
+                        break;
                 }
             },
             null,
@@ -253,6 +256,30 @@ export class WorkItemPanel {
             await this.refreshWorkItem();
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to update field: ${error}`);
+        }
+    }
+
+    private async updateTags(tags: string) {
+        if (!this._workItem) return;
+
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            if (!axiosInstance) return;
+
+            const patchOp = tags && tags.trim()
+                ? { op: 'replace', path: '/fields/System.Tags', value: tags }
+                : { op: 'remove', path: '/fields/System.Tags' };
+
+            await axiosInstance.patch(
+                `/_apis/wit/workitems/${this._workItem.id}`,
+                [patchOp],
+                { headers: { 'Content-Type': 'application/json-patch+json' } }
+            );
+
+            vscode.window.showInformationMessage('Tags updated');
+            await this.refreshWorkItem();
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to update tags: ${error}`);
         }
     }
 
@@ -899,6 +926,101 @@ export class WorkItemPanel {
             margin-right: 4px;
         }
 
+        /* Tag Editor */
+        .tags-editor-container {
+            position: relative;
+            width: 100%;
+        }
+        .tags-display {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+            padding: 8px;
+            background: var(--vscode-input-background);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 6px;
+            min-height: 38px;
+            transition: all 0.2s;
+        }
+        .tags-display:focus-within {
+            border-color: var(--vscode-focusBorder);
+            box-shadow: 0 0 0 2px var(--vscode-focusBorder);
+        }
+        .tag-chip-editable {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 8px;
+            background: rgba(33, 150, 243, 0.2);
+            color: #2196f3;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .tag-remove {
+            background: none;
+            border: none;
+            color: currentColor;
+            cursor: pointer;
+            padding: 0;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            line-height: 1;
+            opacity: 0.6;
+            transition: all 0.2s;
+        }
+        .tag-remove:hover {
+            opacity: 1;
+            background: rgba(255, 255, 255, 0.2);
+        }
+        .tag-input {
+            flex: 1;
+            min-width: 100px;
+            border: none;
+            background: transparent;
+            color: var(--vscode-input-foreground);
+            outline: none;
+            font-size: 11px;
+            padding: 4px;
+        }
+        .tag-suggestions {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: var(--vscode-menu-background);
+            border: 1px solid var(--vscode-menu-border);
+            border-radius: 6px;
+            margin-top: 4px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 100;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+        .tag-suggestions.show {
+            display: block;
+        }
+        .tag-suggestion-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+        .tag-suggestion-item:hover {
+            background: var(--vscode-list-hoverBackground);
+        }
+        .tag-suggestion-item.selected {
+            background: var(--vscode-list-activeSelectionBackground);
+            color: var(--vscode-list-activeSelectionForeground);
+        }
+
         .meta-select {
             width: 100%;
             padding: 8px 10px;
@@ -1302,7 +1424,13 @@ export class WorkItemPanel {
                 </div>
                 <div class="meta-item">
                     <span class="meta-label">Tags</span>
-                    <div>${tags ? tags.split(';').map(t => `<span class="tag-chip">${this.escapeHtml(t.trim())}</span>`).join('') : '<span class="meta-value">None</span>'}</div>
+                    <div class="tags-editor-container">
+                        <div class="tags-display" id="tagsDisplay">
+                            ${tags ? tags.split(';').map(t => `<span class="tag-chip-editable">${this.escapeHtml(t.trim())}<button class="tag-remove" onclick="removeTag('${this.escapeHtml(t.trim())}')">×</button></span>`).join('') : ''}
+                            <input type="text" class="tag-input" id="tagInput" placeholder="Add tag..." oninput="handleTagInput()" onkeydown="handleTagKeydown(event)" onfocus="showTagSuggestions()" onblur="hideTagSuggestions()">
+                        </div>
+                        <div class="tag-suggestions" id="tagSuggestions"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1487,6 +1615,152 @@ export class WorkItemPanel {
 
         function deleteAttachment(url) {
             vscode.postMessage({ command: 'deleteAttachment', url });
+        }
+
+        // Tag Management
+        const existingTags = ${JSON.stringify(this._existingTags)};
+        let currentTags = ${tags ? JSON.stringify(tags.split(';').map((t: string) => t.trim()).filter((t: string) => t)) : '[]'};
+        let selectedSuggestionIndex = -1;
+
+        function getCurrentTagsString() {
+            return currentTags.join('; ');
+        }
+
+        function updateTagsBackend() {
+            const tagsString = getCurrentTagsString();
+            vscode.postMessage({ command: 'updateTags', tags: tagsString });
+        }
+
+        function removeTag(tagName) {
+            currentTags = currentTags.filter(t => t !== tagName);
+            renderTags();
+            updateTagsBackend();
+        }
+
+        function addTag(tagName) {
+            const trimmed = tagName.trim();
+            if (trimmed && !currentTags.includes(trimmed)) {
+                currentTags.push(trimmed);
+                renderTags();
+                updateTagsBackend();
+            }
+        }
+
+        function renderTags() {
+            const display = document.getElementById('tagsDisplay');
+            const input = document.getElementById('tagInput');
+            const currentValue = input.value;
+
+            display.innerHTML = currentTags.map(tag =>
+                \`<span class="tag-chip-editable">\${escapeHtml(tag)}<button class="tag-remove" onclick="removeTag('\${escapeHtml(tag)}')">×</button></span>\`
+            ).join('') + \`<input type="text" class="tag-input" id="tagInput" placeholder="Add tag..." oninput="handleTagInput()" onkeydown="handleTagKeydown(event)" onfocus="showTagSuggestions()" onblur="hideTagSuggestions()">\`;
+
+            const newInput = document.getElementById('tagInput');
+            newInput.value = currentValue;
+            newInput.focus();
+        }
+
+        function handleTagInput() {
+            const input = document.getElementById('tagInput');
+            const query = input.value.toLowerCase();
+            const suggestions = document.getElementById('tagSuggestions');
+
+            if (!query) {
+                suggestions.innerHTML = existingTags.slice(0, 10).map(tag =>
+                    \`<div class="tag-suggestion-item" onmousedown="selectTag('\${escapeHtml(tag)}')">\${escapeHtml(tag)}</div>\`
+                ).join('');
+            } else {
+                const filtered = existingTags.filter(tag =>
+                    tag.toLowerCase().includes(query) && !currentTags.includes(tag)
+                );
+
+                if (filtered.length > 0) {
+                    suggestions.innerHTML = filtered.slice(0, 10).map(tag =>
+                        \`<div class="tag-suggestion-item" onmousedown="selectTag('\${escapeHtml(tag)}')">\${escapeHtml(tag)}</div>\`
+                    ).join('');
+                } else if (query.length > 0) {
+                    suggestions.innerHTML = \`<div class="tag-suggestion-item" onmousedown="selectTag('\${escapeHtml(query)}')">Create: \${escapeHtml(query)}</div>\`;
+                } else {
+                    suggestions.innerHTML = '';
+                }
+            }
+
+            selectedSuggestionIndex = -1;
+            updateSelectedSuggestion();
+            suggestions.classList.add('show');
+        }
+
+        function handleTagKeydown(event) {
+            const input = document.getElementById('tagInput');
+            const suggestions = document.getElementById('tagSuggestions');
+            const items = suggestions.querySelectorAll('.tag-suggestion-item');
+
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                if (selectedSuggestionIndex >= 0 && items[selectedSuggestionIndex]) {
+                    const tagText = items[selectedSuggestionIndex].textContent;
+                    const tag = tagText.startsWith('Create: ') ? tagText.substring(8) : tagText;
+                    addTag(tag);
+                    input.value = '';
+                    handleTagInput();
+                } else if (input.value.trim()) {
+                    addTag(input.value.trim());
+                    input.value = '';
+                    handleTagInput();
+                }
+            } else if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                if (selectedSuggestionIndex < items.length - 1) {
+                    selectedSuggestionIndex++;
+                    updateSelectedSuggestion();
+                }
+            } else if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                if (selectedSuggestionIndex > 0) {
+                    selectedSuggestionIndex--;
+                    updateSelectedSuggestion();
+                }
+            } else if (event.key === 'Escape') {
+                suggestions.classList.remove('show');
+            } else if (event.key === 'Backspace' && !input.value && currentTags.length > 0) {
+                currentTags.pop();
+                renderTags();
+                updateTagsBackend();
+            }
+        }
+
+        function updateSelectedSuggestion() {
+            const items = document.querySelectorAll('.tag-suggestion-item');
+            items.forEach((item, index) => {
+                if (index === selectedSuggestionIndex) {
+                    item.classList.add('selected');
+                } else {
+                    item.classList.remove('selected');
+                }
+            });
+        }
+
+        function selectTag(tagName) {
+            addTag(tagName);
+            const input = document.getElementById('tagInput');
+            input.value = '';
+            handleTagInput();
+        }
+
+        function showTagSuggestions() {
+            handleTagInput();
+        }
+
+        function hideTagSuggestions() {
+            setTimeout(() => {
+                document.getElementById('tagSuggestions').classList.remove('show');
+            }, 200);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
     </script>
 </body>
