@@ -175,7 +175,7 @@ export class AzureDevOpsKanbanPanel {
             }
         }
 
-        this._panel.webview.html = this._getHtmlContent();
+        this._panel.webview.html = await this._getHtmlContent();
     }
 
     private async _handleMessage(message: any) {
@@ -225,7 +225,7 @@ export class AzureDevOpsKanbanPanel {
         }
     }
 
-    private _getHtmlContent(): string {
+    private async _getHtmlContent(): Promise<string> {
         const config = this.authManager.getConfig();
         const columnsJson = JSON.stringify(this.columns);
         
@@ -234,6 +234,15 @@ export class AzureDevOpsKanbanPanel {
             workItemsObj[columnName] = items;
         });
         const workItemsJson = JSON.stringify(workItemsObj);
+
+        // Get current user email
+        let currentUserEmail = '';
+        try {
+            const user = await this.authManager.getCurrentUser();
+            currentUserEmail = user?.uniqueName || '';
+        } catch (error) {
+            console.error('Failed to get current user:', error);
+        }
 
         return `<!DOCTYPE html>
 <html lang="en">
@@ -522,6 +531,16 @@ export class AzureDevOpsKanbanPanel {
             </div>
             <select class="filter-dropdown" id="assigned-filter">
                 <option value="">Assigned to</option>
+                <option value="@Me">@Me</option>
+            </select>
+            <select class="filter-dropdown" id="type-filter">
+                <option value="">All Types</option>
+                <option value="User Story">User Story</option>
+                <option value="Task">Task</option>
+                <option value="Bug">Bug</option>
+                <option value="Issue">Issue</option>
+                <option value="Epic">Epic</option>
+                <option value="Feature">Feature</option>
             </select>
             <select class="filter-dropdown" id="state-filter">
                 <option value="">States</option>
@@ -543,13 +562,15 @@ export class AzureDevOpsKanbanPanel {
         const vscode = acquireVsCodeApi();
         const workItemsByColumn = ${workItemsJson};
         const columns = ${columnsJson};
+        const currentUserEmail = '${currentUserEmail}';
+        let filteredWorkItems = {...workItemsByColumn};
 
         function renderBoard() {
             const container = document.getElementById('board-columns');
             container.innerHTML = '';
 
             columns.forEach(col => {
-                const items = workItemsByColumn[col.name] || [];
+                const items = filteredWorkItems[col.name] || [];
                 const wipLimit = col.itemLimit || 0;
                 const wipClass = wipLimit > 0 && items.length >= wipLimit ? 
                     (items.length > wipLimit ? 'danger' : 'warning') : '';
@@ -574,14 +595,117 @@ export class AzureDevOpsKanbanPanel {
 
             attachEventListeners();
             updateStats();
+            populateFilters();
         }
 
         function updateStats() {
             const allItems = [];
+            for (const col in filteredWorkItems) {
+                allItems.push(...filteredWorkItems[col]);
+            }
+            document.getElementById('total-count').textContent = allItems.length;
+        }
+
+        function populateFilters() {
+            const allItems = [];
             for (const col in workItemsByColumn) {
                 allItems.push(...workItemsByColumn[col]);
             }
-            document.getElementById('total-count').textContent = allItems.length;
+
+            // Populate assignee filter
+            const assignees = new Set();
+            allItems.forEach(item => {
+                if (item.assignedTo) {
+                    assignees.add(item.assignedTo.displayName);
+                }
+            });
+            const assignedFilter = document.getElementById('assigned-filter');
+            const currentOptions = Array.from(assignedFilter.options).map(o => o.value);
+            assignees.forEach(name => {
+                if (!currentOptions.includes(name)) {
+                    const option = document.createElement('option');
+                    option.value = name;
+                    option.textContent = name;
+                    assignedFilter.appendChild(option);
+                }
+            });
+
+            // Populate state filter
+            const states = new Set();
+            allItems.forEach(item => states.add(item.state));
+            const stateFilter = document.getElementById('state-filter');
+            states.forEach(state => {
+                const option = document.createElement('option');
+                option.value = state;
+                option.textContent = state;
+                stateFilter.appendChild(option);
+            });
+
+            // Populate tags filter
+            const tags = new Set();
+            allItems.forEach(item => {
+                if (item.tags) {
+                    item.tags.split(';').forEach(tag => tags.add(tag.trim()));
+                }
+            });
+            const tagsFilter = document.getElementById('tags-filter');
+            tags.forEach(tag => {
+                if (tag) {
+                    const option = document.createElement('option');
+                    option.value = tag;
+                    option.textContent = tag;
+                    tagsFilter.appendChild(option);
+                }
+            });
+        }
+
+        function applyFilters() {
+            const keyword = document.getElementById('keyword-filter').value.toLowerCase();
+            const assignedFilter = document.getElementById('assigned-filter').value;
+            const typeFilter = document.getElementById('type-filter').value;
+            const stateFilter = document.getElementById('state-filter').value;
+            const tagsFilter = document.getElementById('tags-filter').value;
+
+            filteredWorkItems = {};
+
+            for (const col in workItemsByColumn) {
+                filteredWorkItems[col] = workItemsByColumn[col].filter(item => {
+                    // Keyword filter
+                    if (keyword && !item.title.toLowerCase().includes(keyword) && !String(item.id).includes(keyword)) {
+                        return false;
+                    }
+
+                    // Assigned filter
+                    if (assignedFilter) {
+                        if (assignedFilter === '@Me') {
+                            if (!item.assignedTo || item.assignedTo.uniqueName !== currentUserEmail) {
+                                return false;
+                            }
+                        } else if (!item.assignedTo || item.assignedTo.displayName !== assignedFilter) {
+                            return false;
+                        }
+                    }
+
+                    // Type filter
+                    if (typeFilter && item.type !== typeFilter) {
+                        return false;
+                    }
+
+                    // State filter
+                    if (stateFilter && item.state !== stateFilter) {
+                        return false;
+                    }
+
+                    // Tags filter
+                    if (tagsFilter && (!item.tags || !item.tags.includes(tagsFilter))) {
+                        return false;
+                    }
+
+                    return true;
+                });
+            }
+
+            renderBoard();
         }
 
         function renderCard(item) {
@@ -683,6 +807,21 @@ export class AzureDevOpsKanbanPanel {
                 }
             });
         }
+
+        // Attach filter listeners
+        document.getElementById('keyword-filter').addEventListener('input', applyFilters);
+        document.getElementById('assigned-filter').addEventListener('change', applyFilters);
+        document.getElementById('type-filter').addEventListener('change', applyFilters);
+        document.getElementById('state-filter').addEventListener('change', applyFilters);
+        document.getElementById('tags-filter').addEventListener('change', applyFilters);
+        document.getElementById('clear-filters').addEventListener('click', () => {
+            document.getElementById('keyword-filter').value = '';
+            document.getElementById('assigned-filter').value = '';
+            document.getElementById('type-filter').value = '';
+            document.getElementById('state-filter').value = '';
+            document.getElementById('tags-filter').value = '';
+            applyFilters();
+        });
 
         renderBoard();
     </script>

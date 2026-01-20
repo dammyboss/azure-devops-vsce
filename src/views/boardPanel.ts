@@ -1989,6 +1989,7 @@ export class BoardPanel {
                     <label class="filter-checkbox-item"><input type="checkbox" name="type" value="User Story" onchange="handleFilterChange('type', this)"> User Story</label>
                     <label class="filter-checkbox-item"><input type="checkbox" name="type" value="Task" onchange="handleFilterChange('type', this)"> Task</label>
                     <label class="filter-checkbox-item"><input type="checkbox" name="type" value="Bug" onchange="handleFilterChange('type', this)"> Bug</label>
+                    <label class="filter-checkbox-item"><input type="checkbox" name="type" value="Issue" onchange="handleFilterChange('type', this)"> Issue</label>
                     <label class="filter-checkbox-item"><input type="checkbox" name="type" value="Feature" onchange="handleFilterChange('type', this)"> Feature</label>
                     <label class="filter-checkbox-item"><input type="checkbox" name="type" value="Epic" onchange="handleFilterChange('type', this)"> Epic</label>
                 </div>
