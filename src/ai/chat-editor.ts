@@ -757,6 +757,91 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
             color: var(--vscode-descriptionForeground);
             font-size: 12px;
         }
+
+        /* Modern Error Card Styles */
+        .message.error-card {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.08) 0%, rgba(239, 68, 68, 0.03) 100%);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: 12px;
+            padding: 0;
+            margin: 12px;
+            max-width: calc(100% - 24px);
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.1);
+        }
+
+        .error-card-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 16px;
+            background: rgba(239, 68, 68, 0.1);
+            border-bottom: 1px solid rgba(239, 68, 68, 0.15);
+        }
+
+        .error-icon-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            background: rgba(239, 68, 68, 0.15);
+            border-radius: 8px;
+            color: #ef4444;
+        }
+
+        .error-label {
+            flex: 1;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #ef4444;
+        }
+
+        .error-copy-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            background: transparent;
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            color: var(--vscode-foreground);
+        }
+
+        .error-copy-btn:hover {
+            background: rgba(239, 68, 68, 0.1);
+            color: #ef4444;
+            border-color: rgba(239, 68, 68, 0.4);
+        }
+
+        .error-card-content {
+            padding: 16px;
+            font-size: 13px;
+            line-height: 1.6;
+            color: var(--vscode-foreground);
+        }
+
+        .error-card-content p {
+            margin: 0 0 8px 0;
+        }
+
+        .error-card-content p:last-child {
+            margin-bottom: 0;
+        }
+
+        .error-card-content pre {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 12px;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-size: 12px;
+            margin: 8px 0;
+        }
     </style>
 </head>
 <body>
@@ -1061,6 +1146,55 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
             return messageDiv;
         }
 
+        function addErrorMessage(errorText) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message error-card';
+
+            // Error header with icon and label
+            const headerDiv = document.createElement('div');
+            headerDiv.className = 'error-card-header';
+
+            // Icon container
+            const iconContainer = document.createElement('div');
+            iconContainer.className = 'error-icon-container';
+            iconContainer.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+
+            // Error label
+            const labelDiv = document.createElement('div');
+            labelDiv.className = 'error-label';
+            labelDiv.textContent = 'ERROR';
+
+            // Copy button
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'error-copy-btn';
+            copyBtn.title = 'Copy error message';
+            copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+            copyBtn.onclick = function() {
+                navigator.clipboard.writeText(errorText).then(() => {
+                    const originalHTML = copyBtn.innerHTML;
+                    copyBtn.innerHTML = '✓';
+                    setTimeout(() => {
+                        copyBtn.innerHTML = originalHTML;
+                    }, 2000);
+                });
+            };
+
+            headerDiv.appendChild(iconContainer);
+            headerDiv.appendChild(labelDiv);
+            headerDiv.appendChild(copyBtn);
+            messageDiv.appendChild(headerDiv);
+
+            // Error content
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'error-card-content';
+            contentDiv.innerHTML = '<p>' + errorText.replace(/\\n/g, '</p><p>') + '</p>';
+            messageDiv.appendChild(contentDiv);
+
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            return messageDiv;
+        }
+
         function addToolUse(toolName, toolInput) {
             const toolDiv = document.createElement('div');
             toolDiv.className = 'tool-use';
@@ -1207,7 +1341,7 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
 
                 case 'error':
                     hideAnimatedLoading();
-                    addMessage('assistant', \`Error: \${message.error}\`);
+                    addErrorMessage(message.error);
                     isGenerating = false;
                     updateSendButton();
                     currentAssistantMessage = null;

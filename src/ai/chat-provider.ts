@@ -195,14 +195,12 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
         const newChatIconUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'new-chat.png'));
         const scrollToBottomIconUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'scroll-to-bottom.png'));
         const editorIconUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'external-link.png'));
-        const nonce = Date.now();
 
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' ${webview.cspSource}; script-src 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net ${webview.cspSource}; img-src ${webview.cspSource} https:;">
     <title>AI Assistant</title>
     <script src="https://cdn.jsdelivr.net/npm/markdown-it@14/dist/markdown-it.min.js"></script>
     <style>
@@ -374,70 +372,6 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
 
         .message-content p:last-child {
             margin-bottom: 0;
-        }
-
-        /* Modern Error Card Styles */
-        .message.error-card {
-            background: linear-gradient(135deg, rgba(239, 68, 68, 0.08) 0%, rgba(239, 68, 68, 0.03) 100%);
-            border: 1px solid rgba(239, 68, 68, 0.2);
-            border-radius: 12px;
-            padding: 0;
-            margin: 12px 0;
-            overflow: hidden;
-            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.1);
-        }
-
-        .error-card-header {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 14px 16px;
-            background: rgba(239, 68, 68, 0.1);
-            border-bottom: 1px solid rgba(239, 68, 68, 0.15);
-        }
-
-        .error-icon-container {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 32px;
-            height: 32px;
-            background: rgba(239, 68, 68, 0.15);
-            border-radius: 8px;
-            color: #ef4444;
-        }
-
-        .error-label {
-            flex: 1;
-            font-size: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            color: #ef4444;
-        }
-
-        .error-card-content {
-            padding: 16px;
-            font-size: 13px;
-            line-height: 1.6;
-            color: var(--vscode-foreground);
-        }
-
-        .error-card-content p {
-            margin: 0 0 8px 0;
-        }
-
-        .error-card-content p:last-child {
-            margin-bottom: 0;
-        }
-
-        .error-card-content pre {
-            background: rgba(0, 0, 0, 0.2);
-            padding: 12px;
-            border-radius: 6px;
-            overflow-x: auto;
-            font-size: 12px;
-            margin: 8px 0;
         }
 
         .message-content code {
@@ -820,6 +754,91 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             color: var(--vscode-descriptionForeground);
             font-size: 12px;
         }
+
+        /* Modern Error Card Styles */
+        .message.error-card {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.08) 0%, rgba(239, 68, 68, 0.03) 100%);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: 12px;
+            padding: 0;
+            margin: 12px;
+            max-width: calc(100% - 24px);
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.1);
+        }
+
+        .error-card-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 16px;
+            background: rgba(239, 68, 68, 0.1);
+            border-bottom: 1px solid rgba(239, 68, 68, 0.15);
+        }
+
+        .error-icon-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            background: rgba(239, 68, 68, 0.15);
+            border-radius: 8px;
+            color: #ef4444;
+        }
+
+        .error-label {
+            flex: 1;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #ef4444;
+        }
+
+        .error-copy-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            background: transparent;
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            color: var(--vscode-foreground);
+        }
+
+        .error-copy-btn:hover {
+            background: rgba(239, 68, 68, 0.1);
+            color: #ef4444;
+            border-color: rgba(239, 68, 68, 0.4);
+        }
+
+        .error-card-content {
+            padding: 16px;
+            font-size: 13px;
+            line-height: 1.6;
+            color: var(--vscode-foreground);
+        }
+
+        .error-card-content p {
+            margin: 0 0 8px 0;
+        }
+
+        .error-card-content p:last-child {
+            margin-bottom: 0;
+        }
+
+        .error-card-content pre {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 12px;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-size: 12px;
+            margin: 8px 0;
+        }
     </style>
 </head>
 <body>
@@ -946,7 +965,7 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             \`).join('');
         }
 
-        window.filterHistory = function() {
+        function filterHistory() {
             const searchTerm = document.getElementById('historySearch').value.toLowerCase();
             const filtered = chatHistory.filter(chat => 
                 chat.preview.toLowerCase().includes(searchTerm)
@@ -967,7 +986,7 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             }).join('');
         }
 
-        window.loadChat = function(index) {
+        function loadChat(index) {
             const chat = chatHistory[index];
             messagesDiv.innerHTML = '';
             welcomeScreen.classList.add('hidden');
@@ -1111,22 +1130,40 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             const headerDiv = document.createElement('div');
             headerDiv.className = 'error-card-header';
 
+            // Icon container
             const iconContainer = document.createElement('div');
             iconContainer.className = 'error-icon-container';
             iconContainer.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
 
+            // Error label
             const labelDiv = document.createElement('div');
             labelDiv.className = 'error-label';
             labelDiv.textContent = 'ERROR';
 
+            // Copy button
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'error-copy-btn';
+            copyBtn.title = 'Copy error message';
+            copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+            copyBtn.onclick = function() {
+                navigator.clipboard.writeText(errorText).then(() => {
+                    const originalHTML = copyBtn.innerHTML;
+                    copyBtn.innerHTML = '✓';
+                    setTimeout(() => {
+                        copyBtn.innerHTML = originalHTML;
+                    }, 2000);
+                });
+            };
+
             headerDiv.appendChild(iconContainer);
             headerDiv.appendChild(labelDiv);
+            headerDiv.appendChild(copyBtn);
             messageDiv.appendChild(headerDiv);
 
-            // Add content
+            // Error content
             const contentDiv = document.createElement('div');
             contentDiv.className = 'error-card-content';
-            contentDiv.innerHTML = '<p>' + errorText.replace(/\n/g, '</p><p>') + '</p>';
+            contentDiv.innerHTML = '<p>' + errorText.replace(/\\n/g, '</p><p>') + '</p>';
             messageDiv.appendChild(contentDiv);
 
             messagesDiv.appendChild(messageDiv);
@@ -1142,20 +1179,20 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
 
-        window.openSettings = function() {
+        function openSettings() {
             vscode.postMessage({ type: 'openSettings' });
-        };
+        }
 
-        window.openEditorChat = function() {
+        function openEditorChat() {
             vscode.postMessage({ type: 'openEditorChat' });
-        };
+        }
 
-        window.toggleHistory = function() {
+        function toggleHistory() {
             const panel = document.getElementById('historyPanel');
             panel.classList.toggle('open');
-        };
+        }
 
-        window.toggleSearch = function() {
+        function toggleSearch() {
             const container = document.getElementById('historySearchContainer');
             const input = document.getElementById('historySearch');
             if (container.style.maxHeight === '0px' || !container.style.maxHeight) {
@@ -1170,7 +1207,7 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             }
         }
 
-        window.newChat = function() {
+        function newChat() {
             const messages = Array.from(messagesDiv.querySelectorAll('.message'));
             if (messages.length > 0) {
                 const firstUserMsg = messages.find(m => m.classList.contains('user'));
@@ -1210,22 +1247,22 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             }
         }
 
-        window.showSlashCommands = function() {
+        function showSlashCommands() {
             // Placeholder for slash commands functionality
             messageInput.value = '/';
             messageInput.focus();
-        };
+        }
 
-        window.showAtMention = function() {
+        function showAtMention() {
             // Placeholder for @ mention functionality
             messageInput.value += '@';
             messageInput.focus();
-        };
+        }
 
         // Scroll to bottom functionality
         const scrollToBottomBtn = document.getElementById('scrollToBottomBtn');
 
-        window.scrollToBottom = function() {
+        function scrollToBottom() {
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
             if (scrollToBottomBtn) scrollToBottomBtn.style.display = 'none';
         }
@@ -1333,7 +1370,7 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             window.currentPermissionOverlay = overlay;
         }
 
-        window.respondPermission = function(id, action) {
+        function respondPermission(id, action) {
             vscode.postMessage({ type: 'permissionResponse', id, action });
             if (window.currentPermissionOverlay) {
                 window.currentPermissionOverlay.remove();
