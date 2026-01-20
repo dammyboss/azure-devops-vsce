@@ -14,14 +14,14 @@ export class StatusBarManager {
         
         switch (status) {
             case 'connected':
-                this.statusBarItem.text = '$(azure) Azure DevOps: Connected';
-                this.statusBarItem.tooltip = 'Connected to Azure DevOps';
+                this.statusBarItem.text = '$(azure) Azure DevOps Board: Connected';
+                this.statusBarItem.tooltip = 'Connected to Azure DevOps Board';
                 this.statusBarItem.backgroundColor = undefined;
                 break;
-                
+
             case 'disconnected':
-                this.statusBarItem.text = '$(azure) Azure DevOps: Disconnected';
-                this.statusBarItem.tooltip = 'Click to connect to Azure DevOps';
+                this.statusBarItem.text = '$(azure) Azure DevOps Board: Disconnected';
+                this.statusBarItem.tooltip = 'Click to connect to Azure DevOps Board';
                 this.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
                 this.statusBarItem.command = 'azureDevOps.connect';
                 break;

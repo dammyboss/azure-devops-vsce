@@ -184,6 +184,8 @@ export class BoardPanel {
         );
     }
 
+    private _teamMembers: Array<{displayName: string, uniqueName: string}> = [];
+
     private async _loadAndRender() {
         try {
             // Update last refresh time
@@ -191,7 +193,61 @@ export class BoardPanel {
 
             // Load available boards for the dropdown
             this.availableBoards = await this._getAvailableBoards();
+            // Load team members for filter
+            this._teamMembers = await this._getTeamMembers();
             await this._loadBoardData();
+
+            // Add any assignees from work items that aren't in team members
+            if (this.currentBoard) {
+                const uniqueAssignees = new Map<string, {displayName: string, uniqueName: string}>();
+                
+                // First add existing team members
+                this._teamMembers.forEach(m => uniqueAssignees.set(m.uniqueName.toLowerCase(), m));
+
+                // Then add from work items
+                this.currentBoard.workItems.forEach(items => {
+                    items.forEach(item => {
+                        const assignee = item.assignedTo as any;
+                        if (assignee) {
+                            // Handle if assignee is a complex object (standard)
+                            if (assignee.uniqueName && assignee.displayName) {
+                                const key = assignee.uniqueName.toLowerCase();
+                                if (!uniqueAssignees.has(key)) {
+                                    uniqueAssignees.set(key, {
+                                        displayName: assignee.displayName,
+                                        uniqueName: assignee.uniqueName
+                                    });
+                                }
+                            }
+                            // Handle edge case if assignee is just a string (sometimes happens in older API versions or specific configs)
+                            else if (typeof assignee === 'string') {
+                                // Use the string as both uniqueName and displayName if we can't do better
+                                const key = assignee.toLowerCase();
+                                // Try to ignore if it looks like an email but we already have it
+                                let exists = false;
+                                for (const existing of uniqueAssignees.values()) {
+                                    if (existing.uniqueName.toLowerCase() === key || existing.displayName.toLowerCase() === key) {
+                                        exists = true;
+                                        break;
+                                    }
+                                }
+                                
+                                if (!exists) {
+                                    uniqueAssignees.set(key, {
+                                        displayName: assignee,
+                                        uniqueName: assignee
+                                    });
+                                }
+                            }
+                        }
+                    });
+                });
+
+                // Update team members list
+                this._teamMembers = Array.from(uniqueAssignees.values())
+                    .sort((a, b) => a.displayName.localeCompare(b.displayName));
+            }
+
             this._panel.webview.html = this._getHtmlForWebview();
         } catch (error) {
             console.error('Failed to load board:', error);
@@ -662,7 +718,8 @@ export class BoardPanel {
 
                 // Get members from all teams in the project
                 const teams = identitiesResponse.data.value || [];
-                for (const team of teams.slice(0, 5)) { // Limit to first 5 teams to avoid too many requests
+                // Increase limit to scan more teams (was 5)
+                for (const team of teams.slice(0, 20)) { 
                     try {
                         const teamMembersResponse = await axiosInstance.get(
                             `/_apis/projects/${encodeURIComponent(config.defaultProject)}/teams/${encodeURIComponent(team.id)}/members`,
@@ -1765,6 +1822,86 @@ export class BoardPanel {
             font-style: italic;
         }
 
+        /* Filter Dropdown Styles */
+        .filter-dropdown {
+            position: relative;
+        }
+
+        .filter-dropdown-btn {
+            padding: 5px 24px 5px 8px;
+            background: var(--vscode-dropdown-background);
+            color: var(--vscode-dropdown-foreground);
+            border: 1px solid var(--vscode-dropdown-border);
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            min-width: 120px;
+            text-align: left;
+            position: relative;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .filter-dropdown-btn::after {
+            content: '';
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            border-left: 4px solid transparent;
+            border-right: 4px solid transparent;
+            border-top: 4px solid var(--vscode-dropdown-foreground);
+            opacity: 0.8;
+        }
+
+        .filter-dropdown-content {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            min-width: 200px;
+            max-height: 300px;
+            overflow-y: auto;
+            background: var(--vscode-dropdown-background);
+            border: 1px solid var(--vscode-dropdown-border);
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+            z-index: 1000;
+            margin-top: 4px;
+            padding: 4px 0;
+        }
+
+        .filter-dropdown-content.show {
+            display: block;
+        }
+
+        .filter-checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            cursor: pointer;
+            font-size: 12px;
+            color: var(--vscode-dropdown-foreground);
+            user-select: none;
+        }
+        
+        .filter-checkbox-item:hover {
+            background: var(--vscode-list-hoverBackground);
+        }
+
+        .filter-checkbox-item input[type="checkbox"] {
+            margin: 0;
+            cursor: pointer;
+            width: 14px;
+            height: 14px;
+            /* Ensure it uses VS Code colors */
+            accent-color: var(--vscode-button-background);
+            border: 1px solid var(--vscode-checkbox-border);
+            background: var(--vscode-checkbox-background);
+        }
+
         /* Scrollbar Styling */
         ::-webkit-scrollbar {
             width: 8px;
@@ -1826,34 +1963,50 @@ export class BoardPanel {
 
         <div class="filter-group">
             <span class="filter-label">Assigned</span>
-            <select class="filter-select" id="assigneeFilter" onchange="applyFilters()">
-                <option value="all">All</option>
-                <option value="me">Assigned to me</option>
-                <option value="unassigned">Unassigned</option>
-            </select>
+            <div class="filter-dropdown" id="assigneeDropdown">
+                <button class="filter-dropdown-btn" id="assigneeDropdownBtn" onclick="toggleDropdown('assigneeDropdownContent')">All Assignees</button>
+                <div class="filter-dropdown-content" id="assigneeDropdownContent">
+                    <label class="filter-checkbox-item"><input type="checkbox" name="assignee" value="all" checked onchange="handleFilterChange('assignee', this)"> All</label>
+                    <label class="filter-checkbox-item"><input type="checkbox" name="assignee" value="me" onchange="handleFilterChange('assignee', this)"> @Me</label>
+                    <label class="filter-checkbox-item"><input type="checkbox" name="assignee" value="unassigned" onchange="handleFilterChange('assignee', this)"> Unassigned</label>
+                    <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
+                    ${this._teamMembers.map(m => `
+                        <label class="filter-checkbox-item">
+                            <input type="checkbox" name="assignee" value="${this._escapeHtml(m.uniqueName)}" onchange="handleFilterChange('assignee', this)">
+                            ${this._escapeHtml(m.displayName)}
+                        </label>
+                    `).join('')}
+                </div>
+            </div>
         </div>
 
         <div class="filter-group">
             <span class="filter-label">Type</span>
-            <select class="filter-select" id="typeFilter" onchange="applyFilters()">
-                <option value="all">All Types</option>
-                <option value="User Story">User Story</option>
-                <option value="Task">Task</option>
-                <option value="Bug">Bug</option>
-                <option value="Feature">Feature</option>
-                <option value="Epic">Epic</option>
-            </select>
+            <div class="filter-dropdown" id="typeDropdown">
+                <button class="filter-dropdown-btn" id="typeDropdownBtn" onclick="toggleDropdown('typeDropdownContent')">All Types</button>
+                <div class="filter-dropdown-content" id="typeDropdownContent">
+                    <label class="filter-checkbox-item"><input type="checkbox" name="type" value="all" checked onchange="handleFilterChange('type', this)"> All Types</label>
+                    <label class="filter-checkbox-item"><input type="checkbox" name="type" value="User Story" onchange="handleFilterChange('type', this)"> User Story</label>
+                    <label class="filter-checkbox-item"><input type="checkbox" name="type" value="Task" onchange="handleFilterChange('type', this)"> Task</label>
+                    <label class="filter-checkbox-item"><input type="checkbox" name="type" value="Bug" onchange="handleFilterChange('type', this)"> Bug</label>
+                    <label class="filter-checkbox-item"><input type="checkbox" name="type" value="Feature" onchange="handleFilterChange('type', this)"> Feature</label>
+                    <label class="filter-checkbox-item"><input type="checkbox" name="type" value="Epic" onchange="handleFilterChange('type', this)"> Epic</label>
+                </div>
+            </div>
         </div>
 
         <div class="filter-group">
             <span class="filter-label">Priority</span>
-            <select class="filter-select" id="priorityFilter" onchange="applyFilters()">
-                <option value="all">All Priorities</option>
-                <option value="1">1 - Critical</option>
-                <option value="2">2 - High</option>
-                <option value="3">3 - Medium</option>
-                <option value="4">4 - Low</option>
-            </select>
+            <div class="filter-dropdown" id="priorityDropdown">
+                <button class="filter-dropdown-btn" id="priorityDropdownBtn" onclick="toggleDropdown('priorityDropdownContent')">All Priorities</button>
+                <div class="filter-dropdown-content" id="priorityDropdownContent">
+                    <label class="filter-checkbox-item"><input type="checkbox" name="priority" value="all" checked onchange="handleFilterChange('priority', this)"> All Priorities</label>
+                    <label class="filter-checkbox-item"><input type="checkbox" name="priority" value="1" onchange="handleFilterChange('priority', this)"> 1 - Critical</label>
+                    <label class="filter-checkbox-item"><input type="checkbox" name="priority" value="2" onchange="handleFilterChange('priority', this)"> 2 - High</label>
+                    <label class="filter-checkbox-item"><input type="checkbox" name="priority" value="3" onchange="handleFilterChange('priority', this)"> 3 - Medium</label>
+                    <label class="filter-checkbox-item"><input type="checkbox" name="priority" value="4" onchange="handleFilterChange('priority', this)"> 4 - Low</label>
+                </div>
+            </div>
         </div>
 
         <div class="filter-divider"></div>
@@ -2628,9 +2781,77 @@ export class BoardPanel {
         // Close dropdown when clicking outside
         document.addEventListener('click', (event) => {
             if (!event.target.closest('.board-selector')) {
-                document.getElementById('boardDropdown').classList.remove('show');
+                const boardDropdown = document.getElementById('boardDropdown');
+                if (boardDropdown) boardDropdown.classList.remove('show');
+            }
+            if (!event.target.closest('.filter-dropdown')) {
+                document.querySelectorAll('.filter-dropdown-content').forEach(d => d.classList.remove('show'));
             }
         });
+
+        function toggleDropdown(id) {
+            // Close all other dropdowns
+            document.querySelectorAll('.filter-dropdown-content').forEach(d => {
+                if (d.id !== id) d.classList.remove('show');
+            });
+            document.getElementById(id).classList.toggle('show');
+        }
+
+        function handleFilterChange(type, checkbox) {
+            const container = checkbox.closest('.filter-dropdown-content');
+            const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+            
+            if (checkbox.value === 'all') {
+                // If "All" is checked, uncheck everything else
+                if (checkbox.checked) {
+                    checkboxes.forEach(cb => {
+                        if (cb !== checkbox) cb.checked = false;
+                    });
+                }
+            } else {
+                // If specific item is checked, uncheck "All"
+                if (checkbox.checked) {
+                    const allCheckbox = container.querySelector('input[value="all"]');
+                    if (allCheckbox) allCheckbox.checked = false;
+                }
+            }
+
+            // If nothing is checked, check "All"
+            const anyChecked = Array.from(checkboxes).some(cb => cb.checked);
+            if (!anyChecked) {
+                const allCheckbox = container.querySelector('input[value="all"]');
+                if (allCheckbox) allCheckbox.checked = true;
+            }
+
+            updateDropdownButton(type);
+            applyFilters();
+        }
+
+        function updateDropdownButton(type) {
+            const dropdownId = type + 'DropdownContent';
+            const btnId = type + 'DropdownBtn';
+            const container = document.getElementById(dropdownId);
+            const btn = document.getElementById(btnId);
+            const checkboxes = container.querySelectorAll('input[type="checkbox"]:checked');
+            
+            if (checkboxes.length === 0 || (checkboxes.length === 1 && checkboxes[0].value === 'all')) {
+                btn.textContent = 'All ' + (type === 'assignee' ? 'Assignees' : (type === 'type' ? 'Types' : 'Priorities'));
+            } else {
+                if (checkboxes.length === 1) {
+                    const label = checkboxes[0].parentElement.textContent.trim();
+                    btn.textContent = label;
+                } else {
+                    btn.textContent = checkboxes.length + ' selected';
+                }
+            }
+        }
+
+        function getSelectedValues(type) {
+            const dropdownId = type + 'DropdownContent';
+            const container = document.getElementById(dropdownId);
+            const checkboxes = container.querySelectorAll('input[type="checkbox"]:checked');
+            return Array.from(checkboxes).map(cb => cb.value);
+        }
 
         // ========== FILTER FUNCTIONALITY ==========
         let currentUserEmail = ''; // Will be set when user info is available
@@ -2657,9 +2878,13 @@ export class BoardPanel {
 
         function applyFilters() {
             const searchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
-            const assigneeFilter = document.getElementById('assigneeFilter').value;
-            const typeFilter = document.getElementById('typeFilter').value;
-            const priorityFilter = document.getElementById('priorityFilter').value;
+            const assigneeValues = getSelectedValues('assignee');
+            const typeValues = getSelectedValues('type');
+            const priorityValues = getSelectedValues('priority');
+            
+            const assigneeAll = assigneeValues.includes('all');
+            const typeAll = typeValues.includes('all');
+            const priorityAll = priorityValues.includes('all');
 
             const cards = document.querySelectorAll('.card');
             let visibleCount = 0;
@@ -2678,29 +2903,40 @@ export class BoardPanel {
                 }
 
                 // Assignee filter
-                if (visible && assigneeFilter !== 'all') {
-                    const assignee = card.dataset.assignee;
-                    if (assigneeFilter === 'me') {
-                        if (!assignee || (currentUserEmail && !assignee.toLowerCase().includes(currentUserEmail.toLowerCase()))) {
-                            visible = false;
-                        }
-                    } else if (assigneeFilter === 'unassigned') {
-                        if (assignee) {
-                            visible = false;
+                if (visible && !assigneeAll) {
+                    const assignee = card.dataset.assignee; // uniqueName
+                    let match = false;
+                    
+                    if (assigneeValues.includes('me')) {
+                         if (assignee && currentUserEmail && assignee.toLowerCase().includes(currentUserEmail.toLowerCase())) {
+                             match = true;
+                         }
+                    }
+                    if (assigneeValues.includes('unassigned')) {
+                        if (!assignee) match = true;
+                    }
+                    
+                    // Check specific assignees
+                    if (!match && assignee) {
+                        if (assigneeValues.includes(assignee)) {
+                            match = true;
                         }
                     }
+
+                    if (!match) visible = false;
                 }
 
                 // Type filter
-                if (visible && typeFilter !== 'all') {
-                    if (card.dataset.type !== typeFilter) {
+                if (visible && !typeAll) {
+                    if (!typeValues.includes(card.dataset.type)) {
                         visible = false;
                     }
                 }
 
                 // Priority filter
-                if (visible && priorityFilter !== 'all') {
-                    if (card.dataset.priority !== priorityFilter) {
+                if (visible && !priorityAll) {
+                    const cardPriority = card.dataset.priority;
+                    if (!priorityValues.includes(cardPriority)) {
                         visible = false;
                     }
                 }
@@ -2770,10 +3006,14 @@ export class BoardPanel {
         }
 
         function isAnyFilterActive() {
+            const assigneeAll = document.querySelector('#assigneeDropdownContent input[value="all"]')?.checked;
+            const typeAll = document.querySelector('#typeDropdownContent input[value="all"]')?.checked;
+            const priorityAll = document.querySelector('#priorityDropdownContent input[value="all"]')?.checked;
+
             return document.getElementById('searchInput').value.trim() !== '' ||
-                   document.getElementById('assigneeFilter').value !== 'all' ||
-                   document.getElementById('typeFilter').value !== 'all' ||
-                   document.getElementById('priorityFilter').value !== 'all' ||
+                   !assigneeAll ||
+                   !typeAll ||
+                   !priorityAll ||
                    hideDoneActive ||
                    myItemsActive;
         }
@@ -2785,9 +3025,17 @@ export class BoardPanel {
 
         function clearAllFilters() {
             document.getElementById('searchInput').value = '';
-            document.getElementById('assigneeFilter').value = 'all';
-            document.getElementById('typeFilter').value = 'all';
-            document.getElementById('priorityFilter').value = 'all';
+            
+            ['assignee', 'type', 'priority'].forEach(type => {
+                const container = document.getElementById(type + 'DropdownContent');
+                if (container) {
+                    const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+                    checkboxes.forEach(cb => {
+                        cb.checked = cb.value === 'all';
+                    });
+                    updateDropdownButton(type);
+                }
+            });
 
             hideDoneActive = false;
             myItemsActive = false;
@@ -2811,7 +3059,12 @@ export class BoardPanel {
 
             // If my items is active, reset the assignee dropdown
             if (myItemsActive) {
-                document.getElementById('assigneeFilter').value = 'all';
+                const container = document.getElementById('assigneeDropdownContent');
+                 const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+                 checkboxes.forEach(cb => {
+                    cb.checked = cb.value === 'all';
+                 });
+                 updateDropdownButton('assignee');
             }
 
             applyFilters();
@@ -2846,6 +3099,9 @@ export class BoardPanel {
             const message = event.data;
             if (message.command === 'setCurrentUser') {
                 currentUserEmail = message.email || '';
+                // Re-apply filters now that we have the current user info
+                // This ensures @Me works correctly even if data arrives late
+                applyFilters();
             }
         });
     </script>
@@ -2912,6 +3168,7 @@ export class BoardPanel {
             </div>
             ${tags ? `<div class="card-tags">${tags}</div>` : ''}
         </div>`;
+
     }
 
     private _getTypeIcon(type: string): string {
