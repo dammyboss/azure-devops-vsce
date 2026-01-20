@@ -195,12 +195,14 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
         const newChatIconUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'new-chat.png'));
         const scrollToBottomIconUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'scroll-to-bottom.png'));
         const editorIconUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'external-link.png'));
+        const nonce = Date.now();
 
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' ${webview.cspSource}; script-src 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net ${webview.cspSource}; img-src ${webview.cspSource} https:;">
     <title>AI Assistant</title>
     <script src="https://cdn.jsdelivr.net/npm/markdown-it@14/dist/markdown-it.min.js"></script>
     <style>
