@@ -562,8 +562,8 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
         /* Scroll to Bottom Button */
         .scroll-to-bottom-btn {
             position: absolute;
-            bottom: 170px;
-            right: 20px;
+            bottom: 110px;
+            right: 0px;
             width: 48px;
             height: 48px;
             background: transparent;
