@@ -374,70 +374,6 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             margin-bottom: 0;
         }
 
-        /* Modern Error Card Styles */
-        .message.error-card {
-            background: linear-gradient(135deg, rgba(239, 68, 68, 0.08) 0%, rgba(239, 68, 68, 0.03) 100%);
-            border: 1px solid rgba(239, 68, 68, 0.2);
-            border-radius: 12px;
-            padding: 0;
-            margin: 12px 0;
-            overflow: hidden;
-            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.1);
-        }
-
-        .error-card-header {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 14px 16px;
-            background: rgba(239, 68, 68, 0.1);
-            border-bottom: 1px solid rgba(239, 68, 68, 0.15);
-        }
-
-        .error-icon-container {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 32px;
-            height: 32px;
-            background: rgba(239, 68, 68, 0.15);
-            border-radius: 8px;
-            color: #ef4444;
-        }
-
-        .error-label {
-            flex: 1;
-            font-size: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            color: #ef4444;
-        }
-
-        .error-card-content {
-            padding: 16px;
-            font-size: 13px;
-            line-height: 1.6;
-            color: var(--vscode-foreground);
-        }
-
-        .error-card-content p {
-            margin: 0 0 8px 0;
-        }
-
-        .error-card-content p:last-child {
-            margin-bottom: 0;
-        }
-
-        .error-card-content pre {
-            background: rgba(0, 0, 0, 0.2);
-            padding: 12px;
-            border-radius: 6px;
-            overflow-x: auto;
-            font-size: 12px;
-            margin: 8px 0;
-        }
-
         .message-content code {
             background-color: var(--vscode-textCodeBlock-background);
             border: 1px solid var(--vscode-panel-border);
@@ -1101,37 +1037,6 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             return messageDiv;
         }
 
-        function addErrorMessage(errorText) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message error-card';
-
-            // Error header with icon and label
-            const headerDiv = document.createElement('div');
-            headerDiv.className = 'error-card-header';
-
-            const iconContainer = document.createElement('div');
-            iconContainer.className = 'error-icon-container';
-            iconContainer.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
-
-            const labelDiv = document.createElement('div');
-            labelDiv.className = 'error-label';
-            labelDiv.textContent = 'ERROR';
-
-            headerDiv.appendChild(iconContainer);
-            headerDiv.appendChild(labelDiv);
-            messageDiv.appendChild(headerDiv);
-
-            // Add content
-            const contentDiv = document.createElement('div');
-            contentDiv.className = 'error-card-content';
-            contentDiv.innerHTML = '<p>' + errorText.replace(/\n/g, '</p><p>') + '</p>';
-            messageDiv.appendChild(contentDiv);
-
-            messagesDiv.appendChild(messageDiv);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
-            return messageDiv;
-        }
-
         function addToolUse(toolName, toolInput) {
             const toolDiv = document.createElement('div');
             toolDiv.className = 'tool-use';
@@ -1266,7 +1171,7 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
 
                 case 'error':
                     hideAnimatedLoading();
-                    addErrorMessage(message.error);
+                    addMessage('assistant', \`Error: \${message.error}\`);
                     isGenerating = false;
                     updateSendButton();
                     currentAssistantMessage = null;
@@ -1293,35 +1198,19 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
 
         function showPermissionPrompt(id, serverName, toolName, toolInput) {
             const overlay = document.createElement('div');
-            overlay.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); z-index: 10000; display: flex; align-items: center; justify-content: center; animation: fadeIn 0.2s ease;';
+            overlay.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 10000; display: flex; align-items: center; justify-content: center;';
             
             const dialog = document.createElement('div');
-            dialog.style.cssText = 'background: var(--vscode-editor-background); border: 1px solid var(--vscode-focusBorder); border-radius: 12px; padding: 24px; max-width: 420px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); animation: slideUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);';
+            dialog.style.cssText = 'background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); border-radius: 8px; padding: 20px; max-width: 400px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);';
             
             dialog.innerHTML = \`
-                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
-                    <div style="width: 40px; height: 40px; border-radius: 10px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);">🔐</div>
-                    <div>
-                        <h3 style="margin: 0; font-size: 15px; font-weight: 600; color: var(--vscode-foreground);">Tool Permission Required</h3>
-                        <p style="margin: 2px 0 0 0; font-size: 11px; color: var(--vscode-descriptionForeground); opacity: 0.8;">MCP Server Request</p>
-                    </div>
-                </div>
-                <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 12px; margin-bottom: 20px;">
-                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                        <span style="font-size: 11px; color: var(--vscode-descriptionForeground); opacity: 0.7; text-transform: uppercase; letter-spacing: 0.5px;">Server</span>
-                        <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.06);"></div>
-                    </div>
-                    <p style="margin: 0; font-size: 13px; font-weight: 500; color: var(--vscode-foreground); font-family: monospace;">\${serverName}</p>
-                    <div style="display: flex; align-items: center; gap: 8px; margin: 12px 0 8px 0;">
-                        <span style="font-size: 11px; color: var(--vscode-descriptionForeground); opacity: 0.7; text-transform: uppercase; letter-spacing: 0.5px;">Tool</span>
-                        <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.06);"></div>
-                    </div>
-                    <p style="margin: 0; font-size: 13px; font-weight: 500; color: var(--vscode-textLink-foreground); font-family: monospace;">\${toolName}</p>
-                </div>
-                <div style="display: flex; gap: 8px;">
-                    <button onclick="respondPermission('\${id}', 'deny')" style="flex: 1; padding: 10px 16px; background: rgba(255,255,255,0.05); color: var(--vscode-foreground); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500; transition: all 0.2s ease;" onmouseover="this.style.background='rgba(255,255,255,0.08)'; this.style.borderColor='rgba(255,255,255,0.2)';" onmouseout="this.style.background='rgba(255,255,255,0.05)'; this.style.borderColor='rgba(255,255,255,0.1)';">✕ Deny</button>
-                    <button onclick="respondPermission('\${id}', 'allow')" style="flex: 1; padding: 10px 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3); transition: all 0.2s ease;" onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 4px 12px rgba(102, 126, 234, 0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(102, 126, 234, 0.3)';">✓ Allow Once</button>
-                    <button onclick="respondPermission('\${id}', 'allow-always')" style="flex: 1; padding: 10px 16px; background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500; box-shadow: 0 2px 8px rgba(46, 204, 113, 0.3); transition: all 0.2s ease;" onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 4px 12px rgba(46, 204, 113, 0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(46, 204, 113, 0.3)';">✓ Always</button>
+                <h3 style="margin: 0 0 12px 0; font-size: 14px;">MCP Tool Permission</h3>
+                <p style="margin: 0 0 8px 0; font-size: 12px; color: var(--vscode-descriptionForeground);">Server: <strong>\${serverName}</strong></p>
+                <p style="margin: 0 0 16px 0; font-size: 12px; color: var(--vscode-descriptionForeground);">Tool: <strong>\${toolName}</strong></p>
+                <div style="display: flex; gap: 8px; justify-content: flex-end;">
+                    <button onclick="respondPermission('\${id}', 'deny')" style="padding: 6px 12px; background: transparent; border: 1px solid var(--vscode-button-border); border-radius: 4px; cursor: pointer; font-size: 12px;">Deny</button>
+                    <button onclick="respondPermission('\${id}', 'allow')" style="padding: 6px 12px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Allow Once</button>
+                    <button onclick="respondPermission('\${id}', 'allow-always')" style="padding: 6px 12px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Always Allow</button>
                 </div>
             \`;
             
