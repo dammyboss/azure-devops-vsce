@@ -944,7 +944,7 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             \`).join('');
         }
 
-        function filterHistory() {
+        window.filterHistory = function() {
             const searchTerm = document.getElementById('historySearch').value.toLowerCase();
             const filtered = chatHistory.filter(chat => 
                 chat.preview.toLowerCase().includes(searchTerm)
@@ -965,7 +965,7 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             }).join('');
         }
 
-        function loadChat(index) {
+        window.loadChat = function(index) {
             const chat = chatHistory[index];
             messagesDiv.innerHTML = '';
             welcomeScreen.classList.add('hidden');
@@ -1140,20 +1140,20 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
 
-        function openSettings() {
+        window.openSettings = function() {
             vscode.postMessage({ type: 'openSettings' });
-        }
+        };
 
-        function openEditorChat() {
+        window.openEditorChat = function() {
             vscode.postMessage({ type: 'openEditorChat' });
-        }
+        };
 
-        function toggleHistory() {
+        window.toggleHistory = function() {
             const panel = document.getElementById('historyPanel');
             panel.classList.toggle('open');
-        }
+        };
 
-        function toggleSearch() {
+        window.toggleSearch = function() {
             const container = document.getElementById('historySearchContainer');
             const input = document.getElementById('historySearch');
             if (container.style.maxHeight === '0px' || !container.style.maxHeight) {
@@ -1168,7 +1168,7 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             }
         }
 
-        function newChat() {
+        window.newChat = function() {
             const messages = Array.from(messagesDiv.querySelectorAll('.message'));
             if (messages.length > 0) {
                 const firstUserMsg = messages.find(m => m.classList.contains('user'));
@@ -1208,22 +1208,22 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             }
         }
 
-        function showSlashCommands() {
+        window.showSlashCommands = function() {
             // Placeholder for slash commands functionality
             messageInput.value = '/';
             messageInput.focus();
-        }
+        };
 
-        function showAtMention() {
+        window.showAtMention = function() {
             // Placeholder for @ mention functionality
             messageInput.value += '@';
             messageInput.focus();
-        }
+        };
 
         // Scroll to bottom functionality
         const scrollToBottomBtn = document.getElementById('scrollToBottomBtn');
 
-        function scrollToBottom() {
+        window.scrollToBottom = function() {
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
             if (scrollToBottomBtn) scrollToBottomBtn.style.display = 'none';
         }
@@ -1331,7 +1331,7 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             window.currentPermissionOverlay = overlay;
         }
 
-        function respondPermission(id, action) {
+        window.respondPermission = function(id, action) {
             vscode.postMessage({ type: 'permissionResponse', id, action });
             if (window.currentPermissionOverlay) {
                 window.currentPermissionOverlay.remove();
