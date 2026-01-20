@@ -30,6 +30,7 @@ export class WorkItemPanel {
     private _areas: AreaInfo[] = [];
     private _teamMembers: TeamMemberInfo[] = [];
     private _existingTags: string[] = [];
+    private _availableStates: string[] = [];
 
     public static createOrShow(
         extensionUri: vscode.Uri,
@@ -454,12 +455,14 @@ export class WorkItemPanel {
             this.getAreas(),
             this.getTeamMembers(),
             this.getExistingTags(),
-            this.getAttachments()
-        ]).then(([comments, linkedItems, iterations, areas, teamMembers, existingTags, attachments]) => {
+            this.getAttachments(),
+            this.getAvailableStates()
+        ]).then(([comments, linkedItems, iterations, areas, teamMembers, existingTags, attachments, availableStates]) => {
             this._iterations = iterations;
             this._areas = areas;
             this._teamMembers = teamMembers;
             this._existingTags = existingTags;
+            this._availableStates = availableStates;
             this._panel.webview.html = this._getHtmlForWebview(comments, linkedItems, attachments);
         });
     }
@@ -698,6 +701,41 @@ export class WorkItemPanel {
         }
     }
 
+    private async getAvailableStates(): Promise<string[]> {
+        if (!this._workItem) return [];
+
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+
+            if (!axiosInstance || !config?.defaultProject) return [];
+
+            const workItemType = this._workItem.fields['System.WorkItemType'];
+
+            // Fetch work item type definition to get allowed states
+            const response = await axiosInstance.get(
+                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workitemtypes/${encodeURIComponent(workItemType)}`,
+                { params: { 'api-version': '7.0' } }
+            );
+
+            // Extract states from the workflow
+            const states: string[] = [];
+            if (response.data.states && Array.isArray(response.data.states)) {
+                response.data.states.forEach((stateObj: any) => {
+                    if (stateObj.name) {
+                        states.push(stateObj.name);
+                    }
+                });
+            }
+
+            return states.length > 0 ? states : ['New', 'Active', 'Resolved', 'Closed'];
+        } catch (error) {
+            console.error('Failed to load available states:', error);
+            // Fallback to common states if API call fails
+            return ['New', 'Active', 'Resolved', 'Closed'];
+        }
+    }
+
     private async getComments(): Promise<any[]> {
         if (!this._workItem) return [];
 
@@ -737,8 +775,11 @@ export class WorkItemPanel {
         const areaPath = fields['System.AreaPath'] || '';
         const tags = fields['System.Tags'] || '';
 
-        const stateOptions = ['New', 'To Do', 'Active', 'In Progress', 'Resolved', 'Done', 'Closed'];
-        
+        // Use dynamically fetched available states for this work item type
+        const stateOptions = this._availableStates.length > 0
+            ? this._availableStates
+            : ['New', 'Active', 'Resolved', 'Closed'];
+
         const getStateColor = (state: string) => {
             const map: Record<string, string> = {
                 'New': '#0078d4', 'To Do': '#0078d4',
@@ -1354,7 +1395,7 @@ export class WorkItemPanel {
 <body>
     <div class="container">
         <div class="header">
-            <span class="type-badge">${this.escapeHtml(type)}</span>
+            <span class="type-icon" title="${this.escapeHtml(type)}">${this.getWorkItemTypeIcon(type)}</span>
             <span class="work-item-id">#${this._workItem.id}</span>
             <span class="title-display">${title}</span>
             <span class="state-pill" onclick="scrollToState()">${this.escapeHtml(state)}</span>
@@ -1778,6 +1819,32 @@ export class WorkItemPanel {
         const days = Math.floor(hours / 24);
         if (days < 7) return `${days}d ago`;
         return date.toLocaleDateString();
+    }
+
+    private getWorkItemTypeIcon(type: string): string {
+        // Use SVG icons with Azure DevOps standard colors
+        switch(type) {
+            case 'User Story':
+                return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 448" width="20" height="20"><path fill="#0078D4" d="M320 352c-22.846 0-60.713 5.861-80 16.588V55.635C257.752 40.563 296.084 32 320 32h64v320h-64zm-192 32H32V64H0v352h208s-16-32-80-32zM64 32v320h64c22.848 0 60.707 5.865 80 16.594V55.635C190.244 40.561 151.902 32 128 32H64zm352 32v320h-96c-64 0-80 32-80 32h208V64h-32z" /></svg>`;
+
+            case 'Feature':
+                return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 448" width="20" height="20"><path fill="#773B93" d="M145.619 384H128c-17.674 0-32 14.326-32 32v32h256v-32c0-17.674-14.327-32-32-32h-17.619c-7.434-36.47-39.75-64-78.381-64s-70.947 27.53-78.381 64zM224 352c20.832 0 38.425 13.418 45.053 32h-90.106c6.627-18.582 24.221-32 45.053-32zM352 64V32H96v32H32v80c0 40.051 29.686 73.018 68.153 78.8C114.003 278.531 163.984 320 224 320c60.016 0 109.997-41.469 123.846-97.2C386.313 217.018 416 184.051 416 144V64h-64zM96 189.053C77.417 182.426 64 164.832 64 144V96h32v93.053zM384 144c0 20.832-13.418 38.426-32 45.053V96h32v48z" /></svg>`;
+
+            case 'Epic':
+                return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 448" width="20" height="20"><path fill="#FF8C00" d="M448 96c0 17.672-14.326 32-32 32v288H32V128c-17.674 0-32-14.328-32-32 0-17.674 14.326-32 32-32s32 14.326 32 32c0 11.191-6.094 20.564-14.797 26.283L136.727 256 216.79 94.543C202.699 91.191 192 79.113 192 64c0-17.674 14.326-32 32-32s32 14.326 32 32c0 15.113-10.699 27.191-24.789 30.543L311.273 256l87.523-133.717C390.094 116.564 384 107.191 384 96c0-17.674 14.326-32 32-32s32 14.326 32 32z" /></svg>`;
+
+            case 'Task':
+                return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 448" width="20" height="20"><path fill="#FFC107" d="M320 64h-32c0-35.297-28.703-64-64-64s-64 28.703-64 64H64v384h320V64h-64zM128 96h64V64c0-17.641 14.359-32 32-32s32 14.359 32 32v32h64v32H128V96zm56 287.758l-79.844-79.828 31.688-31.688L184 320.414l128.156-128.172 31.688 31.688L184 383.758z" /></svg>`;
+
+            case 'Issue':
+                return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 448" width="20" height="20"><path fill="#28A745" d="M320 64h-32c0-35.297-28.703-64-64-64s-64 28.703-64 64H64v384h320V64h-64zm-71.469 352h-49.063v-49.094h49.063V416zm0-84.109h-49.063V164.109h49.063v167.782zM320 128H128V96h64V64c0-17.643 14.357-32 32-32 17.641 0 32 14.357 32 32v32h64v32z" /></svg>`;
+
+            case 'Bug':
+                return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 448" width="20" height="20"><path fill="#CC293D" d="M352 224c0-17.672 14.328-32 32-32h32v-32h-32c-8.828 0-16.938 2.797-23.656 7.516C350.391 140.234 324.078 120 293 120.781 287.016 108.297 275.547 99.828 262 96.781V64h32V32h-96v32h32v32.781c-13.547 3.047-25.016 11.516-31 24-31.078.781-57.391 21.016-67.344 48.297C125.938 163.797 117.828 161 109 161H77v32h32c17.672 0 32 14.328 32 32v32c0 17.672-14.328 32-32 32H77v32h32c8.828 0 16.938-2.797 23.656-7.516C142.609 340.766 168.922 361 200 360.219c5.984 12.484 17.453 20.953 31 24V417h-32v32h96v-32h-32v-32.781c13.547-3.047 25.016-11.516 31-24 31.078-.781 57.391-21.016 67.344-48.297C366.062 317.203 374.172 320 383 320h32v-32h-32c-17.672 0-32-14.328-32-32v-32zm-80 48c-26.469 0-48-21.531-48-48s21.531-48 48-48 48 21.531 48 48-21.531 48-48 48z" /></svg>`;
+
+            default:
+                return type;
+        }
     }
 
     private escapeHtml(text: string): string {
