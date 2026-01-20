@@ -618,44 +618,74 @@ export class WorkItemPanel {
             const axiosInstance = this.authenticationManager.getAxiosInstance();
             const config = this.authenticationManager.getConfig();
 
-            if (!axiosInstance || !config?.defaultProject || !config?.defaultTeam) {
-                console.log('Team members: Missing config', { project: config?.defaultProject, team: config?.defaultTeam });
-                // Fallback: add current user if available
-                const currentUser = await this.authenticationManager.getCurrentUser();
-                if (currentUser?.uniqueName && currentUser?.displayName) {
-                    return [{
-                        id: currentUser.id || '',
-                        displayName: currentUser.displayName,
-                        uniqueName: currentUser.uniqueName
-                    }];
-                }
+            if (!axiosInstance || !config?.defaultProject) {
+                console.log('Team members: Missing config', { project: config?.defaultProject });
                 return [];
             }
 
-            const response = await axiosInstance.get(
-                `/_apis/projects/${encodeURIComponent(config.defaultProject)}/teams/${encodeURIComponent(config.defaultTeam)}/members`,
-                { params: { 'api-version': '7.0' } }
-            );
+            const members: TeamMemberInfo[] = [];
 
-            const members = (response.data.value || []).map((member: any) => ({
-                id: member.identity?.id || '',
-                displayName: member.identity?.displayName || '',
-                uniqueName: member.identity?.uniqueName || ''
-            }));
-            
-            console.log('Team members loaded:', members.length);
-            return members;
-        } catch (error) {
-            console.error('Failed to load team members:', error);
-            // Fallback: add current user
-            const currentUser = await this.authenticationManager.getCurrentUser();
-            if (currentUser?.uniqueName && currentUser?.displayName) {
-                return [{
-                    id: currentUser.id || '',
-                    displayName: currentUser.displayName,
-                    uniqueName: currentUser.uniqueName
-                }];
+            // Try to get team members if team is configured
+            if (config.defaultTeam) {
+                try {
+                    const teamResponse = await axiosInstance.get(
+                        `/_apis/projects/${encodeURIComponent(config.defaultProject)}/teams/${encodeURIComponent(config.defaultTeam)}/members`,
+                        { params: { 'api-version': '7.0' } }
+                    );
+
+                    const teamMembers = (teamResponse.data.value || []).map((member: any) => ({
+                        id: member.identity?.id || '',
+                        displayName: member.identity?.displayName || '',
+                        uniqueName: member.identity?.uniqueName || ''
+                    })).filter((m: TeamMemberInfo) => m.displayName && m.uniqueName);
+
+                    members.push(...teamMembers);
+                    console.log(`Loaded ${teamMembers.length} team members from default team`);
+                } catch (teamError) {
+                    console.error('Failed to load team members:', teamError);
+                }
             }
+
+            // Also get all project users as a fallback/supplement
+            try {
+                const identitiesResponse = await axiosInstance.get(
+                    `/_apis/projects/${encodeURIComponent(config.defaultProject)}/teams`,
+                    { params: { 'api-version': '7.0' } }
+                );
+
+                // Get members from all teams in the project
+                const teams = identitiesResponse.data.value || [];
+                for (const team of teams.slice(0, 5)) { // Limit to first 5 teams to avoid too many requests
+                    try {
+                        const teamMembersResponse = await axiosInstance.get(
+                            `/_apis/projects/${encodeURIComponent(config.defaultProject)}/teams/${encodeURIComponent(team.id)}/members`,
+                            { params: { 'api-version': '7.0' } }
+                        );
+
+                        const additionalMembers = (teamMembersResponse.data.value || []).map((member: any) => ({
+                            id: member.identity?.id || '',
+                            displayName: member.identity?.displayName || '',
+                            uniqueName: member.identity?.uniqueName || ''
+                        })).filter((m: TeamMemberInfo) => m.displayName && m.uniqueName);
+
+                        // Add unique members
+                        additionalMembers.forEach((newMember: TeamMemberInfo) => {
+                            if (!members.find(m => m.uniqueName === newMember.uniqueName)) {
+                                members.push(newMember);
+                            }
+                        });
+                    } catch (e) {
+                        // Skip this team if error
+                    }
+                }
+            } catch (projectError) {
+                console.error('Failed to load project users:', projectError);
+            }
+
+            console.log(`Total unique members: ${members.length}`);
+            return members.sort((a, b) => a.displayName.localeCompare(b.displayName));
+        } catch (error) {
+            console.error('Failed to get team members:', error);
             return [];
         }
     }

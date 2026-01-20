@@ -186,6 +186,12 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "azureDevOps.openWorkItemsPanel",
+        "title": "Open Work Items in Editor",
+        "category": "Azure DevOps",
+        "icon": "$(link-external)"
+      },
+      {
         "command": "azureDevOps.refreshBoards",
         "title": "Refresh Boards",
         "category": "Azure DevOps",
@@ -395,6 +401,11 @@
           "command": "azureDevOps.refreshWorkItems",
           "when": "view == azureDevOpsWorkItems",
           "group": "navigation@5"
+        },
+        {
+          "command": "azureDevOps.openWorkItemsPanel",
+          "when": "view == azureDevOpsWorkItems",
+          "group": "navigation@6"
         },
         {
           "command": "azureDevOps.openAzureKanban",

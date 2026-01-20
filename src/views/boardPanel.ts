@@ -626,20 +626,72 @@ export class BoardPanel {
             const axiosInstance = this.authenticationManager.getAxiosInstance();
             const config = this.authenticationManager.getConfig();
 
-            if (!axiosInstance || !config?.defaultProject || !config?.defaultTeam) {
+            if (!axiosInstance || !config?.defaultProject) {
+                console.log('Cannot get team members: missing config');
                 return [];
             }
 
-            const response = await axiosInstance.get(
-                `/_apis/projects/${encodeURIComponent(config.defaultProject)}/teams/${encodeURIComponent(config.defaultTeam)}/members`,
-                { params: { 'api-version': '7.0' } }
-            );
+            const members: Array<{displayName: string, uniqueName: string}> = [];
 
-            return (response.data.value || []).map((member: any) => ({
-                displayName: member.identity?.displayName || '',
-                uniqueName: member.identity?.uniqueName || ''
-            }));
+            // Try to get team members if team is configured
+            if (config.defaultTeam) {
+                try {
+                    const teamResponse = await axiosInstance.get(
+                        `/_apis/projects/${encodeURIComponent(config.defaultProject)}/teams/${encodeURIComponent(config.defaultTeam)}/members`,
+                        { params: { 'api-version': '7.0' } }
+                    );
+
+                    const teamMembers = (teamResponse.data.value || []).map((member: any) => ({
+                        displayName: member.identity?.displayName || '',
+                        uniqueName: member.identity?.uniqueName || ''
+                    })).filter((m: any) => m.displayName && m.uniqueName);
+
+                    members.push(...teamMembers);
+                    console.log(`Loaded ${teamMembers.length} team members`);
+                } catch (teamError) {
+                    console.error('Failed to load team members:', teamError);
+                }
+            }
+
+            // Also get all project users as a fallback/supplement
+            try {
+                const identitiesResponse = await axiosInstance.get(
+                    `/_apis/projects/${encodeURIComponent(config.defaultProject)}/teams`,
+                    { params: { 'api-version': '7.0' } }
+                );
+
+                // Get members from all teams in the project
+                const teams = identitiesResponse.data.value || [];
+                for (const team of teams.slice(0, 5)) { // Limit to first 5 teams to avoid too many requests
+                    try {
+                        const teamMembersResponse = await axiosInstance.get(
+                            `/_apis/projects/${encodeURIComponent(config.defaultProject)}/teams/${encodeURIComponent(team.id)}/members`,
+                            { params: { 'api-version': '7.0' } }
+                        );
+
+                        const additionalMembers = (teamMembersResponse.data.value || []).map((member: any) => ({
+                            displayName: member.identity?.displayName || '',
+                            uniqueName: member.identity?.uniqueName || ''
+                        })).filter((m: any) => m.displayName && m.uniqueName);
+
+                        // Add unique members
+                        additionalMembers.forEach((newMember: {displayName: string, uniqueName: string}) => {
+                            if (!members.find(m => m.uniqueName === newMember.uniqueName)) {
+                                members.push(newMember);
+                            }
+                        });
+                    } catch (e) {
+                        // Skip this team if error
+                    }
+                }
+            } catch (projectError) {
+                console.error('Failed to load project users:', projectError);
+            }
+
+            console.log(`Total unique members: ${members.length}`);
+            return members.sort((a, b) => a.displayName.localeCompare(b.displayName));
         } catch (error) {
+            console.error('Failed to get team members:', error);
             return [];
         }
     }

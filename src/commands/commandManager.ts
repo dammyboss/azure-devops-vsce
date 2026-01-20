@@ -8,6 +8,7 @@ import { QueryProvider, Query } from '../views/queryProvider';
 import { GitIntegration } from '../gitIntegration/gitIntegration';
 import { StatusBarManager } from '../utils/statusBarManager';
 import { WorkItemPanel } from '../views/workItemPanel';
+import { WorkItemsListPanel } from '../views/workItemsListPanel';
 import { BoardPanel } from '../views/boardPanel';
 import { AzureDevOpsKanbanPanel } from '../boards/azureDevOpsKanban';
 import { WorkItemTypeEnum } from '../models/workItem';
@@ -361,6 +362,15 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
     context.subscriptions.push(
         vscode.commands.registerCommand('azureDevOps.refreshWorkItems', () => {
             components.workItemProvider.refresh();
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.openWorkItemsPanel', () => {
+            WorkItemsListPanel.createOrShow(
+                components.extensionUri,
+                components.authenticationManager
+            );
         })
     );
 
