@@ -147,7 +147,7 @@ export class WorkItemsListPanel {
             if (!selected) return;
 
             await axiosInstance.patch(
-                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workItems/${workItemId}`,
+                `/_apis/wit/workitems/${workItemId}`,
                 [{
                     op: 'replace',
                     path: '/fields/System.State',
@@ -228,7 +228,7 @@ export class WorkItemsListPanel {
                 : { op: 'remove', path: '/fields/System.AssignedTo' };
 
             await axiosInstance.patch(
-                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workItems/${workItemId}`,
+                `/_apis/wit/workitems/${workItemId}`,
                 [patchOp],
                 {
                     params: { 'api-version': '7.1' },
@@ -264,7 +264,7 @@ export class WorkItemsListPanel {
             // Update all work items
             for (const id of workItemIds) {
                 await axiosInstance.patch(
-                    `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workItems/${id}`,
+                    `/_apis/wit/workitems/${id}`,
                     [{
                         op: 'replace',
                         path: '/fields/System.State',
@@ -316,7 +316,7 @@ export class WorkItemsListPanel {
             // Update all work items
             for (const id of workItemIds) {
                 await axiosInstance.patch(
-                    `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workItems/${id}`,
+                    `/_apis/wit/workitems/${id}`,
                     [patchOp],
                     {
                         params: { 'api-version': '7.1' },
@@ -352,7 +352,7 @@ export class WorkItemsListPanel {
             // Delete all work items
             for (const id of workItemIds) {
                 await axiosInstance.delete(
-                    `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workItems/${id}`,
+                    `/_apis/wit/workitems/${id}`,
                     { params: { 'api-version': '7.1' } }
                 );
             }
@@ -374,7 +374,7 @@ export class WorkItemsListPanel {
             }
 
             await axiosInstance.patch(
-                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workItems/${workItemId}`,
+                `/_apis/wit/workitems/${workItemId}`,
                 [{
                     op: 'replace',
                     path: '/fields/System.Title',
@@ -769,22 +769,22 @@ export class WorkItemsListPanel {
 <body>
     <div class="toolbar">
         <div class="toolbar-title">Work items</div>
-        <div id="bulkActions" style="display: none; margin-left: auto; margin-right: 12px; display: flex; gap: 8px;">
-            <button class="toolbar-btn-secondary toolbar-btn" onclick="bulkChangeState()">
+        <div id="bulkActions" style="display: none; margin-right: 12px; gap: 8px;">
+            <button id="bulkChangeStateBtn" class="toolbar-btn-secondary toolbar-btn">
                 <span>Change State</span>
             </button>
-            <button class="toolbar-btn-secondary toolbar-btn" onclick="bulkChangeAssignee()">
+            <button id="bulkChangeAssigneeBtn" class="toolbar-btn-secondary toolbar-btn">
                 <span>Change Assignee</span>
             </button>
-            <button class="toolbar-btn-secondary toolbar-btn" onclick="bulkDelete()" style="color: #f48771;">
+            <button id="bulkDeleteBtn" class="toolbar-btn-secondary toolbar-btn" style="color: #f48771;">
                 <span>Delete</span>
             </button>
         </div>
-        <button class="toolbar-btn-secondary toolbar-btn" onclick="refresh()" style="${this.workItems.length === 0 ? 'margin-left: auto;' : ''}">
+        <button id="refreshBtn" class="toolbar-btn-secondary toolbar-btn" style="${this.workItems.length === 0 ? 'margin-left: auto;' : ''}">
             <span>🔄</span>
             <span>Refresh</span>
         </button>
-        <button class="toolbar-btn" onclick="createWorkItem()">
+        <button id="createWorkItemBtn" class="toolbar-btn">
             <span>+</span>
             <span>New Work Item</span>
         </button>
@@ -796,17 +796,16 @@ export class WorkItemsListPanel {
             id="keywordFilter"
             class="filter-input"
             placeholder="Filter by keyword"
-            oninput="applyFilters()"
         >
-        <select id="typeFilter" class="filter-dropdown" onchange="applyFilters()">
+        <select id="typeFilter" class="filter-dropdown">
             <option value="">All Types</option>
             ${types.map(t => `<option value="${this.escapeHtml(t)}">${this.escapeHtml(t)}</option>`).join('')}
         </select>
-        <select id="stateFilter" class="filter-dropdown" onchange="applyFilters()">
+        <select id="stateFilter" class="filter-dropdown">
             <option value="">All States</option>
             ${states.map(s => `<option value="${this.escapeHtml(s)}">${this.escapeHtml(s)}</option>`).join('')}
         </select>
-        <select id="assigneeFilter" class="filter-dropdown" onchange="applyFilters()">
+        <select id="assigneeFilter" class="filter-dropdown">
             <option value="">All Assignees</option>
             ${assignees.map(a => `<option value="${this.escapeHtml(a)}">${this.escapeHtml(a)}</option>`).join('')}
         </select>
@@ -818,7 +817,7 @@ export class WorkItemsListPanel {
             <table id="workItemsTable">
                 <thead>
                     <tr>
-                        <th class="checkbox-cell"><input type="checkbox" id="selectAllCheckbox" onchange="toggleAll(this.checked)"></th>
+                        <th class="checkbox-cell"><input type="checkbox" id="selectAllCheckbox"></th>
                         <th style="width: 80px;">ID</th>
                         <th style="width: 50px;"></th>
                         <th style="min-width: 300px;">Title</th>
@@ -841,29 +840,30 @@ export class WorkItemsListPanel {
 
                         const stateClass = state.toLowerCase().replace(/\s+/g, '-');
                         const icon = this._getWorkItemTypeIcon(type);
-                        const initials = assignedTo?.displayName?.split(' ').map((n: string) => n[0]).join('').substring(0, 2) || '?';
+                        const displayName = assignedTo?.displayName || 'Unassigned';
+                        const initials = displayName !== 'Unassigned' ? displayName.split(' ').map((n: string) => n[0]).join('').substring(0, 2) : '?';
 
                         return `
-                            <tr data-id="${id}" data-type="${this.escapeHtml(type)}" data-state="${this.escapeHtml(state)}" data-assignee="${this.escapeHtml(assignedTo?.displayName || 'Unassigned')}">
-                                <td class="checkbox-cell"><input type="checkbox" class="row-checkbox" onclick="event.stopPropagation()" onchange="toggleRow(${id}, this.checked)"></td>
-                                <td onclick="openWorkItem(${id})"><span class="work-item-id">#${id}</span></td>
-                                <td onclick="openWorkItem(${id})" style="text-align: center;">${icon}</td>
-                                <td ondblclick="editTitle(${id}, this)">
+                            <tr data-id="${id}" data-type="${this.escapeHtml(type)}" data-state="${this.escapeHtml(state)}" data-assignee="${this.escapeHtml(assignedTo?.displayName || 'Unassigned')}" class="work-item-row">
+                                <td class="checkbox-cell"><input type="checkbox" class="row-checkbox" data-id="${id}"></td>
+                                <td class="clickable-cell"><span class="work-item-id">#${id}</span></td>
+                                <td class="clickable-cell" style="text-align: center;">${icon}</td>
+                                <td class="title-cell">
                                     <strong>${this.escapeHtml(title)}</strong>
                                 </td>
-                                <td>
+                                <td class="clickable-cell">
                                     <span class="state-pill state-${stateClass}">${this.escapeHtml(state)}</span>
-                                    <button class="action-btn cell-actions" onclick="event.stopPropagation(); changeState(${id})">⋯</button>
+                                    <button class="action-btn cell-actions change-state-btn" data-id="${id}">⋯</button>
                                 </td>
-                                <td>
+                                <td class="clickable-cell">
                                     <div class="assignee-cell">
                                         <div class="avatar">${initials}</div>
-                                        <span>${this.escapeHtml(assignedTo?.displayName || 'Unassigned')}</span>
-                                        <button class="action-btn cell-actions" onclick="event.stopPropagation(); changeAssignee(${id})">⋯</button>
+                                        <span>${this.escapeHtml(displayName)}</span>
+                                        <button class="action-btn cell-actions change-assignee-btn" data-id="${id}">⋯</button>
                                     </div>
                                 </td>
-                                <td onclick="openWorkItem(${id})">${this.escapeHtml(areaPath)}</td>
-                                <td onclick="openWorkItem(${id})">
+                                <td class="clickable-cell">${this.escapeHtml(areaPath)}</td>
+                                <td class="clickable-cell">
                                     <div class="tags">
                                         ${tags ? tags.split(';').map(tag => `<span class="tag">${this.escapeHtml(tag.trim())}</span>`).join('') : ''}
                                     </div>
@@ -883,213 +883,298 @@ export class WorkItemsListPanel {
     </div>
 
     <script nonce="${nonce}">
-        const vscode = acquireVsCodeApi();
-        let selectedIds = new Set();
+        (function() {
+            const vscode = acquireVsCodeApi();
+            const selectedIds = new Set();
 
-        function openWorkItem(id) {
-            vscode.postMessage({ command: 'openWorkItem', id: id });
-        }
-
-        function refresh() {
-            vscode.postMessage({ command: 'refresh' });
-        }
-
-        function createWorkItem() {
-            vscode.postMessage({ command: 'createWorkItem' });
-        }
-
-        function changeState(id) {
-            vscode.postMessage({ command: 'changeState', id: id });
-        }
-
-        function changeAssignee(id) {
-            vscode.postMessage({ command: 'changeAssignee', id: id });
-        }
-
-        function toggleRow(id, checked) {
-            if (checked) {
-                selectedIds.add(id);
-            } else {
-                selectedIds.delete(id);
+            // Helper functions
+            function openWorkItem(id) {
+                vscode.postMessage({ command: 'openWorkItem', id: id });
             }
-            updateBulkActionsVisibility();
-        }
 
-        function toggleAll(checked) {
-            const checkboxes = document.querySelectorAll('.row-checkbox');
-            const visibleCheckboxes = Array.from(checkboxes).filter(cb => {
-                const row = cb.closest('tr');
-                return row.style.display !== 'none';
-            });
-
-            visibleCheckboxes.forEach(cb => {
-                cb.checked = checked;
-                const row = cb.closest('tr');
-                const id = parseInt(row.dataset.id);
-                if (checked) {
-                    selectedIds.add(id);
-                } else {
-                    selectedIds.delete(id);
+            function updateBulkActionsVisibility() {
+                const bulkActions = document.getElementById('bulkActions');
+                if (bulkActions) {
+                    bulkActions.style.display = selectedIds.size > 0 ? 'flex' : 'none';
                 }
-            });
-            updateBulkActionsVisibility();
-        }
-
-        function updateBulkActionsVisibility() {
-            const bulkActions = document.getElementById('bulkActions');
-            if (selectedIds.size > 0) {
-                bulkActions.style.display = 'flex';
-            } else {
-                bulkActions.style.display = 'none';
             }
-        }
 
-        function bulkChangeState() {
-            if (selectedIds.size === 0) return;
-            vscode.postMessage({
-                command: 'bulkChangeState',
-                ids: Array.from(selectedIds)
-            });
-        }
+            function updateSelectAllCheckbox() {
+                const allCheckbox = document.getElementById('selectAllCheckbox');
+                if (!allCheckbox) return;
 
-        function bulkChangeAssignee() {
-            if (selectedIds.size === 0) return;
-            vscode.postMessage({
-                command: 'bulkChangeAssignee',
-                ids: Array.from(selectedIds)
-            });
-        }
+                const checkboxes = Array.from(document.querySelectorAll('.row-checkbox'));
+                const visibleCheckboxes = checkboxes.filter(cb => {
+                    const row = cb.closest('tr');
+                    return row && row.style.display !== 'none';
+                });
 
-        function bulkDelete() {
-            if (selectedIds.size === 0) return;
-            vscode.postMessage({
-                command: 'deleteWorkItems',
-                ids: Array.from(selectedIds)
-            });
-        }
+                if (visibleCheckboxes.length === 0) {
+                    allCheckbox.checked = false;
+                    allCheckbox.indeterminate = false;
+                    return;
+                }
 
-        function editTitle(id, cell) {
-            const strong = cell.querySelector('strong');
-            const currentTitle = strong.textContent.trim();
+                const checkedVisible = visibleCheckboxes.filter(cb => cb.checked).length;
 
-            // Create input
-            const input = document.createElement('input');
-            input.type = 'text';
-            input.value = currentTitle;
-            input.style.width = '100%';
-            input.style.padding = '4px';
-            input.style.fontSize = '13px';
-            input.style.border = '1px solid var(--vscode-input-border)';
-            input.style.background = 'var(--vscode-input-background)';
-            input.style.color = 'var(--vscode-input-foreground)';
-            input.style.borderRadius = '3px';
+                if (checkedVisible === 0) {
+                    allCheckbox.checked = false;
+                    allCheckbox.indeterminate = false;
+                } else if (checkedVisible === visibleCheckboxes.length) {
+                    allCheckbox.checked = true;
+                    allCheckbox.indeterminate = false;
+                } else {
+                    allCheckbox.checked = false;
+                    allCheckbox.indeterminate = true;
+                }
+            }
 
-            // Replace content
-            strong.style.display = 'none';
-            cell.appendChild(input);
-            input.focus();
-            input.select();
+            function applyFilters() {
+                const keywordEl = document.getElementById('keywordFilter');
+                const typeEl = document.getElementById('typeFilter');
+                const stateEl = document.getElementById('stateFilter');
+                const assigneeEl = document.getElementById('assigneeFilter');
 
-            const saveEdit = () => {
-                const newTitle = input.value.trim();
-                if (newTitle && newTitle !== currentTitle) {
-                    vscode.postMessage({
-                        command: 'editTitle',
-                        id: id,
-                        title: newTitle
+                const keyword = keywordEl ? keywordEl.value.toLowerCase() : '';
+                const typeFilter = typeEl ? typeEl.value : '';
+                const stateFilter = stateEl ? stateEl.value : '';
+                const assigneeFilter = assigneeEl ? assigneeEl.value : '';
+
+                const rows = document.querySelectorAll('#workItemsTable tbody tr');
+
+                rows.forEach(row => {
+                    const text = row.textContent.toLowerCase();
+                    const type = row.dataset.type || '';
+                    const state = row.dataset.state || '';
+                    const assignee = row.dataset.assignee || '';
+
+                    const matchesKeyword = !keyword || text.includes(keyword);
+                    const matchesType = !typeFilter || type === typeFilter;
+                    const matchesState = !stateFilter || state === stateFilter;
+                    const matchesAssignee = !assigneeFilter || assignee === assigneeFilter;
+
+                    row.style.display = (matchesKeyword && matchesType && matchesState && matchesAssignee) ? '' : 'none';
+                });
+
+                updateSelectAllCheckbox();
+            }
+
+            function editTitle(id, cell) {
+                const strong = cell.querySelector('strong');
+                if (!strong) return;
+
+                const currentTitle = strong.textContent.trim();
+
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.value = currentTitle;
+                input.style.cssText = 'width: 100%; padding: 4px; font-size: 13px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px;';
+
+                strong.style.display = 'none';
+                cell.appendChild(input);
+                input.focus();
+                input.select();
+
+                let saved = false;
+                const saveEdit = () => {
+                    if (saved) return;
+                    saved = true;
+                    const newTitle = input.value.trim();
+                    if (newTitle && newTitle !== currentTitle) {
+                        vscode.postMessage({ command: 'editTitle', id: id, title: newTitle });
+                    }
+                    input.remove();
+                    strong.style.display = '';
+                };
+
+                const cancelEdit = () => {
+                    saved = true;
+                    input.remove();
+                    strong.style.display = '';
+                };
+
+                input.addEventListener('blur', saveEdit);
+                input.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        saveEdit();
+                    } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        cancelEdit();
+                    }
+                });
+            }
+
+            // Wait for DOM to be ready
+            document.addEventListener('DOMContentLoaded', init);
+            if (document.readyState !== 'loading') {
+                init();
+            }
+
+            function init() {
+                // Toolbar buttons
+                const refreshBtn = document.getElementById('refreshBtn');
+                if (refreshBtn) {
+                    refreshBtn.addEventListener('click', function() {
+                        vscode.postMessage({ command: 'refresh' });
                     });
                 }
-                input.remove();
-                strong.style.display = '';
-            };
 
-            const cancelEdit = () => {
-                input.remove();
-                strong.style.display = '';
-            };
-
-            input.addEventListener('blur', saveEdit);
-            input.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    saveEdit();
-                } else if (e.key === 'Escape') {
-                    e.preventDefault();
-                    cancelEdit();
+                const createWorkItemBtn = document.getElementById('createWorkItemBtn');
+                if (createWorkItemBtn) {
+                    createWorkItemBtn.addEventListener('click', function() {
+                        vscode.postMessage({ command: 'createWorkItem' });
+                    });
                 }
-            });
-        }
 
-        // Combined filtering function
-        function applyFilters() {
-            const keyword = document.getElementById('keywordFilter').value.toLowerCase();
-            const typeFilter = document.getElementById('typeFilter').value;
-            const stateFilter = document.getElementById('stateFilter').value;
-            const assigneeFilter = document.getElementById('assigneeFilter').value;
-
-            const rows = document.querySelectorAll('#workItemsTable tbody tr');
-            let visibleCount = 0;
-
-            rows.forEach(row => {
-                const text = row.textContent.toLowerCase();
-                const type = row.dataset.type;
-                const state = row.dataset.state;
-                const assignee = row.dataset.assignee;
-
-                const matchesKeyword = !keyword || text.includes(keyword);
-                const matchesType = !typeFilter || type === typeFilter;
-                const matchesState = !stateFilter || state === stateFilter;
-                const matchesAssignee = !assigneeFilter || assignee === assigneeFilter;
-
-                if (matchesKeyword && matchesType && matchesState && matchesAssignee) {
-                    row.style.display = '';
-                    visibleCount++;
-                } else {
-                    row.style.display = 'none';
+                // Bulk action buttons
+                const bulkChangeStateBtn = document.getElementById('bulkChangeStateBtn');
+                if (bulkChangeStateBtn) {
+                    bulkChangeStateBtn.addEventListener('click', function() {
+                        if (selectedIds.size > 0) {
+                            vscode.postMessage({ command: 'bulkChangeState', ids: Array.from(selectedIds) });
+                        }
+                    });
                 }
-            });
 
-            // Update "select all" checkbox state
-            updateSelectAllCheckbox();
-        }
+                const bulkChangeAssigneeBtn = document.getElementById('bulkChangeAssigneeBtn');
+                if (bulkChangeAssigneeBtn) {
+                    bulkChangeAssigneeBtn.addEventListener('click', function() {
+                        if (selectedIds.size > 0) {
+                            vscode.postMessage({ command: 'bulkChangeAssignee', ids: Array.from(selectedIds) });
+                        }
+                    });
+                }
 
-        function updateSelectAllCheckbox() {
-            const allCheckbox = document.getElementById('selectAllCheckbox');
-            const checkboxes = Array.from(document.querySelectorAll('.row-checkbox'));
-            const visibleCheckboxes = checkboxes.filter(cb => {
-                const row = cb.closest('tr');
-                return row.style.display !== 'none';
-            });
+                const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+                if (bulkDeleteBtn) {
+                    bulkDeleteBtn.addEventListener('click', function() {
+                        if (selectedIds.size > 0) {
+                            vscode.postMessage({ command: 'deleteWorkItems', ids: Array.from(selectedIds) });
+                        }
+                    });
+                }
 
-            if (visibleCheckboxes.length === 0) {
-                allCheckbox.checked = false;
-                allCheckbox.indeterminate = false;
-                return;
+                // Filter inputs
+                const keywordFilter = document.getElementById('keywordFilter');
+                if (keywordFilter) {
+                    keywordFilter.addEventListener('input', applyFilters);
+                }
+
+                const typeFilter = document.getElementById('typeFilter');
+                if (typeFilter) {
+                    typeFilter.addEventListener('change', applyFilters);
+                }
+
+                const stateFilter = document.getElementById('stateFilter');
+                if (stateFilter) {
+                    stateFilter.addEventListener('change', applyFilters);
+                }
+
+                const assigneeFilter = document.getElementById('assigneeFilter');
+                if (assigneeFilter) {
+                    assigneeFilter.addEventListener('change', applyFilters);
+                }
+
+                // Select all checkbox
+                const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+                if (selectAllCheckbox) {
+                    selectAllCheckbox.addEventListener('change', function() {
+                        const checked = this.checked;
+                        const checkboxes = document.querySelectorAll('.row-checkbox');
+                        checkboxes.forEach(cb => {
+                            const row = cb.closest('tr');
+                            if (row && row.style.display !== 'none') {
+                                cb.checked = checked;
+                                const id = parseInt(cb.dataset.id);
+                                if (checked) {
+                                    selectedIds.add(id);
+                                } else {
+                                    selectedIds.delete(id);
+                                }
+                            }
+                        });
+                        updateBulkActionsVisibility();
+                    });
+                }
+
+                // Row checkboxes
+                document.querySelectorAll('.row-checkbox').forEach(cb => {
+                    cb.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                    });
+                    cb.addEventListener('change', function() {
+                        const id = parseInt(this.dataset.id);
+                        if (this.checked) {
+                            selectedIds.add(id);
+                        } else {
+                            selectedIds.delete(id);
+                        }
+                        updateBulkActionsVisibility();
+                        updateSelectAllCheckbox();
+                    });
+                });
+
+                // Clickable cells (open work item)
+                document.querySelectorAll('.clickable-cell').forEach(cell => {
+                    cell.addEventListener('click', function() {
+                        const row = this.closest('tr');
+                        if (row) {
+                            const id = parseInt(row.dataset.id);
+                            openWorkItem(id);
+                        }
+                    });
+                });
+
+                // Title cells (double click to edit, single click to open)
+                document.querySelectorAll('.title-cell').forEach(cell => {
+                    cell.addEventListener('click', function() {
+                        const row = this.closest('tr');
+                        if (row) {
+                            const id = parseInt(row.dataset.id);
+                            openWorkItem(id);
+                        }
+                    });
+                    cell.addEventListener('dblclick', function(e) {
+                        e.stopPropagation();
+                        const row = this.closest('tr');
+                        if (row) {
+                            const id = parseInt(row.dataset.id);
+                            editTitle(id, this);
+                        }
+                    });
+                });
+
+                // Change state buttons
+                document.querySelectorAll('.change-state-btn').forEach(btn => {
+                    btn.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        const id = parseInt(this.dataset.id);
+                        vscode.postMessage({ command: 'changeState', id: id });
+                    });
+                });
+
+                // Change assignee buttons
+                document.querySelectorAll('.change-assignee-btn').forEach(btn => {
+                    btn.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        const id = parseInt(this.dataset.id);
+                        vscode.postMessage({ command: 'changeAssignee', id: id });
+                    });
+                });
             }
-
-            const checkedVisible = visibleCheckboxes.filter(cb => cb.checked).length;
-
-            if (checkedVisible === 0) {
-                allCheckbox.checked = false;
-                allCheckbox.indeterminate = false;
-            } else if (checkedVisible === visibleCheckboxes.length) {
-                allCheckbox.checked = true;
-                allCheckbox.indeterminate = false;
-            } else {
-                allCheckbox.checked = false;
-                allCheckbox.indeterminate = true;
-            }
-        }
+        })();
     </script>
 </body>
 </html>`;
     }
 
     private escapeHtml(text: string): string {
+        if (!text) return '';
         const map: Record<string, string> = {
-            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039'
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
         };
-        return text.replace(/[&<>"']/g, m => map[m]);
+        return String(text).replace(/[&<>"']/g, m => map[m]);
     }
 
     public dispose() {
