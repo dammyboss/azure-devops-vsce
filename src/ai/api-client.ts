@@ -311,11 +311,12 @@ export class APIClient {
         this.abortController = null;
     }
 
-    async sendMessage(userMessage: string, callbacks: StreamCallbacks): Promise<void> {
+    async sendMessage(userMessage: string, callbacks: StreamCallbacks): Promise<{ userMessageTimestamp: number; }> {
         this.abortController = new AbortController();
 
         // Add to message manager (tracks both UI and API history)
         const uiMessage = this.messageManager.addUserMessage(userMessage);
+        const userMessageTimestamp = uiMessage.ts;
 
         // Add to context manager
         this.contextManager.addMessage({ role: 'user', content: userMessage });
@@ -349,6 +350,8 @@ export class APIClient {
             this.abortController = null;
             callbacks.onComplete(this.totalInputTokens, this.totalOutputTokens);
         }
+
+        return { userMessageTimestamp };
     }
 
     private async runAgentLoop(callbacks: StreamCallbacks): Promise<void> {

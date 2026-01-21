@@ -112,7 +112,10 @@ class MCPServerConnection {
     }
 
     private async connectRemote(): Promise<void> {
+        this.outputChannel.appendLine(`[${this.config.name}] Attempting to connect to remote MCP server at ${this.config.url}`);
+
         try {
+            this.outputChannel.appendLine(`[${this.config.name}] Sending initialize request...`);
             const response = await fetch(this.config.url!, {
                 method: 'POST',
                 headers: {
@@ -131,15 +134,21 @@ class MCPServerConnection {
                 })
             });
 
+            this.outputChannel.appendLine(`[${this.config.name}] Initialize response status: ${response.status}`);
+
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
+                const errorText = await response.text();
+                this.outputChannel.appendLine(`[${this.config.name}] Initialize error response: ${errorText}`);
+                throw new Error(`HTTP ${response.status}: ${errorText.substring(0, 100)}`);
             }
 
             const contentType = response.headers.get('content-type') || '';
+            this.outputChannel.appendLine(`[${this.config.name}] Initialize response content-type: ${contentType}`);
             let result: any;
 
             if (contentType.includes('text/event-stream')) {
                 const text = await response.text();
+                this.outputChannel.appendLine(`[${this.config.name}] SSE response: ${text.substring(0, 200)}`);
                 const lines = text.split('\n');
                 for (const line of lines) {
                     if (line.startsWith('data: ')) {
@@ -149,11 +158,15 @@ class MCPServerConnection {
                 }
             } else {
                 result = await response.json();
+                this.outputChannel.appendLine(`[${this.config.name}] Initialize result: ${JSON.stringify(result).substring(0, 200)}`);
             }
 
             if (result.error) {
+                this.outputChannel.appendLine(`[${this.config.name}] Initialize returned error: ${result.error.message}`);
                 throw new Error(result.error.message);
             }
+
+            this.outputChannel.appendLine(`[${this.config.name}] Initialize successful, fetching tools...`);
 
             const toolsResponse = await fetch(this.config.url!, {
                 method: 'POST',
@@ -169,11 +182,21 @@ class MCPServerConnection {
                 })
             });
 
+            this.outputChannel.appendLine(`[${this.config.name}] Tools list response status: ${toolsResponse.status}`);
+
+            if (!toolsResponse.ok) {
+                const errorText = await toolsResponse.text();
+                this.outputChannel.appendLine(`[${this.config.name}] Tools list error: ${errorText}`);
+                throw new Error(`Failed to fetch tools: HTTP ${toolsResponse.status}`);
+            }
+
             const toolsContentType = toolsResponse.headers.get('content-type') || '';
+            this.outputChannel.appendLine(`[${this.config.name}] Tools response content-type: ${toolsContentType}`);
             let toolsResult: any;
 
             if (toolsContentType.includes('text/event-stream')) {
                 const toolsText = await toolsResponse.text();
+                this.outputChannel.appendLine(`[${this.config.name}] Tools SSE response: ${toolsText.substring(0, 200)}`);
                 const toolsLines = toolsText.split('\n');
                 for (const line of toolsLines) {
                     if (line.startsWith('data: ')) {
@@ -183,6 +206,7 @@ class MCPServerConnection {
                 }
             } else {
                 toolsResult = await toolsResponse.json();
+                this.outputChannel.appendLine(`[${this.config.name}] Tools result: ${JSON.stringify(toolsResult).substring(0, 200)}`);
             }
 
             if (toolsResult.result?.tools) {
@@ -192,15 +216,21 @@ class MCPServerConnection {
                     inputSchema: tool.inputSchema,
                     serverName: this.config.name
                 }));
+                this.outputChannel.appendLine(`[${this.config.name}] Loaded ${this.tools.length} tools`);
+            } else {
+                this.outputChannel.appendLine(`[${this.config.name}] Warning: No tools found in response`);
+                this.tools = [];
             }
 
             this.isConnected = true;
             this.serverManager.markConnected(this.config.name, this.tools.length);
-            this.outputChannel.appendLine(`[${this.config.name}] Connected to remote MCP server with ${this.tools.length} tools`);
+            this.outputChannel.appendLine(`[${this.config.name}] ✅ Successfully connected to remote MCP server with ${this.tools.length} tools`);
             vscode.window.showInformationMessage(`MCP server '${this.config.name}' connected (${this.tools.length} tools)`);
         } catch (error: any) {
+            this.outputChannel.appendLine(`[${this.config.name}] ❌ Remote connection failed with error:` );
+            this.outputChannel.appendLine(`[${this.config.name}] Error message: ${error.message}`);
+            this.outputChannel.appendLine(`[${this.config.name}] Error stack: ${error.stack}`);
             this.serverManager.markError(this.config.name, error.message);
-            this.outputChannel.appendLine(`[${this.config.name}] Remote connection failed: ${error.message}`);
             vscode.window.showErrorMessage(`MCP server '${this.config.name}' connection failed: ${error.message}`);
             throw error;
         }

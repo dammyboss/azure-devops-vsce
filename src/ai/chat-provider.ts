@@ -164,6 +164,9 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
     private async handleSendMessage(text: string) {
         if (!this.view) return;
 
+        // Get the timestamp by temporarily calling getUIMessages after message will be added
+        // We'll send the timestamp in a synchronous way before the async work starts
+
         const callbacks: StreamCallbacks = {
             onText: (text: string) => {
                 this.view?.webview.postMessage({ type: 'streamText', text });
@@ -191,7 +194,24 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             }
         };
 
-        await this.apiClient.sendMessage(text, callbacks);
+        // Start the sendMessage call (which will add the user message synchronously at the start)
+        const sendPromise = this.apiClient.sendMessage(text, callbacks);
+
+        // Get the user message timestamp immediately (it's been added synchronously)
+        const uiMessages = this.apiClient.getUIMessages();
+        const lastMessage = uiMessages[uiMessages.length - 1];
+
+        if (lastMessage && lastMessage.role === 'user') {
+            // Send user message with timestamp to UI right away
+            this.view.webview.postMessage({
+                type: 'userMessageAdded',
+                text: lastMessage.text,
+                timestamp: lastMessage.ts
+            });
+        }
+
+        // Wait for the sendMessage to complete
+        await sendPromise;
     }
 
     private async handleEditMessage(timestamp: number, newContent: string) {
@@ -1168,10 +1188,10 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
                 welcomeScreen.classList.add('hidden');
             }
 
-            addMessage('user', text);
+            // Don't add message to UI yet - wait for backend to send it with timestamp
             messageInput.value = '';
             messageInput.style.height = 'auto';
-            
+
             isGenerating = true;
             updateSendButton();
             showAnimatedLoading();
@@ -1630,6 +1650,11 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
                     showAnimatedLoading();
                     isGenerating = true;
                     updateSendButton();
+                    break;
+
+                case 'userMessageAdded':
+                    // Add user message to UI with timestamp
+                    addMessage('user', message.text, message.timestamp);
                     break;
             }
         });
