@@ -125,7 +125,7 @@ export class BoardPanel {
                         this._openBoardInBrowser();
                         break;
                     case 'createWorkItem':
-                        await this._createWorkItem(message.columnName, message.title);
+                        await this._createWorkItem(message.columnName, message.title, message.workItemType);
                         break;
                     case 'assignToMe':
                         await this._assignToMe(message.workItemId);
@@ -405,7 +405,7 @@ export class BoardPanel {
         }
     }
 
-    private async _createWorkItem(columnName: string, title: string): Promise<void> {
+    private async _createWorkItem(columnName: string, title: string, workItemType?: string): Promise<void> {
         try {
             const axiosInstance = this.authenticationManager.getAxiosInstance();
             const config = this.authenticationManager.getConfig();
@@ -419,11 +419,11 @@ export class BoardPanel {
             const stateMappings = column?.stateMappings || {};
             const state = Object.values(stateMappings)[0] || 'New';
 
-            // Default to User Story type - could be made configurable
-            const workItemType = vscode.workspace.getConfiguration('azureDevOps').get<string>('defaultWorkItemType', 'User Story');
+            // Use provided type, or derive from board name, or fall back to config default
+            const type = workItemType || this._getDefaultWorkItemType();
 
             const response = await axiosInstance.post(
-                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workitems/$${encodeURIComponent(workItemType)}`,
+                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workitems/$${encodeURIComponent(type)}`,
                 [
                     { op: 'add', path: '/fields/System.Title', value: title },
                     { op: 'add', path: '/fields/System.State', value: state }
@@ -431,7 +431,7 @@ export class BoardPanel {
                 { headers: { 'Content-Type': 'application/json-patch+json' } }
             );
 
-            vscode.window.showInformationMessage(`Created work item #${response.data.id}`);
+            vscode.window.showInformationMessage(`Created ${type} #${response.data.id}`);
 
             // Refresh the board
             await this._loadAndRender();
@@ -896,6 +896,14 @@ export class BoardPanel {
         });
         const boardTypes = Array.from(uniqueTypes).sort();
 
+        // Derive default work item type from board name
+        const defaultWorkItemType = this._getDefaultWorkItemType();
+
+        // Common work item types for the dropdown
+        const commonWorkItemTypes = ['User Story', 'Bug', 'Task', 'Issue', 'Feature', 'Epic'];
+        // Combine board types with common types, removing duplicates
+        const allWorkItemTypes = Array.from(new Set([...boardTypes, ...commonWorkItemTypes])).sort();
+
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1174,13 +1182,58 @@ export class BoardPanel {
 
         .add-item-form-container {
             display: none;
-            padding: 12px;
+            padding: 8px 12px;
             border-bottom: 1px solid var(--vscode-panel-border);
-            background: var(--vscode-input-background);
+            background: var(--vscode-editor-background);
         }
 
         .add-item-form-container.active {
             display: block;
+        }
+
+        .add-item-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .add-item-type-selector {
+            flex-shrink: 0;
+        }
+
+        .add-item-type-select {
+            padding: 6px 28px 6px 8px;
+            background: var(--vscode-dropdown-background);
+            color: var(--vscode-dropdown-foreground);
+            border: 1px solid var(--vscode-dropdown-border);
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            min-width: 120px;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M2 4l4 4 4-4z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 8px center;
+        }
+
+        .add-item-type-select:hover {
+            border-color: var(--vscode-focusBorder);
+        }
+
+        .add-item-type-select:focus {
+            outline: none;
+            border-color: var(--vscode-focusBorder);
+        }
+
+        .add-item-form-container .add-item-input {
+            flex: 1;
+            min-width: 0;
+            margin-bottom: 0;
+        }
+
+        .add-item-submit {
+            flex-shrink: 0;
+            white-space: nowrap;
         }
 
         .wip-badge {
@@ -2144,11 +2197,19 @@ export class BoardPanel {
                 </div>
                 ${colIndex === 0 ? `
                 <div class="add-item-form-container" id="add-form-${this._escapeHtml(column.name).replace(/\s/g, '-')}">
-                    <input type="text" class="add-item-input" placeholder="Enter title..."
-                           onkeydown="handleAddKeydown(event, '${this._escapeHtml(column.name)}')" />
-                    <div class="add-item-actions">
-                        <button class="btn btn-primary" onclick="createItem('${this._escapeHtml(column.name)}')">Add</button>
-                        <button class="btn" onclick="hideAddForm('${this._escapeHtml(column.name)}')">Cancel</button>
+                    <div class="add-item-row">
+                        <div class="add-item-type-selector">
+                            <select class="add-item-type-select" id="add-item-type-select">
+                                ${allWorkItemTypes.map(type => `
+                                    <option value="${this._escapeHtml(type)}" ${type === defaultWorkItemType ? 'selected' : ''}>
+                                        ${this._escapeHtml(type)}
+                                    </option>
+                                `).join('')}
+                            </select>
+                        </div>
+                        <input type="text" class="add-item-input" id="add-item-title-input" placeholder="Enter title..."
+                               onkeydown="handleAddKeydown(event, '${this._escapeHtml(column.name)}')" />
+                        <button class="btn btn-primary add-item-submit" onclick="createItem('${this._escapeHtml(column.name)}')">Add to top</button>
                     </div>
                 </div>
                 ` : ''}
@@ -2816,7 +2877,8 @@ export class BoardPanel {
             const form = document.getElementById(formId);
             if (form) {
                 form.classList.remove('active');
-                form.querySelector('.add-item-input').value = '';
+                const titleInput = document.getElementById('add-item-title-input');
+                if (titleInput) titleInput.value = '';
             }
         }
 
@@ -2829,16 +2891,17 @@ export class BoardPanel {
         }
 
         function createItem(columnName) {
-            const formId = 'add-form-' + columnName.replace(/\\s/g, '-');
-            const form = document.getElementById(formId);
-            const input = form.querySelector('.add-item-input');
-            const title = input.value.trim();
+            const typeSelect = document.getElementById('add-item-type-select');
+            const titleInput = document.getElementById('add-item-title-input');
+            const title = titleInput ? titleInput.value.trim() : '';
+            const workItemType = typeSelect ? typeSelect.value : 'User Story';
 
             if (title) {
                 vscode.postMessage({
                     command: 'createWorkItem',
                     columnName: columnName,
-                    title: title
+                    title: title,
+                    workItemType: workItemType
                 });
                 hideAddForm(columnName);
             }
@@ -3268,6 +3331,24 @@ export class BoardPanel {
             default:
                 return '📄';
         }
+    }
+
+    private _getDefaultWorkItemType(): string {
+        // Map board names to work item types
+        const boardNameLower = this.boardName.toLowerCase();
+
+        // Common board name patterns
+        if (boardNameLower.includes('issue')) return 'Issue';
+        if (boardNameLower.includes('bug')) return 'Bug';
+        if (boardNameLower.includes('task')) return 'Task';
+        if (boardNameLower.includes('epic')) return 'Epic';
+        if (boardNameLower.includes('feature')) return 'Feature';
+        if (boardNameLower.includes('story') || boardNameLower.includes('stories')) return 'User Story';
+        if (boardNameLower.includes('backlog') || boardNameLower.includes('pbi')) return 'Product Backlog Item';
+        if (boardNameLower.includes('requirement')) return 'Requirement';
+
+        // Default to User Story if no match
+        return 'User Story';
     }
 
     private _escapeHtml(text: string): string {

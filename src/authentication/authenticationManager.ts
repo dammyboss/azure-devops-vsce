@@ -147,26 +147,42 @@ export class AuthenticationManager {
 
     public async connect(): Promise<boolean> {
         try {
-            // Prompt user if they want to use a different account
-            const useNewAccount = await vscode.window.showQuickPick(
-                ['Use current Microsoft account', 'Sign in with different account'],
-                { 
-                    placeHolder: 'Choose authentication method',
-                    title: 'Azure DevOps Connection'
+            // Check if there's an existing session
+            const existingSession = await vscode.authentication.getSession('microsoft', [
+                'https://app.vssps.visualstudio.com/.default'
+            ], { createIfNone: false, silent: true });
+
+            let forceNewSession = false;
+
+            if (existingSession) {
+                // Prompt user if they want to use a different account
+                const useNewAccount = await vscode.window.showQuickPick(
+                    [
+                        { label: `$(account) Continue as ${existingSession.account.label}`, value: 'current' },
+                        { label: '$(sign-out) Sign in with different account', value: 'new' }
+                    ],
+                    {
+                        placeHolder: 'Choose authentication method',
+                        title: 'Azure DevOps Connection'
+                    }
+                );
+
+                if (!useNewAccount) {
+                    return false;
                 }
-            );
 
-            if (!useNewAccount) {
-                return false;
+                forceNewSession = useNewAccount.value === 'new';
             }
-
-            const forceNewSession = useNewAccount === 'Sign in with different account';
 
             // Get Microsoft session for auth using Azure DevOps app scope
             const session = await vscode.authentication.getSession('microsoft', [
                 'https://app.vssps.visualstudio.com/.default'
-            ], forceNewSession ? { forceNewSession: true } : { createIfNone: true });
-            
+            ], {
+                createIfNone: true,
+                forceNewSession: forceNewSession,
+                clearSessionPreference: forceNewSession
+            });
+
             if (!session) {
                 vscode.window.showErrorMessage('Authentication cancelled.');
                 return false;
