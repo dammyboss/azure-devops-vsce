@@ -1,5 +1,8 @@
 import * as vscode from 'vscode';
 import { MCPClient } from './mcp-client';
+import { ContextManager } from './context-manager';
+import { TokenCounter } from './token-counter';
+import { SecretsManager } from './secrets-manager';
 
 export interface Message {
     role: 'user' | 'assistant';
@@ -67,17 +70,29 @@ export class APIClient {
     private totalOutputTokens = 0;
     private mcpTools: any[] = [];
     private mcpClient: MCPClient | null = null;
+    private contextManager: ContextManager;
+    private secretsManager: SecretsManager | null = null;
+    private context: vscode.ExtensionContext | null = null;
 
-    constructor(outputChannel: vscode.OutputChannel) {
+    constructor(outputChannel: vscode.OutputChannel, context?: vscode.ExtensionContext) {
         this.outputChannel = outputChannel;
+        this.context = context || null;
         this.provider = 'anthropic';
         this.systemPrompt = this.buildSystemPrompt();
-        this.loadConfig();
+        this.contextManager = new ContextManager('claude-opus-4-1-20250805');
+
+        // Initialize secrets manager if context is provided
+        if (context) {
+            this.secretsManager = SecretsManager.getInstance(context);
+            this.migrateAndLoadConfig();
+        } else {
+            this.loadConfig();
+        }
     }
 
-    public static getInstance(outputChannel: vscode.OutputChannel): APIClient {
+    public static getInstance(outputChannel: vscode.OutputChannel, context?: vscode.ExtensionContext): APIClient {
         if (!APIClient.instance) {
-            APIClient.instance = new APIClient(outputChannel);
+            APIClient.instance = new APIClient(outputChannel, context);
         }
         return APIClient.instance;
     }
@@ -99,26 +114,87 @@ export class APIClient {
 4. Use tools when available for real-time data`;
     }
 
-    private loadConfig() {
+    /**
+     * Migrate secrets from settings and load config
+     */
+    private async migrateAndLoadConfig() {
+        if (this.secretsManager) {
+            // Check if migration is needed
+            const needsMigration = await this.secretsManager.needsMigration();
+            if (needsMigration) {
+                this.outputChannel.appendLine('🔐 Migrating API keys to secure storage...');
+                const result = await this.secretsManager.migrateFromSettings();
+
+                if (result.migrated.length > 0) {
+                    this.outputChannel.appendLine(`✅ Migrated: ${result.migrated.join(', ')}`);
+                }
+                if (result.errors.length > 0) {
+                    this.outputChannel.appendLine(`❌ Migration errors: ${result.errors.join(', ')}`);
+                }
+            }
+        }
+
+        // Load config from secrets and settings
+        await this.loadConfig();
+    }
+
+    private async loadConfig() {
         const config = vscode.workspace.getConfiguration('azureDevOps.ai');
         this.provider = config.get('provider', 'anthropic') as Provider;
-        
-        this.anthropicApiKey = config.get('anthropic.apiKey', '');
+
+        // Load API keys from secure storage if available, fallback to settings
+        if (this.secretsManager) {
+            this.anthropicApiKey = await this.secretsManager.getAnthropicApiKey() || '';
+            this.azureApiKey = await this.secretsManager.getAzureApiKey() || '';
+            this.deepseekApiKey = await this.secretsManager.getDeepSeekApiKey() || '';
+            this.grokApiKey = await this.secretsManager.getGrokApiKey() || '';
+            this.openaiApiKey = await this.secretsManager.getOpenAIApiKey() || '';
+        } else {
+            // Fallback to settings (backwards compatibility)
+            this.anthropicApiKey = config.get('anthropic.apiKey', '');
+            this.azureApiKey = config.get('azure.apiKey', '');
+            this.deepseekApiKey = config.get('deepseek.apiKey', '');
+            this.grokApiKey = config.get('grok.apiKey', '');
+            this.openaiApiKey = config.get('openai.apiKey', '');
+        }
+
+        // Load other (non-secret) settings
         this.anthropicModel = config.get('anthropic.model', 'claude-opus-4-1-20250805');
-        
+
         this.azureEndpoint = config.get('azure.endpoint', '');
-        this.azureApiKey = config.get('azure.apiKey', '');
         this.azureDeployment = config.get('azure.deployment', '');
         this.azureApiVersion = config.get('azure.apiVersion', '2024-02-15-preview');
-        
-        this.deepseekApiKey = config.get('deepseek.apiKey', '');
+
         this.deepseekModel = config.get('deepseek.model', 'deepseek-chat');
-        
-        this.grokApiKey = config.get('grok.apiKey', '');
         this.grokModel = config.get('grok.model', 'grok-beta');
-        
-        this.openaiApiKey = config.get('openai.apiKey', '');
         this.openaiModel = config.get('openai.model', 'gpt-4o');
+
+        // Update context manager with current model
+        this.updateContextManagerModel();
+    }
+
+    private updateContextManagerModel() {
+        let modelId = 'default';
+
+        switch (this.provider) {
+            case 'anthropic':
+                modelId = this.anthropicModel;
+                break;
+            case 'openai':
+                modelId = this.openaiModel;
+                break;
+            case 'azure':
+                modelId = `azure-${this.azureDeployment}`;
+                break;
+            case 'deepseek':
+                modelId = this.deepseekModel;
+                break;
+            case 'grok':
+                modelId = this.grokModel;
+                break;
+        }
+
+        this.contextManager.setModel(modelId);
     }
 
     updateConfig(config?: Partial<ProviderConfig>) {
@@ -140,6 +216,9 @@ export class APIClient {
         if (config.grokModel !== undefined) this.grokModel = config.grokModel;
         if (config.openaiApiKey !== undefined) this.openaiApiKey = config.openaiApiKey;
         if (config.openaiModel !== undefined) this.openaiModel = config.openaiModel;
+
+        // Update context manager when model changes
+        this.updateContextManagerModel();
     }
 
     setMCPTools(tools: any[]) {
@@ -154,6 +233,7 @@ export class APIClient {
         this.conversationHistory = [];
         this.totalInputTokens = 0;
         this.totalOutputTokens = 0;
+        this.contextManager.clear();
     }
 
     stop() {
@@ -163,7 +243,22 @@ export class APIClient {
 
     async sendMessage(userMessage: string, callbacks: StreamCallbacks): Promise<void> {
         this.abortController = new AbortController();
-        this.conversationHistory.push({ role: 'user', content: userMessage });
+
+        // Add to context manager
+        this.contextManager.addMessage({ role: 'user', content: userMessage });
+
+        // Check if we need to trim context
+        const contextWindow = this.contextManager.getContextWindow();
+        if (contextWindow.isTruncated) {
+            this.outputChannel.appendLine(`⚠️ Context window trimmed: ${contextWindow.removedCount} messages removed`);
+            this.conversationHistory = contextWindow.messages;
+        } else {
+            this.conversationHistory.push({ role: 'user', content: userMessage });
+        }
+
+        // Log token usage
+        const stats = this.contextManager.getStats();
+        this.outputChannel.appendLine(`📊 Context: ${stats.tokenCount.total} tokens (${stats.percentOfLimit.toFixed(1)}% of limit)`);
 
         try {
             await this.runAgentLoop(callbacks);

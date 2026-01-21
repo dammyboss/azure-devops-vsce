@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none';
+        img-src {{cspSource}} https: data:;
+        script-src {{cspSource}} 'unsafe-inline' https://cdn.jsdelivr.net;
+        style-src {{cspSource}} 'unsafe-inline';
+        font-src {{cspSource}};">
+    <title>AI Assistant</title>
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@14/dist/markdown-it.min.js"></script>
+    <link rel="stylesheet" href="{{stylesUri}}">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-left">
+                <h2>AI Assistant</h2>
+                <div class="session-info">
+                    <span id="sessionId" class="session-id"></span>
+                    <span id="toolsCount" class="tools-count"></span>
+                </div>
+            </div>
+            <div class="header-right">
+                {{#if showEditorButton}}
+                <button id="openEditorBtn" class="icon-button" title="Open in Editor">
+                    <img src="{{editorIconUri}}" alt="Open in Editor" />
+                </button>
+                {{/if}}
+                <button id="newChatBtn" class="icon-button" title="New Chat">
+                    <img src="{{newChatIconUri}}" alt="New Chat" />
+                </button>
+                <button id="historyBtn" class="icon-button" title="History">
+                    <img src="{{historyIconUri}}" alt="History" />
+                </button>
+                <button id="settingsBtn" class="icon-button" title="Settings">
+                    <img src="{{settingsIconUri}}" alt="Settings" />
+                </button>
+            </div>
+        </div>
+
+        <!-- Messages Container -->
+        <div id="messagesContainer" class="messages-container">
+            <!-- Welcome Screen -->
+            <div id="welcomeScreen" class="welcome-screen">
+                <div class="welcome-content">
+                    <div class="welcome-icon">🤖</div>
+                    <h1>Welcome to AI Assistant</h1>
+                    <p class="welcome-subtitle">Your AI-powered Azure DevOps companion</p>
+
+                    <div class="welcome-features">
+                        <div class="feature-card">
+                            <span class="feature-icon">💬</span>
+                            <h3>Natural Conversations</h3>
+                            <p>Ask questions about your work items, sprints, and more</p>
+                        </div>
+                        <div class="feature-card">
+                            <span class="feature-icon">🔧</span>
+                            <h3>MCP Tools</h3>
+                            <p>Access powerful tools through Model Context Protocol</p>
+                        </div>
+                        <div class="feature-card">
+                            <span class="feature-icon">🚀</span>
+                            <h3>Boost Productivity</h3>
+                            <p>Automate workflows and get instant insights</p>
+                        </div>
+                    </div>
+
+                    <div class="quick-actions">
+                        <p class="quick-actions-title">Try asking:</p>
+                        <button class="suggestion-btn">"Show me my assigned work items"</button>
+                        <button class="suggestion-btn">"What's in the current sprint?"</button>
+                        <button class="suggestion-btn">"Help me create a new task"</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Messages will be inserted here -->
+        </div>
+
+        <!-- Scroll to Bottom Button -->
+        <button id="scrollToBottomBtn" class="scroll-to-bottom" style="display: none;">
+            <img src="{{scrollToBottomIconUri}}" alt="Scroll to Bottom" />
+        </button>
+
+        <!-- Input Area -->
+        <div class="input-container">
+            <div class="input-wrapper">
+                <textarea
+                    id="messageInput"
+                    placeholder="Type your message..."
+                    rows="1"
+                ></textarea>
+                <button id="sendBtn" class="send-button" title="Send">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M2 10L18 2L10 18L8 11L2 10Z" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button id="stopBtn" class="stop-button" style="display: none;" title="Stop">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <rect x="5" y="5" width="10" height="10" fill="currentColor"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="input-footer">
+                <span id="tokenCount" class="token-count"></span>
+                <span class="model-info" id="modelInfo"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- History Panel -->
+    <div id="historyPanel" class="side-panel">
+        <div class="panel-header">
+            <h3>Chat History</h3>
+            <button id="closeHistoryBtn" class="close-btn">×</button>
+        </div>
+        <div class="panel-content">
+            <div id="historyList" class="history-list"></div>
+        </div>
+    </div>
+
+    <script src="{{scriptUri}}"></script>
+</body>
+</html>
