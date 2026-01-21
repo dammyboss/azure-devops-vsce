@@ -885,6 +885,17 @@ export class BoardPanel {
         const workItems = this.currentBoard.workItems;
         const boardsJson = JSON.stringify(this.availableBoards);
 
+        // Extract unique types from work items on the board
+        const uniqueTypes = new Set<string>();
+        workItems.forEach((items) => {
+            items.forEach(item => {
+                if (item.type) {
+                    uniqueTypes.add(item.type);
+                }
+            });
+        });
+        const boardTypes = Array.from(uniqueTypes).sort();
+
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1009,6 +1020,27 @@ export class BoardPanel {
             background: var(--vscode-button-secondaryHoverBackground);
         }
 
+        .btn:active {
+            transform: scale(0.95);
+        }
+
+        .btn.icon-btn {
+            padding: 6px 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .btn.icon-btn svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .btn.icon-btn.active {
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+        }
+
         .btn-primary {
             background: var(--vscode-button-background);
             color: var(--vscode-button-foreground);
@@ -1043,7 +1075,8 @@ export class BoardPanel {
         }
 
         .column.collapsed .column-body,
-        .column.collapsed .add-item {
+        .column.collapsed .add-item-header-btn,
+        .column.collapsed .add-item-form-container {
             display: none;
         }
 
@@ -1104,10 +1137,50 @@ export class BoardPanel {
             color: var(--vscode-foreground);
         }
 
-        .column-count {
+        .column-header-right {
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 8px;
+        }
+
+        .add-item-header-btn {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 8px;
+            background: transparent;
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 4px;
+            color: var(--vscode-descriptionForeground);
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .add-item-header-btn:hover {
+            background: var(--vscode-list-hoverBackground);
+            color: var(--vscode-foreground);
+            border-color: var(--vscode-focusBorder);
+        }
+
+        .add-item-header-btn:active {
+            transform: scale(0.95);
+        }
+
+        .add-item-header-btn svg {
+            width: 14px;
+            height: 14px;
+        }
+
+        .add-item-form-container {
+            display: none;
+            padding: 12px;
+            border-bottom: 1px solid var(--vscode-panel-border);
+            background: var(--vscode-input-background);
+        }
+
+        .add-item-form-container.active {
+            display: block;
         }
 
         .wip-badge {
@@ -1152,7 +1225,7 @@ export class BoardPanel {
         .card {
             background: var(--vscode-editor-background);
             border: 1px solid var(--vscode-panel-border);
-            border-left: 3px solid #f97316;
+            border-left: 3px solid var(--card-type-color, #009ccc);
             border-radius: 6px;
             padding: 12px;
             cursor: pointer;
@@ -1163,7 +1236,6 @@ export class BoardPanel {
         .card:hover {
             background: var(--vscode-list-hoverBackground);
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-            border-left-color: #ea580c;
         }
 
         .card.dragging {
@@ -1171,9 +1243,26 @@ export class BoardPanel {
         }
 
         .card.keyboard-moving {
-            outline: 2px solid #f97316;
-            box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.2);
+            outline: 2px solid var(--card-type-color, #009ccc);
+            box-shadow: 0 0 0 4px rgba(0, 156, 204, 0.2);
         }
+
+        /* Work Item Type Colors - Azure DevOps Standard */
+        .card[data-type="User Story"] { --card-type-color: #009ccc; }
+        .card[data-type="Product Backlog Item"] { --card-type-color: #009ccc; }
+        .card[data-type="Requirement"] { --card-type-color: #009ccc; }
+        .card[data-type="Feature"] { --card-type-color: #773b93; }
+        .card[data-type="Epic"] { --card-type-color: #ff7b00; }
+        .card[data-type="Bug"] { --card-type-color: #cc293d; }
+        .card[data-type="Task"] { --card-type-color: #f2cb1d; }
+        .card[data-type="Issue"] { --card-type-color: #207752; }
+        .card[data-type="Impediment"] { --card-type-color: #b4009e; }
+        .card[data-type="Risk"] { --card-type-color: #ff9d00; }
+        .card[data-type="Change Request"] { --card-type-color: #b4009e; }
+        .card[data-type="Review"] { --card-type-color: #773b93; }
+        .card[data-type="Test Case"] { --card-type-color: #004b50; }
+        .card[data-type="Test Plan"] { --card-type-color: #004b50; }
+        .card[data-type="Test Suite"] { --card-type-color: #004b50; }
 
         /* Card Type Icon */
         .card-type-icon {
@@ -1534,39 +1623,7 @@ export class BoardPanel {
             display: block;
         }
 
-        /* Add New Item */
-        .add-item {
-            padding: 8px;
-            border-top: 1px solid var(--vscode-panel-border);
-            flex-shrink: 0;
-        }
-
-        .add-item-btn {
-            width: 100%;
-            padding: 8px;
-            background: transparent;
-            border: 1px dashed var(--vscode-input-border);
-            border-radius: 4px;
-            color: var(--vscode-descriptionForeground);
-            cursor: pointer;
-            font-size: 12px;
-            transition: all 0.15s;
-        }
-
-        .add-item-btn:hover {
-            border-color: var(--vscode-focusBorder);
-            color: var(--vscode-foreground);
-            background: var(--vscode-list-hoverBackground);
-        }
-
-        .add-item-form {
-            display: none;
-        }
-
-        .add-item-form.active {
-            display: block;
-        }
-
+        /* Add New Item Input */
         .add-item-input {
             width: 100%;
             padding: 8px;
@@ -1841,6 +1898,16 @@ export class BoardPanel {
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            transition: all 0.15s ease;
+        }
+
+        .filter-dropdown-btn:hover {
+            background: var(--vscode-list-hoverBackground);
+            border-color: var(--vscode-focusBorder);
+        }
+
+        .filter-dropdown-btn:active {
+            transform: scale(0.97);
         }
 
         .filter-dropdown-btn::after {
@@ -1940,10 +2007,16 @@ export class BoardPanel {
             </div>
         </div>
         <div class="board-actions">
-            <button class="btn" onclick="toggleFilterBar()" title="Toggle filters (F)" id="filterToggleBtn">🔍 Filter</button>
-            <button class="btn" onclick="refresh()" title="Refresh (R)">↻ Refresh</button>
-            <button class="btn" onclick="openInBrowser()" title="Open in browser">Open in Browser</button>
-            <button class="btn" onclick="toggleKeyboardHelp()" title="Keyboard shortcuts (?)">?</button>
+            <button class="btn icon-btn" onclick="toggleFilterBar()" title="Toggle filters (F)" id="filterToggleBtn">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6 10.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5z"/></svg>
+            </button>
+            <button class="btn icon-btn" onclick="refresh()" title="Refresh (R)">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/></svg>
+            </button>
+            <button class="btn icon-btn" onclick="openInBrowser()" title="Open in browser">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8.636 3.5a.5.5 0 0 0-.5-.5H1.5A1.5 1.5 0 0 0 0 4.5v10A1.5 1.5 0 0 0 1.5 16h10a1.5 1.5 0 0 0 1.5-1.5V7.864a.5.5 0 0 0-1 0V14.5a.5.5 0 0 1-.5.5h-10a.5.5 0 0 1-.5-.5v-10a.5.5 0 0 1 .5-.5h6.636a.5.5 0 0 0 .5-.5z"/><path fill-rule="evenodd" d="M16 .5a.5.5 0 0 0-.5-.5h-5a.5.5 0 0 0 0 1h3.793L6.146 9.146a.5.5 0 1 0 .708.708L15 1.707V5.5a.5.5 0 0 0 1 0v-5z"/></svg>
+            </button>
+            <button class="btn icon-btn" onclick="toggleKeyboardHelp()" title="Keyboard shortcuts (?)">?</button>
         </div>
     </div>
 
@@ -1986,12 +2059,12 @@ export class BoardPanel {
                 <button class="filter-dropdown-btn" id="typeDropdownBtn" onclick="toggleDropdown('typeDropdownContent')">All Types</button>
                 <div class="filter-dropdown-content" id="typeDropdownContent">
                     <label class="filter-checkbox-item"><input type="checkbox" name="type" value="all" checked onchange="handleFilterChange('type', this)"> All Types</label>
-                    <label class="filter-checkbox-item"><input type="checkbox" name="type" value="User Story" onchange="handleFilterChange('type', this)"> User Story</label>
-                    <label class="filter-checkbox-item"><input type="checkbox" name="type" value="Task" onchange="handleFilterChange('type', this)"> Task</label>
-                    <label class="filter-checkbox-item"><input type="checkbox" name="type" value="Bug" onchange="handleFilterChange('type', this)"> Bug</label>
-                    <label class="filter-checkbox-item"><input type="checkbox" name="type" value="Issue" onchange="handleFilterChange('type', this)"> Issue</label>
-                    <label class="filter-checkbox-item"><input type="checkbox" name="type" value="Feature" onchange="handleFilterChange('type', this)"> Feature</label>
-                    <label class="filter-checkbox-item"><input type="checkbox" name="type" value="Epic" onchange="handleFilterChange('type', this)"> Epic</label>
+                    ${boardTypes.map(type => `
+                        <label class="filter-checkbox-item">
+                            <input type="checkbox" name="type" value="${this._escapeHtml(type)}" onchange="handleFilterChange('type', this)">
+                            ${this._escapeHtml(type)}
+                        </label>
+                    `).join('')}
                 </div>
             </div>
         </div>
@@ -2057,30 +2130,33 @@ export class BoardPanel {
                         <button class="collapse-btn" onclick="event.stopPropagation(); toggleColumn(this.closest('.column'))">◀</button>
                         <span class="column-title">${this._escapeHtml(column.name)}</span>
                     </div>
-                    <div class="column-count">
+                    <div class="column-header-right">
+                        ${colIndex === 0 ? `
+                        <button class="add-item-header-btn" onclick="event.stopPropagation(); showAddForm('${this._escapeHtml(column.name)}')" title="New item">
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
+                            New item
+                        </button>
+                        ` : ''}
                         <span class="wip-badge ${wipClass}">
                             ${itemCount}${column.itemLimit > 0 ? '/' + column.itemLimit : ''}
                         </span>
                     </div>
                 </div>
+                ${colIndex === 0 ? `
+                <div class="add-item-form-container" id="add-form-${this._escapeHtml(column.name).replace(/\s/g, '-')}">
+                    <input type="text" class="add-item-input" placeholder="Enter title..."
+                           onkeydown="handleAddKeydown(event, '${this._escapeHtml(column.name)}')" />
+                    <div class="add-item-actions">
+                        <button class="btn btn-primary" onclick="createItem('${this._escapeHtml(column.name)}')">Add</button>
+                        <button class="btn" onclick="hideAddForm('${this._escapeHtml(column.name)}')">Cancel</button>
+                    </div>
+                </div>
+                ` : ''}
                 <div class="column-body">
                     ${items.map((item, itemIndex) => this._renderCard(item, colIndex, itemIndex)).join('')}
                     ${items.length === 0 ? '<div class="empty-column">No items</div>' : ''}
                     <div class="drop-placeholder"></div>
                 </div>
-                ${colIndex === 0 ? `
-                <div class="add-item">
-                    <button class="add-item-btn" onclick="showAddForm('${this._escapeHtml(column.name)}')">+ New item</button>
-                    <div class="add-item-form" id="add-form-${this._escapeHtml(column.name).replace(/\s/g, '-')}">
-                        <input type="text" class="add-item-input" placeholder="Enter title..."
-                               onkeydown="handleAddKeydown(event, '${this._escapeHtml(column.name)}')" />
-                        <div class="add-item-actions">
-                            <button class="btn btn-primary" onclick="createItem('${this._escapeHtml(column.name)}')">Add</button>
-                            <button class="btn" onclick="hideAddForm('${this._escapeHtml(column.name)}')">Cancel</button>
-                        </div>
-                    </div>
-                </div>
-                ` : ''}
             </div>
             `;
         }).join('')}
@@ -2870,11 +2946,7 @@ export class BoardPanel {
             const filterBar = document.getElementById('filterBar');
             const filterBtn = document.getElementById('filterToggleBtn');
             filterBar.classList.toggle('collapsed');
-            if (filterBar.classList.contains('collapsed')) {
-                filterBtn.textContent = '🔍 Filter';
-            } else {
-                filterBtn.textContent = '🔍 Hide Filter';
-            }
+            filterBtn.classList.toggle('active', !filterBar.classList.contains('collapsed'));
         }
 
         function applyFilters() {

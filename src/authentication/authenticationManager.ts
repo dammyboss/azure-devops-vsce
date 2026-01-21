@@ -147,10 +147,25 @@ export class AuthenticationManager {
 
     public async connect(): Promise<boolean> {
         try {
+            // Prompt user if they want to use a different account
+            const useNewAccount = await vscode.window.showQuickPick(
+                ['Use current Microsoft account', 'Sign in with different account'],
+                { 
+                    placeHolder: 'Choose authentication method',
+                    title: 'Azure DevOps Connection'
+                }
+            );
+
+            if (!useNewAccount) {
+                return false;
+            }
+
+            const forceNewSession = useNewAccount === 'Sign in with different account';
+
             // Get Microsoft session for auth using Azure DevOps app scope
             const session = await vscode.authentication.getSession('microsoft', [
                 'https://app.vssps.visualstudio.com/.default'
-            ], { createIfNone: true });
+            ], forceNewSession ? { forceNewSession: true } : { createIfNone: true });
             
             if (!session) {
                 vscode.window.showErrorMessage('Authentication cancelled.');
@@ -160,37 +175,10 @@ export class AuthenticationManager {
             // Store the Microsoft session
             this.currentSession = session;
 
-            // Get config to see if we have saved org/project
-            const config = vscode.workspace.getConfiguration('azureDevOps');
-            const savedOrgUrl = config.get<string>('organizationUrl', '');
-            const defaultProject = config.get<string>('defaultProject', '');
-            const defaultTeam = config.get<string>('defaultTeam', '');
-
-            // If we have saved config, use it. Otherwise, show wizard
-            if (savedOrgUrl && defaultProject) {
-                this.config = {
-                    organizationUrl: savedOrgUrl,
-                    personalAccessToken: session.accessToken,
-                    defaultProject,
-                    defaultTeam
-                };
-                
-                this.createAxiosInstance();
-                const connected = await this.autoConnect();
-
-                if (connected) {
-                    vscode.window.showInformationMessage(`✓ Connected to Azure DevOps`);
-                    return true;
-                } else {
-                    vscode.window.showErrorMessage('Failed to verify connection. Configuration may have changed.');
-                    return false;
-                }
-            } else {
-                // No saved config, open setup wizard
-                vscode.window.showInformationMessage('Opening Azure DevOps setup wizard...');
-                await vscode.commands.executeCommand('azureDevOps.setupWizard');
-                return false;
-            }
+            // Always show setup wizard for fresh connection
+            vscode.window.showInformationMessage('Opening Azure DevOps setup wizard...');
+            await vscode.commands.executeCommand('azureDevOps.setupWizard');
+            return false;
         } catch (error) {
             vscode.window.showErrorMessage(`Connection error: ${error}`);
             return false;
@@ -208,10 +196,11 @@ export class AuthenticationManager {
         this.connectionStatus = { isConnected: false };
         
         // Clear workspace settings
+        await vscode.workspace.getConfiguration('azureDevOps').update('organizationUrl', '', true);
         await vscode.workspace.getConfiguration('azureDevOps').update('defaultProject', '', true);
         await vscode.workspace.getConfiguration('azureDevOps').update('defaultTeam', '', true);
 
-        vscode.window.showInformationMessage('Disconnected from Azure DevOps');
+        vscode.window.showInformationMessage('Disconnected from Azure DevOps. Please reconnect to use a different account.');
     }
 
     public async refreshConfiguration(): Promise<void> {
