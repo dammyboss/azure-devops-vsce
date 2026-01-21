@@ -119,12 +119,6 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
                 case 'permissionResponse':
                     this.mcpClient.getPermissionsManager().respondToPermission(message.id, message.action);
                     break;
-                case 'confirmEditMessage':
-                    await this.handleEditMessage(message.timestamp, message.newContent);
-                    break;
-                case 'deleteMessage':
-                    await this.handleDeleteMessage(message.timestamp);
-                    break;
             }
         });
     }
@@ -214,75 +208,6 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
         await sendPromise;
     }
 
-    private async handleEditMessage(timestamp: number, newContent: string) {
-        if (!this.view) return;
-
-        try {
-            // Show editing state
-            this.view.webview.postMessage({ type: 'editingMessage' });
-
-            // Create callbacks for the resubmitted message
-            const callbacks: StreamCallbacks = {
-                onText: (text: string) => {
-                    this.view?.webview.postMessage({ type: 'streamText', text });
-                },
-                onToolUse: (toolName: string, toolInput: any) => {
-                    this.view?.webview.postMessage({ type: 'toolUse', toolName, toolInput });
-                },
-                onToolResult: (toolName: string, result: string, isError: boolean) => {
-                    this.view?.webview.postMessage({ type: 'toolResult', toolName, result, isError });
-                },
-                onError: (error: string) => {
-                    this.view?.webview.postMessage({ type: 'error', error });
-                },
-                onComplete: (inputTokens: number, outputTokens: number) => {
-                    this.view?.webview.postMessage({ type: 'complete', inputTokens, outputTokens });
-                    // Send updated UI messages after completion
-                    const uiMessages = this.apiClient.getUIMessages();
-                    this.view?.webview.postMessage({ type: 'uiMessagesUpdate', messages: uiMessages });
-                },
-                onPermissionPrompt: (id: string, serverName: string, toolName: string, toolInput: any) => {
-                    this.view?.webview.postMessage({
-                        type: 'permissionPrompt',
-                        id,
-                        serverName,
-                        toolName,
-                        toolInput
-                    });
-                }
-            };
-
-            // Execute edit (this will rewind and resubmit)
-            await this.apiClient.editMessage(timestamp, newContent, callbacks);
-
-        } catch (error: any) {
-            this.view.webview.postMessage({
-                type: 'error',
-                error: `Failed to edit message: ${error.message}`
-            });
-            this.outputChannel.appendLine(`Error editing message: ${error.message}`);
-        }
-    }
-
-    private async handleDeleteMessage(timestamp: number) {
-        if (!this.view) return;
-
-        try {
-            // Execute delete
-            await this.apiClient.deleteMessage(timestamp);
-
-            // Send updated UI messages
-            const uiMessages = this.apiClient.getUIMessages();
-            this.view.webview.postMessage({ type: 'uiMessagesUpdate', messages: uiMessages });
-
-        } catch (error: any) {
-            this.view.webview.postMessage({
-                type: 'error',
-                error: `Failed to delete message: ${error.message}`
-            });
-            this.outputChannel.appendLine(`Error deleting message: ${error.message}`);
-        }
-    }
 
     private getHtmlContent(webview: vscode.Webview): string {
         // Get icon URIs
@@ -1214,39 +1139,6 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
                 textDiv.className = 'user-message-text';
                 textDiv.textContent = content;
                 messageDiv.appendChild(textDiv);
-
-                // Add action buttons container
-                const actionsDiv = document.createElement('div');
-                actionsDiv.className = 'message-actions';
-                actionsDiv.style.cssText = 'display: flex; gap: 4px; margin-top: 8px; opacity: 0; transition: opacity 0.2s;';
-
-                // Edit button
-                const editBtn = document.createElement('button');
-                editBtn.className = 'message-action-btn';
-                editBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit';
-                editBtn.style.cssText = 'background: transparent; border: 1px solid rgba(255,255,255,0.1); color: var(--vscode-descriptionForeground); padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; display: flex; align-items: center; gap: 4px; transition: all 0.2s;';
-                editBtn.onclick = () => editMessage(timestamp, content);
-
-                // Delete button
-                const deleteBtn = document.createElement('button');
-                deleteBtn.className = 'message-action-btn';
-                deleteBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Delete';
-                deleteBtn.style.cssText = 'background: transparent; border: 1px solid rgba(255,255,255,0.1); color: var(--vscode-descriptionForeground); padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; display: flex; align-items: center; gap: 4px; transition: all 0.2s;';
-                deleteBtn.onclick = () => deleteMessage(timestamp);
-
-                actionsDiv.appendChild(editBtn);
-                actionsDiv.appendChild(deleteBtn);
-                messageDiv.appendChild(actionsDiv);
-
-                // Show/hide actions on hover
-                messageDiv.onmouseenter = () => {
-                    if (!isGenerating) {
-                        actionsDiv.style.opacity = '1';
-                    }
-                };
-                messageDiv.onmouseleave = () => {
-                    actionsDiv.style.opacity = '0';
-                };
             } else {
                 // Assistant message - clean, no header
                 const contentDiv = document.createElement('div');
@@ -1312,9 +1204,95 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
         function addToolUse(toolName, toolInput) {
             const toolDiv = document.createElement('div');
             toolDiv.className = 'tool-use';
-            toolDiv.textContent = \`🔧 Using tool: \${toolName}\`;
+            toolDiv.style.cssText = \`
+                background: var(--vscode-editor-background);
+                border: 1px solid rgba(102, 126, 234, 0.3);
+                border-radius: 6px;
+                padding: 10px 12px;
+                margin: 8px 0;
+                font-size: 12px;
+                color: var(--vscode-foreground);
+            \`;
+
+            // Header row with server icon and status
+            const headerDiv = document.createElement('div');
+            headerDiv.style.cssText = \`
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-bottom: 8px;
+            \`;
+
+            // Left side - Server icon and tool name
+            const leftDiv = document.createElement('div');
+            leftDiv.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+
+            const serverIcon = document.createElement('span');
+            serverIcon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>';
+            serverIcon.style.cssText = 'color: var(--vscode-descriptionForeground); display: flex;';
+
+            const toolNameSpan = document.createElement('span');
+            toolNameSpan.style.cssText = 'font-weight: 600; color: var(--vscode-foreground);';
+            toolNameSpan.textContent = toolName;
+
+            leftDiv.appendChild(serverIcon);
+            leftDiv.appendChild(toolNameSpan);
+
+            // Right side - Status indicator
+            const statusDiv = document.createElement('div');
+            statusDiv.style.cssText = \`
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                font-family: monospace;
+                font-size: 11px;
+            \`;
+
+            const statusDot = document.createElement('div');
+            statusDot.style.cssText = \`
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background: #9ecc3b;
+            \`;
+
+            const statusText = document.createElement('span');
+            statusText.style.cssText = 'color: var(--vscode-foreground);';
+            statusText.textContent = 'Running';
+
+            statusDiv.appendChild(statusDot);
+            statusDiv.appendChild(statusText);
+
+            headerDiv.appendChild(leftDiv);
+            headerDiv.appendChild(statusDiv);
+
+            // Tool input display (if present)
+            let inputDiv;
+            if (toolInput && Object.keys(toolInput).length > 0) {
+                inputDiv = document.createElement('div');
+                inputDiv.style.cssText = \`
+                    background: rgba(0, 0, 0, 0.2);
+                    border-radius: 4px;
+                    padding: 8px;
+                    margin-top: 6px;
+                    font-family: monospace;
+                    font-size: 11px;
+                    overflow-x: auto;
+                    color: var(--vscode-descriptionForeground);
+                \`;
+                inputDiv.textContent = JSON.stringify(toolInput, null, 2);
+            }
+
+            toolDiv.appendChild(headerDiv);
+            if (inputDiv) {
+                toolDiv.appendChild(inputDiv);
+            }
+
             messagesDiv.appendChild(toolDiv);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+            // Store reference for status updates
+            window.currentToolUse = { element: toolDiv, statusDot, statusText };
         }
 
         function openSettings() {
@@ -1417,7 +1395,8 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
 
             switch (message.type) {
                 case 'streamText':
-                    hideAnimatedLoading();
+                    // Only hide loading after we start receiving substantial text
+                    // This keeps the loading animation visible during tool execution
                     if (!currentAssistantMessage) {
                         currentAssistantMessage = addMessage('assistant', '');
                     }
@@ -1428,6 +1407,11 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
                             const newText = currentText + message.text;
                             contentDiv.setAttribute('data-raw', newText);
                             contentDiv.innerHTML = md.render(newText);
+
+                            // Hide loading only after we have some content
+                            if (newText.length > 10) {
+                                hideAnimatedLoading();
+                            }
                         }
                         messagesDiv.scrollTop = messagesDiv.scrollHeight;
                     }
@@ -1438,7 +1422,17 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
                     break;
 
                 case 'toolResult':
-                    // Optionally show tool results
+                    // Update tool status to completed
+                    if (window.currentToolUse) {
+                        const { statusDot, statusText } = window.currentToolUse;
+                        if (!message.isError) {
+                            statusDot.style.background = '#9ecc3b'; // Green for success
+                            statusText.textContent = 'Completed';
+                        } else {
+                            statusDot.style.background = '#f14c4c'; // Red for error
+                            statusText.textContent = 'Error';
+                        }
+                    }
                     break;
 
                 case 'error':
@@ -1463,195 +1457,165 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
                     break;
 
                 case 'permissionPrompt':
+                    // Pause any ongoing message streaming
+                    hideAnimatedLoading();
+                    isGenerating = true; // Keep generating state active
+                    updateSendButton();
+
+                    // Show permission prompt inline
                     showPermissionPrompt(message.id, message.serverName, message.toolName, message.toolInput);
                     break;
             }
         });
 
         function showPermissionPrompt(id, serverName, toolName, toolInput) {
-            const overlay = document.createElement('div');
-            overlay.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); z-index: 10000; display: flex; align-items: center; justify-content: center; animation: fadeIn 0.2s ease;';
-            
-            const dialog = document.createElement('div');
-            dialog.style.cssText = 'background: var(--vscode-editor-background); border: 1px solid var(--vscode-focusBorder); border-radius: 12px; padding: 24px; max-width: 420px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); animation: slideUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);';
-            
-            dialog.innerHTML = \`
-                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
-                    <div style="width: 40px; height: 40px; border-radius: 10px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);">🔐</div>
-                    <div>
-                        <h3 style="margin: 0; font-size: 15px; font-weight: 600; color: var(--vscode-foreground);">Tool Permission Required</h3>
-                        <p style="margin: 2px 0 0 0; font-size: 11px; color: var(--vscode-descriptionForeground); opacity: 0.8;">MCP Server Request</p>
-                    </div>
+            // Add assistant message explaining the action
+            const explainMsg = addMessage('assistant', \`I'll use the \${toolName} tool on the \${serverName} MCP server.\`);
+
+            // Add permission request card
+            const permCard = document.createElement('div');
+            permCard.className = 'permission-request';
+            permCard.style.cssText = \`
+                background: var(--vscode-editor-background);
+                border: 1px solid var(--vscode-focusBorder);
+                border-radius: 8px;
+                padding: 12px;
+                margin: 12px 0;
+            \`;
+
+            // Header with icon and title
+            const headerDiv = document.createElement('div');
+            headerDiv.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 12px;';
+            headerDiv.innerHTML = \`
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+                    <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+                    <line x1="6" y1="6" x2="6.01" y2="6"/>
+                    <line x1="6" y1="18" x2="6.01" y2="18"/>
+                </svg>
+                <span style="font-weight: 600; color: var(--vscode-foreground);">AI Assistant wants to use a tool on the \${serverName} MCP server</span>
+            \`;
+
+            // Collapsible tool details section
+            const detailsContainer = document.createElement('div');
+            detailsContainer.id = \`perm-details-\${id}\`;
+            detailsContainer.style.cssText = \`
+                background: rgba(255, 255, 255, 0.03);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 6px;
+                padding: 12px;
+                margin-bottom: 12px;
+            \`;
+
+            // Server name header with chevron
+            const serverHeader = document.createElement('div');
+            serverHeader.style.cssText = \`
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                cursor: pointer;
+                margin-bottom: 12px;
+            \`;
+            serverHeader.innerHTML = \`
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+                        <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+                        <line x1="6" y1="6" x2="6.01" y2="6"/>
+                        <line x1="6" y1="18" x2="6.01" y2="18"/>
+                    </svg>
+                    <span style="font-weight: 600; color: var(--vscode-foreground);">\${serverName}</span>
                 </div>
-                <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 12px; margin-bottom: 20px;">
-                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                        <span style="font-size: 11px; color: var(--vscode-descriptionForeground); opacity: 0.7; text-transform: uppercase; letter-spacing: 0.5px;">Server</span>
-                        <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.06);"></div>
+                <svg id="chevron-\${id}" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transition: transform 0.2s;">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+            \`;
+
+            // Tool details (collapsible)
+            const toolDetails = document.createElement('div');
+            toolDetails.id = \`tool-details-\${id}\`;
+            toolDetails.style.cssText = 'display: block;';
+            toolDetails.innerHTML = \`
+                <div style="margin-top: 8px;">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2 L12 6 M12 18 L12 22 M4.93 4.93 L7.76 7.76 M16.24 16.24 L19.07 19.07 M2 12 L6 12 M18 12 L22 12 M4.93 19.07 L7.76 16.24 M16.24 7.76 L19.07 4.93"/>
+                        </svg>
+                        <span style="font-weight: 600; color: var(--vscode-textLink-foreground); font-family: monospace;">\${toolName}</span>
+                        <label style="margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer;">
+                            <input type="checkbox" id="always-allow-\${id}" style="cursor: pointer;"/>
+                            <span>Always allow</span>
+                        </label>
                     </div>
-                    <p style="margin: 0; font-size: 13px; font-weight: 500; color: var(--vscode-foreground); font-family: monospace;">\${serverName}</p>
-                    <div style="display: flex; align-items: center; gap: 8px; margin: 12px 0 8px 0;">
-                        <span style="font-size: 11px; color: var(--vscode-descriptionForeground); opacity: 0.7; text-transform: uppercase; letter-spacing: 0.5px;">Tool</span>
-                        <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.06);"></div>
+                    <p style="margin: 4px 0 8px 20px; font-size: 11px; color: var(--vscode-descriptionForeground);">Tool execution on MCP server</p>
+                    \${toolInput && Object.keys(toolInput).length > 0 ? \`
+                    <div style="background: rgba(0, 0, 0, 0.2); border-radius: 4px; padding: 8px; margin-top: 8px; font-family: monospace; font-size: 11px; overflow-x: auto;">
+                        <pre style="margin: 0; color: var(--vscode-descriptionForeground);">\${JSON.stringify(toolInput, null, 2)}</pre>
                     </div>
-                    <p style="margin: 0; font-size: 13px; font-weight: 500; color: var(--vscode-textLink-foreground); font-family: monospace;">\${toolName}</p>
-                </div>
-                <div style="display: flex; gap: 8px;">
-                    <button onclick="respondPermission('\${id}', 'deny')" style="flex: 1; padding: 10px 16px; background: rgba(255,255,255,0.05); color: var(--vscode-foreground); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500; transition: all 0.2s ease;" onmouseover="this.style.background='rgba(255,255,255,0.08)'; this.style.borderColor='rgba(255,255,255,0.2)';" onmouseout="this.style.background='rgba(255,255,255,0.05)'; this.style.borderColor='rgba(255,255,255,0.1)';">✕ Deny</button>
-                    <button onclick="respondPermission('\${id}', 'allow')" style="flex: 1; padding: 10px 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3); transition: all 0.2s ease;" onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 4px 12px rgba(102, 126, 234, 0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(102, 126, 234, 0.3)';">✓ Allow Once</button>
-                    <button onclick="respondPermission('\${id}', 'allow-always')" style="flex: 1; padding: 10px 16px; background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500; box-shadow: 0 2px 8px rgba(46, 204, 113, 0.3); transition: all 0.2s ease;" onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 4px 12px rgba(46, 204, 113, 0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(46, 204, 113, 0.3)';">✓ Always</button>
+                    \` : ''}
                 </div>
             \`;
-            
-            overlay.appendChild(dialog);
-            document.body.appendChild(overlay);
-            
-            window.currentPermissionOverlay = overlay;
+
+            // Toggle collapse
+            serverHeader.onclick = () => {
+                const details = document.getElementById(\`tool-details-\${id}\`);
+                const chevron = document.getElementById(\`chevron-\${id}\`);
+                if (details.style.display === 'none') {
+                    details.style.display = 'block';
+                    chevron.style.transform = 'rotate(0deg)';
+                } else {
+                    details.style.display = 'none';
+                    chevron.style.transform = 'rotate(-90deg)';
+                }
+            };
+
+            detailsContainer.appendChild(serverHeader);
+            detailsContainer.appendChild(toolDetails);
+
+            // Action buttons
+            const actionsDiv = document.createElement('div');
+            actionsDiv.style.cssText = 'display: flex; gap: 8px;';
+            actionsDiv.innerHTML = \`
+                <button onclick="respondPermission('\${id}', 'deny')" style="flex: 1; padding: 8px 12px; background: rgba(255,255,255,0.05); color: var(--vscode-foreground); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500;">Deny</button>
+                <button onclick="respondPermission('\${id}', 'allow')" style="flex: 1; padding: 8px 12px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500;">Allow</button>
+            \`;
+
+            permCard.appendChild(headerDiv);
+            permCard.appendChild(detailsContainer);
+            permCard.appendChild(actionsDiv);
+
+            messagesDiv.appendChild(permCard);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+            // Store reference
+            window.currentPermissionCard = { id, card: permCard };
         }
 
         function respondPermission(id, action) {
-            vscode.postMessage({ type: 'permissionResponse', id, action });
-            if (window.currentPermissionOverlay) {
-                window.currentPermissionOverlay.remove();
-                window.currentPermissionOverlay = null;
+            // Check if "always allow" is checked
+            const alwaysAllowCheckbox = document.getElementById(\`always-allow-\${id}\`);
+            const finalAction = (alwaysAllowCheckbox && alwaysAllowCheckbox.checked) ? 'allow-always' : action;
+
+            vscode.postMessage({ type: 'permissionResponse', id, action: finalAction });
+
+            // Remove the permission card
+            if (window.currentPermissionCard && window.currentPermissionCard.id === id) {
+                window.currentPermissionCard.card.remove();
+                window.currentPermissionCard = null;
+            }
+
+            // Show loading animation after approval to indicate tool execution
+            if (action === 'allow') {
+                showAnimatedLoading();
             }
         }
 
-        // Message Editing and Deletion
-        function editMessage(timestamp, currentContent) {
-            showEditConfirmDialog(timestamp, currentContent);
-        }
-
-        function deleteMessage(timestamp) {
-            showDeleteConfirmDialog(timestamp);
-        }
-
-        function showEditConfirmDialog(timestamp, currentContent) {
-            const overlay = document.createElement('div');
-            overlay.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); z-index: 10000; display: flex; align-items: center; justify-content: center; animation: fadeIn 0.2s ease;';
-
-            const dialog = document.createElement('div');
-            dialog.style.cssText = 'background: var(--vscode-editor-background); border: 1px solid var(--vscode-focusBorder); border-radius: 12px; padding: 24px; max-width: 500px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,0.4);';
-
-            dialog.innerHTML = \`
-                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
-                    <div style="width: 40px; height: 40px; border-radius: 10px; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); display: flex; align-items: center; justify-content: center; font-size: 20px;">✏️</div>
-                    <div>
-                        <h3 style="margin: 0; font-size: 15px; font-weight: 600; color: var(--vscode-foreground);">Edit Message</h3>
-                        <p style="margin: 2px 0 0 0; font-size: 11px; color: var(--vscode-descriptionForeground); opacity: 0.8;">Editing will restart the conversation from this point</p>
-                    </div>
-                </div>
-                <div style="margin-bottom: 16px;">
-                    <textarea id="editTextarea" style="width: 100%; min-height: 100px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 12px; color: var(--vscode-foreground); font-family: var(--vscode-font-family); font-size: 13px; resize: vertical;" placeholder="Edit your message...">\${currentContent}</textarea>
-                </div>
-                <div style="display: flex; gap: 8px; justify-content: flex-end;">
-                    <button id="cancelEditBtn" style="padding: 8px 16px; background: rgba(255,255,255,0.05); color: var(--vscode-foreground); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500;">Cancel</button>
-                    <button id="confirmEditBtn" style="padding: 8px 16px; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500; box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);">Save & Restart</button>
-                </div>
-            \`;
-
-            overlay.appendChild(dialog);
-            document.body.appendChild(overlay);
-
-            const textarea = dialog.querySelector('#editTextarea');
-            const cancelBtn = dialog.querySelector('#cancelEditBtn');
-            const confirmBtn = dialog.querySelector('#confirmEditBtn');
-
-            textarea.focus();
-            textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-
-            cancelBtn.onclick = () => overlay.remove();
-            confirmBtn.onclick = () => {
-                const newContent = textarea.value.trim();
-                if (newContent) {
-                    vscode.postMessage({
-                        type: 'confirmEditMessage',
-                        timestamp: timestamp,
-                        newContent: newContent
-                    });
-                    overlay.remove();
-                }
-            };
-
-            overlay.onclick = (e) => {
-                if (e.target === overlay) {
-                    overlay.remove();
-                }
-            };
-        }
-
-        function showDeleteConfirmDialog(timestamp) {
-            const overlay = document.createElement('div');
-            overlay.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); z-index: 10000; display: flex; align-items: center; justify-content: center; animation: fadeIn 0.2s ease;';
-
-            const dialog = document.createElement('div');
-            dialog.style.cssText = 'background: var(--vscode-editor-background); border: 1px solid var(--vscode-focusBorder); border-radius: 12px; padding: 24px; max-width: 420px; box-shadow: 0 8px 32px rgba(0,0,0,0.4);';
-
-            dialog.innerHTML = \`
-                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
-                    <div style="width: 40px; height: 40px; border-radius: 10px; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); display: flex; align-items: center; justify-content: center; font-size: 20px;">🗑️</div>
-                    <div>
-                        <h3 style="margin: 0; font-size: 15px; font-weight: 600; color: var(--vscode-foreground);">Delete Message</h3>
-                        <p style="margin: 2px 0 0 0; font-size: 11px; color: var(--vscode-descriptionForeground); opacity: 0.8;">This will delete this message and all subsequent messages</p>
-                    </div>
-                </div>
-                <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 8px; padding: 12px; margin-bottom: 20px;">
-                    <p style="margin: 0; font-size: 12px; color: var(--vscode-foreground);">⚠️ This action cannot be undone</p>
-                </div>
-                <div style="display: flex; gap: 8px; justify-content: flex-end;">
-                    <button id="cancelDeleteBtn" style="padding: 8px 16px; background: rgba(255,255,255,0.05); color: var(--vscode-foreground); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500;">Cancel</button>
-                    <button id="confirmDeleteBtn" style="padding: 8px 16px; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);">Delete</button>
-                </div>
-            \`;
-
-            overlay.appendChild(dialog);
-            document.body.appendChild(overlay);
-
-            const cancelBtn = dialog.querySelector('#cancelDeleteBtn');
-            const confirmBtn = dialog.querySelector('#confirmDeleteBtn');
-
-            cancelBtn.onclick = () => overlay.remove();
-            confirmBtn.onclick = () => {
-                vscode.postMessage({
-                    type: 'deleteMessage',
-                    timestamp: timestamp
-                });
-                overlay.remove();
-            };
-
-            overlay.onclick = (e) => {
-                if (e.target === overlay) {
-                    overlay.remove();
-                }
-            };
-        }
 
         // Handle message updates from backend
         window.addEventListener('message', event => {
             const message = event.data;
 
             switch (message.type) {
-                case 'uiMessagesUpdate':
-                    // Update UI with new message list after edit/delete
-                    messagesDiv.innerHTML = '';
-                    welcomeScreen.classList.add('hidden');
-                    message.messages.forEach(msg => {
-                        if (msg.role === 'user') {
-                            addMessage('user', msg.text, msg.ts);
-                        } else if (msg.role === 'assistant') {
-                            const content = typeof msg.content === 'string' ? msg.content :
-                                           msg.content?.map(b => b.text || '').join('') || '';
-                            addMessage('assistant', content, msg.ts);
-                        }
-                    });
-                    break;
-
-                case 'editingMessage':
-                    // Show that editing is in progress
-                    showAnimatedLoading();
-                    isGenerating = true;
-                    updateSendButton();
-                    break;
-
                 case 'userMessageAdded':
                     // Add user message to UI with timestamp
                     addMessage('user', message.text, message.timestamp);

@@ -249,62 +249,6 @@ export class APIClient {
         return this.messageManager.getUIMessages();
     }
 
-    /**
-     * Edit a message and restart conversation from that point
-     */
-    async editMessage(timestamp: number, newContent: string, callbacks: StreamCallbacks): Promise<void> {
-        this.outputChannel.appendLine(`[APIClient] Editing message (ts: ${timestamp})`);
-
-        try {
-            // Rewind conversation history
-            await this.messageManager.editMessage(timestamp, newContent);
-
-            // Get updated API messages
-            const apiMessages = this.messageManager.getAPIMessages();
-            this.conversationHistory = apiMessages;
-
-            // Update context manager
-            this.contextManager.clear();
-            for (const msg of apiMessages) {
-                this.contextManager.addMessage(msg);
-            }
-
-            // Resubmit the edited message
-            await this.sendMessage(newContent, callbacks);
-        } catch (error: any) {
-            const errorMsg = `Failed to edit message: ${error.message}`;
-            this.outputChannel.appendLine(`[APIClient] ${errorMsg}`);
-            callbacks.onError(errorMsg);
-        }
-    }
-
-    /**
-     * Delete a message and all subsequent messages
-     */
-    async deleteMessage(timestamp: number): Promise<void> {
-        this.outputChannel.appendLine(`[APIClient] Deleting message (ts: ${timestamp})`);
-
-        try {
-            // Rewind conversation history
-            await this.messageManager.deleteMessage(timestamp);
-
-            // Get updated API messages
-            const apiMessages = this.messageManager.getAPIMessages();
-            this.conversationHistory = apiMessages;
-
-            // Update context manager
-            this.contextManager.clear();
-            for (const msg of apiMessages) {
-                this.contextManager.addMessage(msg);
-            }
-
-            this.outputChannel.appendLine(`[APIClient] Message deleted successfully`);
-        } catch (error: any) {
-            const errorMsg = `Failed to delete message: ${error.message}`;
-            this.outputChannel.appendLine(`[APIClient] ${errorMsg}`);
-            throw new Error(errorMsg);
-        }
-    }
 
     stop() {
         this.abortController?.abort();
@@ -321,18 +265,15 @@ export class APIClient {
         // Add to context manager
         this.contextManager.addMessage({ role: 'user', content: userMessage });
 
-        // Check if we need to trim context
-        const contextWindow = this.contextManager.getContextWindow();
-        if (contextWindow.isTruncated) {
-            this.outputChannel.appendLine(`⚠️ Context window trimmed: ${contextWindow.removedCount} messages removed`);
-            this.conversationHistory = contextWindow.messages;
-        } else {
-            this.conversationHistory.push({ role: 'user', content: userMessage });
-        }
+        // Always add to conversation history (full history for UI)
+        this.conversationHistory.push({ role: 'user', content: userMessage });
 
-        // Log token usage
+        // Log token usage and warn if approaching limit
         const stats = this.contextManager.getStats();
         this.outputChannel.appendLine(`📊 Context: ${stats.tokenCount.total} tokens (${stats.percentOfLimit.toFixed(1)}% of limit)`);
+        if (stats.percentOfLimit > 80) {
+            this.outputChannel.appendLine(`⚠️ Context window usage high - older messages may be trimmed for API calls`);
+        }
 
         try {
             await this.runAgentLoop(callbacks);
@@ -401,20 +342,22 @@ export class APIClient {
             this.totalOutputTokens += response.outputTokens;
 
             const toolUses = response.content.filter(b => b.type === 'tool_use');
-            
+
             if (toolUses.length === 0) {
                 if (response.bufferedText) {
                     callbacks.onText(response.bufferedText);
                 }
+                // Add final assistant message to MessageManager
+                this.messageManager.addAssistantMessage(response.content, false);
                 break;
             }
 
-            // Send any text that came before the tool use
-            if (response.bufferedText) {
-                callbacks.onText(response.bufferedText);
-            }
+            // DON'T send buffered text yet - wait until after tool execution
+            // This ensures permission prompts appear before the LLM response text
 
             this.conversationHistory.push({ role: 'assistant', content: response.content });
+            // Also add to message manager for UI tracking
+            this.messageManager.addAssistantMessage(response.content, false);
 
             const toolResults: ContentBlock[] = [];
             for (const toolUse of toolUses) {
@@ -494,6 +437,13 @@ export class APIClient {
                 });
             }
 
+            // NOW send the buffered text after all tools have executed
+            // This ensures the message order is: permission → tool execution → LLM response
+            if (response.bufferedText) {
+                // Add line breaks to separate this text from what comes after
+                callbacks.onText(response.bufferedText + '\n\n');
+            }
+
             this.conversationHistory.push({ role: 'user', content: toolResults });
 
             if (this.abortController?.signal.aborted) {
@@ -518,6 +468,14 @@ export class APIClient {
             throw new Error('Anthropic API key not configured. Please set azureDevOps.ai.anthropic.apiKey in settings.');
         }
 
+        // Get trimmed context window for API call (keeps full history in conversationHistory for UI)
+        const contextWindow = this.contextManager.getContextWindow();
+        const messagesToSend = contextWindow.isTruncated ? contextWindow.messages : this.conversationHistory;
+
+        if (contextWindow.isTruncated) {
+            this.outputChannel.appendLine(`📎 Trimmed ${contextWindow.removedCount} old messages for API call (full history preserved in UI)`);
+        }
+
         const response = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
             headers: {
@@ -529,7 +487,7 @@ export class APIClient {
                 model: this.anthropicModel,
                 max_tokens: 8192,
                 system: this.systemPrompt,
-                messages: this.conversationHistory,
+                messages: messagesToSend,
                 tools: this.mcpTools,
                 stream: true
             }),
@@ -622,8 +580,16 @@ export class APIClient {
             throw new Error('Azure OpenAI not configured. Please set endpoint, apiKey, and deployment in settings.');
         }
 
+        // Get trimmed context window for API call
+        const contextWindow = this.contextManager.getContextWindow();
+        const messagesToSend = contextWindow.isTruncated ? contextWindow.messages : this.conversationHistory;
+
+        if (contextWindow.isTruncated) {
+            this.outputChannel.appendLine(`📎 Trimmed ${contextWindow.removedCount} old messages for API call (full history preserved in UI)`);
+        }
+
         const url = `${this.azureEndpoint}/openai/deployments/${this.azureDeployment}/chat/completions?api-version=${this.azureApiVersion}`;
-        
+
         const response = await fetch(url, {
             method: 'POST',
             headers: {
@@ -633,7 +599,7 @@ export class APIClient {
             body: JSON.stringify({
                 messages: [
                     { role: 'system', content: this.systemPrompt },
-                    ...this.formatMessagesForOpenAI()
+                    ...this.formatMessagesForOpenAI(messagesToSend)
                 ],
                 tools: this.mcpTools,
                 stream: true,
@@ -672,6 +638,14 @@ export class APIClient {
     }
 
     private async callOpenAICompatible(url: string, apiKey: string, model: string) {
+        // Get trimmed context window for API call
+        const contextWindow = this.contextManager.getContextWindow();
+        const messagesToSend = contextWindow.isTruncated ? contextWindow.messages : this.conversationHistory;
+
+        if (contextWindow.isTruncated) {
+            this.outputChannel.appendLine(`📎 Trimmed ${contextWindow.removedCount} old messages for API call (full history preserved in UI)`);
+        }
+
         const response = await fetch(url, {
             method: 'POST',
             headers: {
@@ -682,7 +656,7 @@ export class APIClient {
                 model: model,
                 messages: [
                     { role: 'system', content: this.systemPrompt },
-                    ...this.formatMessagesForOpenAI()
+                    ...this.formatMessagesForOpenAI(messagesToSend)
                 ],
                 tools: this.mcpTools,
                 stream: true,
@@ -771,9 +745,10 @@ export class APIClient {
         return { content: contentBlocks, inputTokens, outputTokens, bufferedText: currentText };
     }
 
-    private formatMessagesForOpenAI(): any[] {
+    private formatMessagesForOpenAI(messagesToFormat?: Message[]): any[] {
         const messages: any[] = [];
-        for (const msg of this.conversationHistory) {
+        const sourceMessages = messagesToFormat || this.conversationHistory;
+        for (const msg of sourceMessages) {
             if (msg.role === 'user') {
                 if (typeof msg.content === 'string') {
                     messages.push({ role: 'user', content: msg.content });
