@@ -712,11 +712,13 @@ export class AzureDevOpsKanbanPanel {
             const title = item.title || 'Untitled';
             const assignedTo = item.assignedTo;
             const initials = assignedTo ? getInitials(assignedTo.displayName) : '?';
+            const icon = getWorkItemIcon(item.type);
+            const iconColor = getWorkItemColor(item.type);
 
             return \`
                 <div class="work-item-card" draggable="true" data-card-id="\${item.id}">
                     <div class="card-header">
-                        <span class="codicon codicon-circle-filled"></span>
+                        <span class="codicon codicon-\${icon}" style="color: \${iconColor};"></span>
                         <span class="card-id">#\${item.id}</span>
                     </div>
                     <div class="card-title">\${escapeHtml(title)}</div>
@@ -725,6 +727,32 @@ export class AzureDevOpsKanbanPanel {
                     </div>
                 </div>
             \`;
+        }
+
+        function getWorkItemIcon(type) {
+            const icons = {
+                'User Story': 'book',
+                'Task': 'checklist',
+                'Bug': 'bug',
+                'Epic': 'rocket',
+                'Feature': 'star',
+                'Issue': 'issues',
+                'Test Case': 'beaker'
+            };
+            return icons[type] || 'circle-filled';
+        }
+
+        function getWorkItemColor(type) {
+            const colors = {
+                'User Story': '#009CCC',
+                'Task': '#F2CB1D',
+                'Bug': '#CC293D',
+                'Epic': '#FF7B00',
+                'Feature': '#773B93',
+                'Issue': '#B4009E',
+                'Test Case': '#004B50'
+            };
+            return colors[type] || 'var(--vscode-foreground)';
         }
 
         function getInitials(name) {

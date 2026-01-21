@@ -51,6 +51,68 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
         return this.groupBy;
     }
 
+    /**
+     * Get unique work item types from currently loaded work items
+     */
+    getUniqueTypes(): string[] {
+        const types = new Set<string>();
+        this.workItems.forEach(item => {
+            const type = item.fields['System.WorkItemType'];
+            if (type) types.add(type);
+        });
+        return Array.from(types).sort();
+    }
+
+    /**
+     * Get unique work item states from currently loaded work items
+     */
+    getUniqueStates(): string[] {
+        const states = new Set<string>();
+        this.workItems.forEach(item => {
+            const state = item.fields['System.State'];
+            if (state) states.add(state);
+        });
+        // Sort by a logical order if possible
+        const stateOrder = ['New', 'To Do', 'Active', 'In Progress', 'Resolved', 'Ready for Review', 'Done', 'Closed', 'Removed'];
+        return Array.from(states).sort((a, b) => {
+            const aIndex = stateOrder.indexOf(a);
+            const bIndex = stateOrder.indexOf(b);
+            if (aIndex === -1 && bIndex === -1) return a.localeCompare(b);
+            if (aIndex === -1) return 1;
+            if (bIndex === -1) return -1;
+            return aIndex - bIndex;
+        });
+    }
+
+    /**
+     * Get the icon URI for a work item type
+     */
+    getWorkItemTypeIconUri(type: string): vscode.Uri | undefined {
+        const iconMap: Record<string, string> = {
+            'User Story': 'icon_user_story.svg',
+            'Product Backlog Item': 'icon_user_story.svg',
+            'Feature': 'icon_feature.svg',
+            'Epic': 'epic-crown-orange.svg',
+            'Task': 'task-clipboard-yellow.svg',
+            'Bug': 'icon_bug.svg',
+            'Issue': 'issue-clipboard-green.svg'
+        };
+        const iconFile = iconMap[type];
+        if (iconFile) {
+            return vscode.Uri.joinPath(this.context.extensionUri, 'media', iconFile);
+        }
+        return undefined;
+    }
+
+    /**
+     * Load work items if not already loaded (for filter options)
+     */
+    async ensureWorkItemsLoaded(): Promise<void> {
+        if (this.workItems.length === 0) {
+            await this.loadWorkItems();
+        }
+    }
+
     private async loadWorkItems(): Promise<void> {
         if (!this.authenticationManager.isConnected()) {
             this.workItems = [];
@@ -369,24 +431,35 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
     }
 
     private getIconForWorkItemType(type: string): vscode.ThemeIcon | { light: vscode.Uri; dark: vscode.Uri } {
+        // Map work item types to their corresponding SVG icons in media folder
+        const iconMap: Record<string, string> = {
+            'User Story': 'icon_user_story.svg',
+            'Product Backlog Item': 'icon_user_story.svg',
+            'Feature': 'icon_feature.svg',
+            'Epic': 'epic-crown-orange.svg',
+            'Task': 'task-clipboard-yellow.svg',
+            'Bug': 'icon_bug.svg',
+            'Issue': 'issue-clipboard-green.svg'
+        };
+
+        const iconFile = iconMap[type];
+        if (iconFile) {
+            const iconPath = vscode.Uri.joinPath(this.context.extensionUri, 'media', iconFile);
+            return { light: iconPath, dark: iconPath };
+        }
+
+        // Fallback to theme icons for types without custom icons
         switch (type) {
-            case WorkItemTypeEnum.UserStory:
-                return new vscode.ThemeIcon('book', new vscode.ThemeColor('charts.blue'));
-            case WorkItemTypeEnum.Task:
-                const taskIconPath = vscode.Uri.joinPath(this.context.extensionUri, 'media', 'task-clipboard-yellow.svg');
-                return { light: taskIconPath, dark: taskIconPath };
-            case WorkItemTypeEnum.Bug:
-                return new vscode.ThemeIcon('bug', new vscode.ThemeColor('charts.red'));
-            case WorkItemTypeEnum.Epic:
-                const epicIconPath = vscode.Uri.joinPath(this.context.extensionUri, 'media', 'epic-crown-orange.svg');
-                return { light: epicIconPath, dark: epicIconPath };
-            case WorkItemTypeEnum.Feature:
-                return new vscode.ThemeIcon('star', new vscode.ThemeColor('charts.orange'));
-            case WorkItemTypeEnum.Issue:
-                const issueIconPath = vscode.Uri.joinPath(this.context.extensionUri, 'media', 'issue-clipboard-green.svg');
-                return { light: issueIconPath, dark: issueIconPath };
+            case 'Test Case':
+            case 'Test Plan':
+            case 'Test Suite':
+                return new vscode.ThemeIcon('beaker', new vscode.ThemeColor('charts.purple'));
+            case 'Impediment':
+                return new vscode.ThemeIcon('warning', new vscode.ThemeColor('charts.yellow'));
+            case 'Risk':
+                return new vscode.ThemeIcon('warning', new vscode.ThemeColor('charts.orange'));
             default:
-                return new vscode.ThemeIcon('circle');
+                return new vscode.ThemeIcon('circle-outline');
         }
     }
 

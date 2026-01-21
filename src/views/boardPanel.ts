@@ -1181,14 +1181,27 @@ export class BoardPanel {
         }
 
         .add-item-form-container {
-            display: none;
-            padding: 8px 12px;
-            border-bottom: 1px solid var(--vscode-panel-border);
+            padding: 0 12px;
+            border-bottom: 1px solid transparent;
             background: var(--vscode-editor-background);
+            height: 0;
+            opacity: 0;
+            transform: translateY(-10px);
+            transition: height 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                        opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                        transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                        padding 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                        border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            z-index: 100;
         }
 
         .add-item-form-container.active {
-            display: block;
+            height: 44px;
+            padding: 8px 12px;
+            opacity: 1;
+            transform: translateY(0);
+            border-bottom-color: var(--vscode-panel-border);
         }
 
         .add-item-row {
@@ -1234,6 +1247,95 @@ export class BoardPanel {
         .add-item-submit {
             flex-shrink: 0;
             white-space: nowrap;
+        }
+
+        /* Custom Type Dropdown - Icon Only */
+        .add-item-type-dropdown {
+            position: relative;
+            flex-shrink: 0;
+        }
+
+        .add-item-type-btn {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 6px 8px;
+            background: var(--vscode-dropdown-background);
+            color: var(--vscode-dropdown-foreground);
+            border: 1px solid var(--vscode-dropdown-border);
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .add-item-type-btn:hover {
+            border-color: var(--vscode-focusBorder);
+            background: var(--vscode-list-hoverBackground);
+        }
+
+        .add-item-type-btn .type-icon {
+            font-size: 16px;
+            line-height: 1;
+        }
+
+        .add-item-type-btn .dropdown-arrow {
+            opacity: 0.7;
+            transition: transform 0.2s ease;
+        }
+
+        .add-item-type-dropdown.open .add-item-type-btn .dropdown-arrow {
+            transform: rotate(180deg);
+        }
+
+        .add-item-type-menu {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            margin-top: 4px;
+            background: var(--vscode-dropdown-background);
+            border: 1px solid var(--vscode-dropdown-border);
+            border-radius: 6px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+            z-index: 10000;
+            display: flex;
+            flex-direction: row;
+            gap: 2px;
+            padding: 6px;
+            opacity: 0;
+            transform: translateY(-8px) scale(0.95);
+            pointer-events: none;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .add-item-type-dropdown.open .add-item-type-menu {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            pointer-events: auto;
+        }
+
+        .type-menu-item {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .type-menu-item:hover {
+            background: var(--vscode-list-hoverBackground);
+            transform: scale(1.1);
+        }
+
+        .type-menu-item.selected {
+            background: var(--vscode-list-activeSelectionBackground);
+        }
+
+        .type-menu-item .type-icon {
+            font-size: 18px;
+            line-height: 1;
         }
 
         .wip-badge {
@@ -2198,15 +2300,20 @@ export class BoardPanel {
                 ${colIndex === 0 ? `
                 <div class="add-item-form-container" id="add-form-${this._escapeHtml(column.name).replace(/\s/g, '-')}">
                     <div class="add-item-row">
-                        <div class="add-item-type-selector">
-                            <select class="add-item-type-select" id="add-item-type-select">
+                        <div class="add-item-type-dropdown" id="add-item-type-dropdown">
+                            <button class="add-item-type-btn" id="add-item-type-btn" onclick="toggleTypeDropdown(event)" title="${this._escapeHtml(defaultWorkItemType)}">
+                                <span class="type-icon">${this._getTypeIcon(defaultWorkItemType)}</span>
+                                <svg class="dropdown-arrow" width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M4 6l4 4 4-4z"/></svg>
+                            </button>
+                            <div class="add-item-type-menu" id="add-item-type-menu">
                                 ${allWorkItemTypes.map(type => `
-                                    <option value="${this._escapeHtml(type)}" ${type === defaultWorkItemType ? 'selected' : ''}>
-                                        ${this._escapeHtml(type)}
-                                    </option>
+                                    <div class="type-menu-item ${type === defaultWorkItemType ? 'selected' : ''}" data-type="${this._escapeHtml(type)}" onclick="selectWorkItemType('${this._escapeHtml(type)}')" title="${this._escapeHtml(type)}">
+                                        <span class="type-icon">${this._getTypeIcon(type)}</span>
+                                    </div>
                                 `).join('')}
-                            </select>
+                            </div>
                         </div>
+                        <input type="hidden" id="add-item-type-value" value="${this._escapeHtml(defaultWorkItemType)}" />
                         <input type="text" class="add-item-input" id="add-item-title-input" placeholder="Enter title..."
                                onkeydown="handleAddKeydown(event, '${this._escapeHtml(column.name)}')" />
                         <button class="btn btn-primary add-item-submit" onclick="createItem('${this._escapeHtml(column.name)}')">Add to top</button>
@@ -2862,13 +2969,27 @@ export class BoardPanel {
             vscode.postMessage({ command: 'openInBrowser' });
         }
 
-        // Add item form
+        // Add item form - toggle open/close
         function showAddForm(columnName) {
             const formId = 'add-form-' + columnName.replace(/\\s/g, '-');
             const form = document.getElementById(formId);
             if (form) {
-                form.classList.add('active');
-                form.querySelector('.add-item-input').focus();
+                if (form.classList.contains('active')) {
+                    // Close the form with slide animation
+                    form.classList.remove('active');
+                    const titleInput = document.getElementById('add-item-title-input');
+                    if (titleInput) titleInput.value = '';
+                    // Also close type dropdown if open
+                    const typeDropdown = document.getElementById('add-item-type-dropdown');
+                    if (typeDropdown) typeDropdown.classList.remove('open');
+                } else {
+                    // Open the form with slide animation
+                    form.classList.add('active');
+                    setTimeout(() => {
+                        const input = form.querySelector('.add-item-input');
+                        if (input) input.focus();
+                    }, 100);
+                }
             }
         }
 
@@ -2891,10 +3012,10 @@ export class BoardPanel {
         }
 
         function createItem(columnName) {
-            const typeSelect = document.getElementById('add-item-type-select');
+            const typeValue = document.getElementById('add-item-type-value');
             const titleInput = document.getElementById('add-item-title-input');
             const title = titleInput ? titleInput.value.trim() : '';
-            const workItemType = typeSelect ? typeSelect.value : 'User Story';
+            const workItemType = typeValue ? typeValue.value : 'User Story';
 
             if (title) {
                 vscode.postMessage({
@@ -2905,6 +3026,62 @@ export class BoardPanel {
                 });
                 hideAddForm(columnName);
             }
+        }
+
+        // Type dropdown functions
+        function toggleTypeDropdown(event) {
+            event.stopPropagation();
+            const dropdown = document.getElementById('add-item-type-dropdown');
+            if (dropdown) {
+                dropdown.classList.toggle('open');
+            }
+        }
+
+        function selectWorkItemType(type) {
+            const typeValue = document.getElementById('add-item-type-value');
+            const typeBtn = document.getElementById('add-item-type-btn');
+            const dropdown = document.getElementById('add-item-type-dropdown');
+            const menu = document.getElementById('add-item-type-menu');
+
+            if (typeValue) typeValue.value = type;
+            if (typeBtn) {
+                typeBtn.title = type;
+                const iconSpan = typeBtn.querySelector('.type-icon');
+                if (iconSpan) {
+                    iconSpan.innerHTML = getTypeIcon(type);
+                }
+            }
+
+            // Update selected state in menu
+            if (menu) {
+                menu.querySelectorAll('.type-menu-item').forEach(item => {
+                    item.classList.toggle('selected', item.dataset.type === type);
+                });
+            }
+
+            // Close dropdown
+            if (dropdown) dropdown.classList.remove('open');
+        }
+
+        function getTypeIcon(type) {
+            const icons = {
+                'User Story': '📘',
+                'Product Backlog Item': '📘',
+                'Requirement': '📘',
+                'Feature': '🏆',
+                'Epic': '👑',
+                'Bug': '🐛',
+                'Task': '📋',
+                'Issue': '⚠️',
+                'Impediment': '🚧',
+                'Risk': '⚡',
+                'Change Request': '🔄',
+                'Review': '👁️',
+                'Test Case': '🧪',
+                'Test Plan': '📝',
+                'Test Suite': '📦'
+            };
+            return icons[type] || '📄';
         }
 
         // Toast notifications
@@ -2926,6 +3103,19 @@ export class BoardPanel {
             }
             if (!event.target.closest('.filter-dropdown')) {
                 document.querySelectorAll('.filter-dropdown-content').forEach(d => d.classList.remove('show'));
+            }
+            // Close type dropdown when clicking outside
+            if (!event.target.closest('.add-item-type-dropdown')) {
+                const typeDropdown = document.getElementById('add-item-type-dropdown');
+                if (typeDropdown) typeDropdown.classList.remove('open');
+            }
+            // Close add item form when clicking outside (but not on the add button)
+            if (!event.target.closest('.add-item-form-container') && !event.target.closest('.add-item-header-btn')) {
+                document.querySelectorAll('.add-item-form-container.active').forEach(form => {
+                    form.classList.remove('active');
+                    const titleInput = form.querySelector('.add-item-input');
+                    if (titleInput) titleInput.value = '';
+                });
             }
         });
 

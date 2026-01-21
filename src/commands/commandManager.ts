@@ -1378,24 +1378,85 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
                 return;
             }
 
-            const filterOptions = [
-                { label: '$(list-flat) Show All', state: null, type: null, assignedToMe: false },
-                { label: '$(person) Assigned to Me', state: null, type: null, assignedToMe: true },
-                { label: '$(play) Active Items', state: 'Active', type: null, assignedToMe: false },
-                { label: '$(circle-outline) New Items', state: 'New', type: null, assignedToMe: false },
-                { label: '$(check) Done Items', state: 'Done', type: null, assignedToMe: false },
-                { label: '$(book) User Stories', state: null, type: 'User Story', assignedToMe: false },
-                { label: '$(checklist) Tasks', state: null, type: 'Task', assignedToMe: false },
-                { label: '$(bug) Bugs', state: null, type: 'Bug', assignedToMe: false },
-                { label: '$(rocket) Epics', state: null, type: 'Epic', assignedToMe: false },
-                { label: '$(star) Features', state: null, type: 'Feature', assignedToMe: false }
+            // Ensure work items are loaded to get dynamic types and states
+            await components.workItemProvider.ensureWorkItemsLoaded();
+
+            // Get dynamic types and states from actual work items
+            const uniqueTypes = components.workItemProvider.getUniqueTypes();
+            const uniqueStates = components.workItemProvider.getUniqueStates();
+
+            // Icon mapping for states
+            const stateIcons: Record<string, string> = {
+                'New': '$(circle-outline)',
+                'To Do': '$(circle-outline)',
+                'Active': '$(play-circle)',
+                'In Progress': '$(play-circle)',
+                'Resolved': '$(check)',
+                'Ready for Review': '$(eye)',
+                'Done': '$(pass-filled)',
+                'Closed': '$(pass-filled)',
+                'Removed': '$(trash)'
+            };
+
+            // Icon mapping for types (using codicons)
+            const typeIcons: Record<string, string> = {
+                'User Story': '$(book)',
+                'Product Backlog Item': '$(book)',
+                'Feature': '$(star-full)',
+                'Epic': '$(flame)',
+                'Task': '$(tasklist)',
+                'Bug': '$(bug)',
+                'Issue': '$(issues)',
+                'Test Case': '$(beaker)',
+                'Test Plan': '$(beaker)',
+                'Test Suite': '$(beaker)',
+                'Impediment': '$(warning)',
+                'Risk': '$(alert)'
+            };
+
+            // Build filter options dynamically
+            const filterOptions: Array<{ label: string; description?: string; state: string | null; type: string | null; assignedToMe: boolean; kind?: vscode.QuickPickItemKind }> = [
+                { label: '$(list-flat) Show All', description: 'Clear all filters', state: null, type: null, assignedToMe: false },
+                { label: '$(person) Assigned to Me', description: 'Show only my items', state: null, type: null, assignedToMe: true },
+                { label: '', state: null, type: null, assignedToMe: false, kind: vscode.QuickPickItemKind.Separator }
             ];
 
+            // Add state filters dynamically
+            if (uniqueStates.length > 0) {
+                filterOptions.push({ label: 'Filter by State', state: null, type: null, assignedToMe: false, kind: vscode.QuickPickItemKind.Separator });
+                uniqueStates.forEach(state => {
+                    const icon = stateIcons[state] || '$(circle)';
+                    filterOptions.push({
+                        label: `${icon} ${state}`,
+                        description: 'State filter',
+                        state: state,
+                        type: null,
+                        assignedToMe: false
+                    });
+                });
+            }
+
+            // Add type filters dynamically
+            if (uniqueTypes.length > 0) {
+                filterOptions.push({ label: 'Filter by Type', state: null, type: null, assignedToMe: false, kind: vscode.QuickPickItemKind.Separator });
+                uniqueTypes.forEach(type => {
+                    const icon = typeIcons[type] || '$(circle)';
+                    filterOptions.push({
+                        label: `${icon} ${type}`,
+                        description: 'Type filter',
+                        state: null,
+                        type: type,
+                        assignedToMe: false
+                    });
+                });
+            }
+
             const selected = await vscode.window.showQuickPick(filterOptions, {
-                placeHolder: 'Select filter'
+                placeHolder: 'Select filter',
+                title: 'Filter Work Items'
             });
 
-            if (selected) {
+            if (selected && selected.kind !== vscode.QuickPickItemKind.Separator) {
                 components.workItemProvider.setFilter(selected.state, selected.type, selected.assignedToMe);
             }
         })
