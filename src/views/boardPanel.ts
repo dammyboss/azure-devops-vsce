@@ -25,6 +25,12 @@ interface BoardWorkItem {
     priority?: number;
     tags?: string;
     boardColumn?: string;
+    children?: {
+        id: number;
+        title: string;
+        state: string;
+        type: string;
+    }[];
 }
 
 interface Board {
@@ -183,6 +189,9 @@ export class BoardPanel {
                     case 'changeAssignee':
                         await this._changeAssignee(message.workItemId);
                         break;
+                    case 'confirmDeleteWorkItem':
+                        await this._confirmDeleteWorkItem(message.workItemId);
+                        break;
                     case 'deleteWorkItem':
                         await this._deleteWorkItem(message.workItemId);
                         break;
@@ -191,6 +200,9 @@ export class BoardPanel {
                         break;
                     case 'moveToIteration':
                         await this._showMoveToIterationPicker(message.workItemId);
+                        break;
+                    case 'addChildWorkItem':
+                        await this._addChildWorkItem(message.workItemId, message.workItemType);
                         break;
                 }
             },
@@ -379,12 +391,103 @@ export class BoardPanel {
             }
         }
 
+        // TODO: Re-enable child work items feature once we figure out the proper API parameters
+        // Fetch all child work items in a single batch
+        // await this._loadChildWorkItems(workItemsMap, axiosInstance);
+
         this.currentBoard = {
             id: this.boardId,
             name: this.boardName,
             columns,
             workItems: workItemsMap
         };
+    }
+
+    private async _loadChildWorkItems(workItemsMap: Map<string, BoardWorkItem[]>, axiosInstance: any): Promise<void> {
+        try {
+            // Collect all child work item IDs from all parent work items
+            const allChildIds = new Set<string>();
+            const parentToChildMap = new Map<number, string[]>(); // Maps parent ID to array of child IDs
+
+            // Iterate through all work items to find children
+            for (const [, workItems] of workItemsMap.entries()) {
+                for (const workItem of workItems) {
+                    const relations = (workItem as any)._tempRelations || [];
+                    const childRelations = relations.filter((rel: any) =>
+                        rel.rel === 'System.LinkTypes.Hierarchy-Forward' && rel.url
+                    );
+
+                    if (childRelations.length > 0) {
+                        const childIds: string[] = [];
+                        for (const rel of childRelations) {
+                            const match = rel.url.match(/\/(\d+)$/);
+                            if (match && match[1]) {
+                                const childId = match[1];
+                                allChildIds.add(childId);
+                                childIds.push(childId);
+                            }
+                        }
+                        if (childIds.length > 0) {
+                            parentToChildMap.set(workItem.id, childIds);
+                        }
+                    }
+                }
+            }
+
+            // If we have child IDs, fetch them all in one batch
+            if (allChildIds.size > 0) {
+                const childIdsString = Array.from(allChildIds).join(',');
+
+                const childrenResponse = await axiosInstance.get('/_apis/wit/workitems', {
+                    params: {
+                        'ids': childIdsString,
+                        'fields': 'System.Id,System.Title,System.State,System.WorkItemType'
+                    }
+                });
+
+                // Create a map of child ID to child data for quick lookup
+                const childDataMap = new Map<number, any>();
+                if (childrenResponse.data.value) {
+                    for (const child of childrenResponse.data.value) {
+                        childDataMap.set(child.id, {
+                            id: child.id,
+                            title: child.fields['System.Title'],
+                            state: child.fields['System.State'],
+                            type: child.fields['System.WorkItemType']
+                        });
+                    }
+                }
+
+                // Now assign children back to their parent work items
+                for (const [, workItems] of workItemsMap.entries()) {
+                    for (const workItem of workItems) {
+                        const childIds = parentToChildMap.get(workItem.id);
+                        if (childIds) {
+                            workItem.children = childIds
+                                .map(id => childDataMap.get(parseInt(id)))
+                                .filter(child => child !== undefined);
+                        }
+                        // Clean up the temporary relations property
+                        delete (workItem as any)._tempRelations;
+                    }
+                }
+            } else {
+                // Clean up relations from all work items even if no children
+                for (const [, workItems] of workItemsMap.entries()) {
+                    for (const workItem of workItems) {
+                        delete (workItem as any)._tempRelations;
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load child work items:', error);
+            // Clean up relations even on error
+            for (const [, workItems] of workItemsMap.entries()) {
+                for (const workItem of workItems) {
+                    delete (workItem as any)._tempRelations;
+                }
+            }
+        }
     }
 
     private async _moveWorkItem(workItemId: number, targetColumn: string, targetState: string): Promise<void> {
@@ -706,6 +809,19 @@ export class BoardPanel {
         }
     }
 
+    private async _confirmDeleteWorkItem(workItemId: number): Promise<void> {
+        const answer = await vscode.window.showWarningMessage(
+            `Are you sure you want to delete work item #${workItemId}?`,
+            { modal: true },
+            'Delete',
+            'Cancel'
+        );
+
+        if (answer === 'Delete') {
+            await this._deleteWorkItem(workItemId);
+        }
+    }
+
     private async _deleteWorkItem(workItemId: number): Promise<void> {
         try {
             const axiosInstance = this.authenticationManager.getAxiosInstance();
@@ -733,6 +849,72 @@ export class BoardPanel {
 
         } catch (error: any) {
             vscode.window.showErrorMessage(`Failed to delete work item: ${error?.message || error}`);
+        }
+    }
+
+    private async _addChildWorkItem(parentWorkItemId: number, workItemType: string): Promise<void> {
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+
+            if (!axiosInstance || !config?.defaultProject) {
+                throw new Error('Not connected');
+            }
+
+            // Ask for the title
+            const title = await vscode.window.showInputBox({
+                prompt: `Enter title for new ${workItemType}`,
+                placeHolder: 'Work item title'
+            });
+
+            if (!title) {
+                return; // User cancelled
+            }
+
+            // Create the work item
+            const response = await axiosInstance.post(
+                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workitems/$${encodeURIComponent(workItemType)}`,
+                [
+                    { op: 'add', path: '/fields/System.Title', value: title },
+                    { op: 'add', path: '/fields/System.State', value: 'To Do' }
+                ],
+                {
+                    headers: { 'Content-Type': 'application/json-patch+json' },
+                    params: { 'api-version': '7.1' }
+                }
+            );
+
+            const newWorkItemId = response.data.id;
+
+            // Add parent-child relationship
+            await axiosInstance.patch(
+                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workitems/${newWorkItemId}`,
+                [
+                    {
+                        op: 'add',
+                        path: '/relations/-',
+                        value: {
+                            rel: 'System.LinkTypes.Hierarchy-Reverse',
+                            url: `${axiosInstance.defaults.baseURL}/_apis/wit/workitems/${parentWorkItemId}`,
+                            attributes: {
+                                comment: 'Child work item'
+                            }
+                        }
+                    }
+                ],
+                {
+                    headers: { 'Content-Type': 'application/json-patch+json' },
+                    params: { 'api-version': '7.1' }
+                }
+            );
+
+            vscode.window.showInformationMessage(`Created ${workItemType} #${newWorkItemId} as child of #${parentWorkItemId}`);
+
+            // Refresh the board
+            await this._loadAndRender();
+
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Failed to create child work item: ${error?.message || error}`);
         }
     }
 
@@ -1067,12 +1249,24 @@ export class BoardPanel {
         // Combine board types with common types, removing duplicates
         const allWorkItemTypes = Array.from(new Set([...boardTypes, ...commonWorkItemTypes])).sort();
 
+        // Get the codicon font URI from VSCode
+        const codiconFontUri = this._panel.webview.asWebviewUri(
+            vscode.Uri.joinPath(this._extensionUri, 'node_modules', '@vscode', 'codicons', 'dist', 'codicon.ttf')
+        );
+
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Board: ${this._escapeHtml(this.boardName)}</title>
+    <style>
+        @font-face {
+            font-family: 'codicon';
+            font-display: block;
+            src: url('${codiconFontUri}') format('truetype');
+        }
+    </style>
     <style>
         * {
             box-sizing: border-box;
@@ -1086,6 +1280,16 @@ export class BoardPanel {
             color: var(--vscode-foreground);
             overflow-x: auto;
             min-height: 100vh;
+        }
+
+        /* Codicon Icons */
+        .codicon {
+            font-family: 'codicon';
+            font-size: 16px;
+            display: inline-block;
+            line-height: 1;
+            text-align: center;
+            vertical-align: middle;
         }
 
         /* Board Header */
@@ -1234,7 +1438,7 @@ export class BoardPanel {
             flex: 0 0 320px;
             min-width: 320px;
             background: var(--vscode-editor-background);
-            border-right: 1px solid var(--vscode-panel-border);
+            border-right: 2px solid var(--vscode-panel-border);
             display: flex;
             flex-direction: column;
             transition: all 0.3s ease;
@@ -1272,7 +1476,7 @@ export class BoardPanel {
 
         .column-header {
             padding: 12px 14px;
-            border-bottom: 1px solid var(--vscode-panel-border);
+            border-bottom: 2px solid var(--vscode-panel-border);
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -1542,8 +1746,8 @@ export class BoardPanel {
         /* Work Item Cards - MODERN DESIGN */
         .card {
             background: var(--vscode-editor-background);
-            border: 1px solid var(--vscode-panel-border);
-            border-left: 3px solid var(--card-type-color, #009ccc);
+            border: 2px solid var(--vscode-panel-border);
+            border-left: 4px solid var(--card-type-color, #009ccc);
             border-radius: 6px;
             padding: 12px;
             cursor: pointer;
@@ -1795,6 +1999,34 @@ export class BoardPanel {
             border-top: 1px solid var(--vscode-panel-border);
         }
 
+        /* Child work items indicator */
+        .child-indicator {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+            font-weight: 500;
+            margin-top: 8px;
+            padding: 4px 8px;
+            background: var(--vscode-sideBar-background);
+            border-radius: 4px;
+            border: 1px solid var(--vscode-panel-border);
+        }
+
+        .child-indicator svg {
+            flex-shrink: 0;
+        }
+
+        .child-indicator.completed {
+            text-decoration: line-through;
+            opacity: 0.7;
+        }
+
+        .child-count {
+            line-height: 1;
+        }
+
         .card-effort-toggle {
             background: transparent;
             border: 1px solid var(--vscode-input-border);
@@ -1827,7 +2059,6 @@ export class BoardPanel {
 
         /* Card Menu Dropdown */
         .card-menu {
-            display: none;
             position: fixed;
             min-width: 180px;
             background: var(--vscode-menu-background);
@@ -1836,10 +2067,16 @@ export class BoardPanel {
             box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
             z-index: 1000;
             padding: 4px 0;
+            opacity: 0;
+            transform: translateY(-10px);
+            pointer-events: none;
+            transition: opacity 0.2s ease, transform 0.2s ease;
         }
 
         .card-menu.show {
-            display: block;
+            opacity: 1;
+            transform: translateY(0);
+            pointer-events: auto;
         }
 
         .card-menu-item {
@@ -1849,8 +2086,24 @@ export class BoardPanel {
             color: var(--vscode-menu-foreground);
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 8px;
             transition: all 0.2s;
+        }
+
+        .card-menu-item .menu-icon {
+            width: 16px;
+            height: 16px;
+            flex-shrink: 0;
+            filter: brightness(0) saturate(100%) invert(var(--vscode-icon-foreground-opacity, 0.8));
+        }
+
+        .card-menu-item .menu-icon.test-icon {
+            width: 23px;
+            height: 23px;
+        }
+
+        .card-menu-item:hover .menu-icon {
+            filter: brightness(0) saturate(100%) invert(1);
         }
 
         .card-menu-item:hover {
@@ -2534,25 +2787,32 @@ export class BoardPanel {
     <!-- Card Menu -->
     <div class="card-menu" id="cardMenu">
         <div class="card-menu-item" onclick="cardMenuAction('open')">
-            <i class="codicon codicon-window"></i> Open
+            <img src="https://img.icons8.com/pastel-glyph/128/external-link--v2.png" class="menu-icon" alt="open"> Open
         </div>
         <div class="card-menu-item" onclick="cardMenuAction('editTitle')">
-            <i class="codicon codicon-edit"></i> Edit title
+            <img src="https://img.icons8.com/ios/50/edit--v1.png" class="menu-icon" alt="edit"> Edit title
         </div>
         <div class="card-menu-separator"></div>
         <div class="card-menu-item" onclick="cardMenuAction('moveToColumn')">
-            <i class="codicon codicon-arrow-swap"></i> Move to column
+            <img src="https://img.icons8.com/ios/50/resize-horizontal.png" class="menu-icon" alt="move column"> Move to column
         </div>
         <div class="card-menu-item" onclick="cardMenuAction('moveToIteration')">
-            <i class="codicon codicon-arrow-right"></i> Move to iteration
+            <img src="https://img.icons8.com/ios/50/resize-horizontal.png" class="menu-icon" alt="move iteration"> Move to iteration
+        </div>
+        <div class="card-menu-separator"></div>
+        <div class="card-menu-item" onclick="cardMenuAction('addTask')">
+            <img src="https://img.icons8.com/ios/50/plus--v1.png" class="menu-icon" alt="add task"> Add Task
+        </div>
+        <div class="card-menu-item" onclick="cardMenuAction('addTest')">
+            <img src="https://img.icons8.com/carbon-copy/100/test-tube.png" class="menu-icon test-icon" alt="add test"> Add Test
         </div>
         <div class="card-menu-separator"></div>
         <div class="card-menu-item" onclick="cardMenuAction('createBranch')">
-            <i class="codicon codicon-git-branch"></i> New branch...
+            <img src="https://img.icons8.com/ios/50/merge-git.png" class="menu-icon" alt="branch"> New branch...
         </div>
         <div class="card-menu-separator"></div>
         <div class="card-menu-item danger" onclick="cardMenuAction('delete')">
-            <i class="codicon codicon-trash"></i> Delete
+            <img src="https://img.icons8.com/ios/50/trash--v1.png" class="menu-icon" alt="delete"> Delete
         </div>
     </div>
 
@@ -3099,13 +3359,17 @@ export class BoardPanel {
                 case 'moveToIteration':
                     vscode.postMessage({ command: 'moveToIteration', workItemId: workItemId });
                     break;
+                case 'addTask':
+                    vscode.postMessage({ command: 'addChildWorkItem', workItemId: workItemId, workItemType: 'Task' });
+                    break;
+                case 'addTest':
+                    vscode.postMessage({ command: 'addChildWorkItem', workItemId: workItemId, workItemType: 'Test Case' });
+                    break;
                 case 'createBranch':
                     vscode.postMessage({ command: 'createBranch', workItemId: workItemId });
                     break;
                 case 'delete':
-                    if (confirm(\`Delete work item #\${workItemId}?\`)) {
-                        vscode.postMessage({ command: 'deleteWorkItem', workItemId: workItemId });
-                    }
+                    vscode.postMessage({ command: 'confirmDeleteWorkItem', workItemId: workItemId });
                     break;
             }
         }
@@ -3704,8 +3968,44 @@ export class BoardPanel {
                 <span class="card-assignee-name ${!item.assignedTo ? 'unassigned-text' : ''}">${item.assignedTo ? this._escapeHtml(item.assignedTo.displayName) : ''}</span>
             </div>
             ${tags ? `<div class="card-tags">${tags}</div>` : ''}
+            ${this._renderChildIndicator(item)}
         </div>`;
 
+    }
+
+    private _renderChildIndicator(item: BoardWorkItem): string {
+        if (!item.children || item.children.length === 0) {
+            return '';
+        }
+
+        const totalChildren = item.children.length;
+        const closedChildren = item.children.filter(child =>
+            child.state === 'Closed' || child.state === 'Done' || child.state === 'Resolved'
+        ).length;
+        const allClosed = closedChildren === totalChildren;
+        const childType = item.children[0].type;
+        const childIcon = this._getChildTypeIcon(childType);
+
+        return `
+            <div class="child-indicator ${allClosed ? 'completed' : ''}" title="${closedChildren} of ${totalChildren} child work items completed">
+                ${childIcon}
+                <span class="child-count">${closedChildren}/${totalChildren}</span>
+            </div>
+        `;
+    }
+
+    private _getChildTypeIcon(type: string): string {
+        // Return small SVG icons for child work item types
+        const icons: Record<string, string> = {
+            'Task': '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="2" width="10" height="12" rx="1" fill="#FFC107" opacity="0.3"/><path d="M4 4h8M4 7h6M4 10h5" stroke="#FFC107" stroke-width="1.5" stroke-linecap="round"/></svg>',
+            'Issue': '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="2" width="10" height="12" rx="1" fill="#28A745" opacity="0.3"/><path d="M4 4h8M4 7h6M4 10h5" stroke="#28A745" stroke-width="1.5" stroke-linecap="round"/></svg>',
+            'Bug': '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="5" fill="#CC293D" opacity="0.3"/><path d="M6 6l4 4M10 6l-4 4" stroke="#CC293D" stroke-width="1.5" stroke-linecap="round"/></svg>',
+            'Epic': '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 2l1.5 3 3.5.5-2.5 2.5.5 3.5L8 10l-3 1.5.5-3.5L3 5.5l3.5-.5L8 2z" fill="#FF8C00" opacity="0.3"/><path d="M8 2l1.5 3 3.5.5-2.5 2.5.5 3.5L8 10l-3 1.5.5-3.5L3 5.5l3.5-.5L8 2z" stroke="#FF8C00" stroke-width="1" stroke-linejoin="round"/></svg>',
+            'User Story': '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="10" height="10" rx="1" fill="#0078D4" opacity="0.3"/><path d="M5 5h6M5 8h6M5 11h4" stroke="#0078D4" stroke-width="1.5" stroke-linecap="round"/></svg>',
+            'Feature': '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="5" fill="#773B93" opacity="0.3"/><path d="M8 5v6M5 8h6" stroke="#773B93" stroke-width="1.5" stroke-linecap="round"/></svg>'
+        };
+
+        return icons[type] || '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="4" fill="currentColor" opacity="0.3"/><circle cx="8" cy="8" r="4" stroke="currentColor" stroke-width="1"/></svg>';
     }
 
     private _getTypeIcon(type: string): string {

@@ -175,13 +175,13 @@ export class AuthenticationManager {
             }
 
             // Get Microsoft session for auth using Azure DevOps app scope
+            const sessionOptions: any = forceNewSession
+                ? { forceNewSession: true, clearSessionPreference: true }
+                : { createIfNone: true };
+
             const session = await vscode.authentication.getSession('microsoft', [
                 'https://app.vssps.visualstudio.com/.default'
-            ], {
-                createIfNone: true,
-                forceNewSession: forceNewSession,
-                clearSessionPreference: forceNewSession
-            });
+            ], sessionOptions);
 
             if (!session) {
                 vscode.window.showErrorMessage('Authentication cancelled.');
