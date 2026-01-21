@@ -1725,8 +1725,7 @@ export class BoardPanel {
             justify-content: center;
             font-size: 10px;
             font-weight: 500;
-            background: rgba(34, 197, 94, 0.3);
-            color: #22c55e;
+            /* Colors set dynamically via JavaScript based on user */
         }
 
         .card-avatar.unassigned {
@@ -2581,10 +2580,56 @@ export class BoardPanel {
         let keyboardMoveMode = false;
         let contextMenuWorkItemId = null;
 
+        // Avatar color utility - generates consistent colors based on display name
+        function getAvatarColor(displayName) {
+            if (!displayName || displayName === 'Unassigned') {
+                return { bg: 'rgba(139, 139, 139, 0.3)', fg: '#8b8b8b' };
+            }
+
+            // Hash the display name to get a consistent number
+            let hash = 0;
+            for (let i = 0; i < displayName.length; i++) {
+                hash = displayName.charCodeAt(i) + ((hash << 5) - hash);
+            }
+
+            // Predefined pleasant color palette
+            const colors = [
+                { bg: 'rgba(34, 197, 94, 0.3)', fg: '#22c55e' },   // Green
+                { bg: 'rgba(59, 130, 246, 0.3)', fg: '#3b82f6' },  // Blue
+                { bg: 'rgba(168, 85, 247, 0.3)', fg: '#a855f7' },  // Purple
+                { bg: 'rgba(236, 72, 153, 0.3)', fg: '#ec4899' },  // Pink
+                { bg: 'rgba(251, 146, 60, 0.3)', fg: '#fb923c' },  // Orange
+                { bg: 'rgba(14, 165, 233, 0.3)', fg: '#0ea5e9' },  // Cyan
+                { bg: 'rgba(244, 63, 94, 0.3)', fg: '#f43f5e' },   // Red
+                { bg: 'rgba(234, 179, 8, 0.3)', fg: '#eab308' },   // Yellow
+                { bg: 'rgba(20, 184, 166, 0.3)', fg: '#14b8a6' },  // Teal
+                { bg: 'rgba(139, 92, 246, 0.3)', fg: '#8b5cf6' },  // Violet
+            ];
+
+            const index = Math.abs(hash) % colors.length;
+            return colors[index];
+        }
+
+        // Apply avatar colors after DOM is loaded
+        function applyAvatarColors() {
+            document.querySelectorAll('.card-avatar').forEach(avatar => {
+                const card = avatar.closest('.card');
+                if (card) {
+                    const displayName = card.getAttribute('data-assignee-name');
+                    if (!avatar.classList.contains('unassigned')) {
+                        const color = getAvatarColor(displayName);
+                        avatar.style.background = color.bg;
+                        avatar.style.color = color.fg;
+                    }
+                }
+            });
+        }
+
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             document.addEventListener('keydown', handleGlobalKeydown);
             document.addEventListener('click', hideContextMenu);
+            applyAvatarColors();
         });
 
         // Keyboard Navigation
