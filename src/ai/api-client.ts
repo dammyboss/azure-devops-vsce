@@ -5,6 +5,7 @@ import { TokenCounter } from './token-counter';
 import { SecretsManager } from './secrets-manager';
 import { ToolSchemaValidator } from './tool-schema-validator';
 import { ErrorHandler, CategorizedError } from './error-handler';
+import { MessageManager, UIMessage } from './message-manager';
 
 export interface Message {
     role: 'user' | 'assistant';
@@ -75,9 +76,11 @@ export class APIClient {
     private contextManager: ContextManager;
     private secretsManager: SecretsManager | null = null;
     private context: vscode.ExtensionContext | null = null;
+    private messageManager: MessageManager;
 
     constructor(outputChannel: vscode.OutputChannel, context?: vscode.ExtensionContext) {
         this.outputChannel = outputChannel;
+        this.messageManager = new MessageManager(outputChannel);
         this.context = context || null;
         this.provider = 'anthropic';
         this.systemPrompt = this.buildSystemPrompt();
@@ -236,6 +239,71 @@ export class APIClient {
         this.totalInputTokens = 0;
         this.totalOutputTokens = 0;
         this.contextManager.clear();
+        this.messageManager.clear();
+    }
+
+    /**
+     * Get all UI messages for display
+     */
+    getUIMessages(): UIMessage[] {
+        return this.messageManager.getUIMessages();
+    }
+
+    /**
+     * Edit a message and restart conversation from that point
+     */
+    async editMessage(timestamp: number, newContent: string, callbacks: StreamCallbacks): Promise<void> {
+        this.outputChannel.appendLine(`[APIClient] Editing message (ts: ${timestamp})`);
+
+        try {
+            // Rewind conversation history
+            await this.messageManager.editMessage(timestamp, newContent);
+
+            // Get updated API messages
+            const apiMessages = this.messageManager.getAPIMessages();
+            this.conversationHistory = apiMessages;
+
+            // Update context manager
+            this.contextManager.clear();
+            for (const msg of apiMessages) {
+                this.contextManager.addMessage(msg);
+            }
+
+            // Resubmit the edited message
+            await this.sendMessage(newContent, callbacks);
+        } catch (error: any) {
+            const errorMsg = `Failed to edit message: ${error.message}`;
+            this.outputChannel.appendLine(`[APIClient] ${errorMsg}`);
+            callbacks.onError(errorMsg);
+        }
+    }
+
+    /**
+     * Delete a message and all subsequent messages
+     */
+    async deleteMessage(timestamp: number): Promise<void> {
+        this.outputChannel.appendLine(`[APIClient] Deleting message (ts: ${timestamp})`);
+
+        try {
+            // Rewind conversation history
+            await this.messageManager.deleteMessage(timestamp);
+
+            // Get updated API messages
+            const apiMessages = this.messageManager.getAPIMessages();
+            this.conversationHistory = apiMessages;
+
+            // Update context manager
+            this.contextManager.clear();
+            for (const msg of apiMessages) {
+                this.contextManager.addMessage(msg);
+            }
+
+            this.outputChannel.appendLine(`[APIClient] Message deleted successfully`);
+        } catch (error: any) {
+            const errorMsg = `Failed to delete message: ${error.message}`;
+            this.outputChannel.appendLine(`[APIClient] ${errorMsg}`);
+            throw new Error(errorMsg);
+        }
     }
 
     stop() {
@@ -245,6 +313,9 @@ export class APIClient {
 
     async sendMessage(userMessage: string, callbacks: StreamCallbacks): Promise<void> {
         this.abortController = new AbortController();
+
+        // Add to message manager (tracks both UI and API history)
+        const uiMessage = this.messageManager.addUserMessage(userMessage);
 
         // Add to context manager
         this.contextManager.addMessage({ role: 'user', content: userMessage });

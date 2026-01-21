@@ -119,6 +119,12 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
                 case 'permissionResponse':
                     this.mcpClient.getPermissionsManager().respondToPermission(message.id, message.action);
                     break;
+                case 'confirmEditMessage':
+                    await this.handleEditMessage(message.timestamp, message.newContent);
+                    break;
+                case 'deleteMessage':
+                    await this.handleDeleteMessage(message.timestamp);
+                    break;
             }
         });
     }
@@ -175,17 +181,87 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
                 this.view?.webview.postMessage({ type: 'complete', inputTokens, outputTokens });
             },
             onPermissionPrompt: (id: string, serverName: string, toolName: string, toolInput: any) => {
-                this.view?.webview.postMessage({ 
-                    type: 'permissionPrompt', 
-                    id, 
-                    serverName, 
-                    toolName, 
-                    toolInput 
+                this.view?.webview.postMessage({
+                    type: 'permissionPrompt',
+                    id,
+                    serverName,
+                    toolName,
+                    toolInput
                 });
             }
         };
 
         await this.apiClient.sendMessage(text, callbacks);
+    }
+
+    private async handleEditMessage(timestamp: number, newContent: string) {
+        if (!this.view) return;
+
+        try {
+            // Show editing state
+            this.view.webview.postMessage({ type: 'editingMessage' });
+
+            // Create callbacks for the resubmitted message
+            const callbacks: StreamCallbacks = {
+                onText: (text: string) => {
+                    this.view?.webview.postMessage({ type: 'streamText', text });
+                },
+                onToolUse: (toolName: string, toolInput: any) => {
+                    this.view?.webview.postMessage({ type: 'toolUse', toolName, toolInput });
+                },
+                onToolResult: (toolName: string, result: string, isError: boolean) => {
+                    this.view?.webview.postMessage({ type: 'toolResult', toolName, result, isError });
+                },
+                onError: (error: string) => {
+                    this.view?.webview.postMessage({ type: 'error', error });
+                },
+                onComplete: (inputTokens: number, outputTokens: number) => {
+                    this.view?.webview.postMessage({ type: 'complete', inputTokens, outputTokens });
+                    // Send updated UI messages after completion
+                    const uiMessages = this.apiClient.getUIMessages();
+                    this.view?.webview.postMessage({ type: 'uiMessagesUpdate', messages: uiMessages });
+                },
+                onPermissionPrompt: (id: string, serverName: string, toolName: string, toolInput: any) => {
+                    this.view?.webview.postMessage({
+                        type: 'permissionPrompt',
+                        id,
+                        serverName,
+                        toolName,
+                        toolInput
+                    });
+                }
+            };
+
+            // Execute edit (this will rewind and resubmit)
+            await this.apiClient.editMessage(timestamp, newContent, callbacks);
+
+        } catch (error: any) {
+            this.view.webview.postMessage({
+                type: 'error',
+                error: `Failed to edit message: ${error.message}`
+            });
+            this.outputChannel.appendLine(`Error editing message: ${error.message}`);
+        }
+    }
+
+    private async handleDeleteMessage(timestamp: number) {
+        if (!this.view) return;
+
+        try {
+            // Execute delete
+            await this.apiClient.deleteMessage(timestamp);
+
+            // Send updated UI messages
+            const uiMessages = this.apiClient.getUIMessages();
+            this.view.webview.postMessage({ type: 'uiMessagesUpdate', messages: uiMessages });
+
+        } catch (error: any) {
+            this.view.webview.postMessage({
+                type: 'error',
+                error: `Failed to delete message: ${error.message}`
+            });
+            this.outputChannel.appendLine(`Error deleting message: ${error.message}`);
+        }
     }
 
     private getHtmlContent(webview: vscode.Webview): string {
@@ -1103,12 +1179,54 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             vscode.postMessage({ type: 'sendMessage', text });
         }
 
-        function addMessage(role, content) {
+        function addMessage(role, content, timestamp) {
             const messageDiv = document.createElement('div');
             messageDiv.className = \`message \${role}\`;
 
+            // Store timestamp for edit/delete
+            if (timestamp) {
+                messageDiv.setAttribute('data-timestamp', timestamp);
+            }
+
             if (role === 'user') {
-                messageDiv.textContent = content;
+                // Create user message with edit/delete buttons
+                const textDiv = document.createElement('div');
+                textDiv.className = 'user-message-text';
+                textDiv.textContent = content;
+                messageDiv.appendChild(textDiv);
+
+                // Add action buttons container
+                const actionsDiv = document.createElement('div');
+                actionsDiv.className = 'message-actions';
+                actionsDiv.style.cssText = 'display: flex; gap: 4px; margin-top: 8px; opacity: 0; transition: opacity 0.2s;';
+
+                // Edit button
+                const editBtn = document.createElement('button');
+                editBtn.className = 'message-action-btn';
+                editBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit';
+                editBtn.style.cssText = 'background: transparent; border: 1px solid rgba(255,255,255,0.1); color: var(--vscode-descriptionForeground); padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; display: flex; align-items: center; gap: 4px; transition: all 0.2s;';
+                editBtn.onclick = () => editMessage(timestamp, content);
+
+                // Delete button
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'message-action-btn';
+                deleteBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Delete';
+                deleteBtn.style.cssText = 'background: transparent; border: 1px solid rgba(255,255,255,0.1); color: var(--vscode-descriptionForeground); padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; display: flex; align-items: center; gap: 4px; transition: all 0.2s;';
+                deleteBtn.onclick = () => deleteMessage(timestamp);
+
+                actionsDiv.appendChild(editBtn);
+                actionsDiv.appendChild(deleteBtn);
+                messageDiv.appendChild(actionsDiv);
+
+                // Show/hide actions on hover
+                messageDiv.onmouseenter = () => {
+                    if (!isGenerating) {
+                        actionsDiv.style.opacity = '1';
+                    }
+                };
+                messageDiv.onmouseleave = () => {
+                    actionsDiv.style.opacity = '0';
+                };
             } else {
                 // Assistant message - clean, no header
                 const contentDiv = document.createElement('div');
@@ -1377,6 +1495,144 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
                 window.currentPermissionOverlay = null;
             }
         }
+
+        // Message Editing and Deletion
+        function editMessage(timestamp, currentContent) {
+            showEditConfirmDialog(timestamp, currentContent);
+        }
+
+        function deleteMessage(timestamp) {
+            showDeleteConfirmDialog(timestamp);
+        }
+
+        function showEditConfirmDialog(timestamp, currentContent) {
+            const overlay = document.createElement('div');
+            overlay.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); z-index: 10000; display: flex; align-items: center; justify-content: center; animation: fadeIn 0.2s ease;';
+
+            const dialog = document.createElement('div');
+            dialog.style.cssText = 'background: var(--vscode-editor-background); border: 1px solid var(--vscode-focusBorder); border-radius: 12px; padding: 24px; max-width: 500px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,0.4);';
+
+            dialog.innerHTML = \`
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+                    <div style="width: 40px; height: 40px; border-radius: 10px; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); display: flex; align-items: center; justify-content: center; font-size: 20px;">✏️</div>
+                    <div>
+                        <h3 style="margin: 0; font-size: 15px; font-weight: 600; color: var(--vscode-foreground);">Edit Message</h3>
+                        <p style="margin: 2px 0 0 0; font-size: 11px; color: var(--vscode-descriptionForeground); opacity: 0.8;">Editing will restart the conversation from this point</p>
+                    </div>
+                </div>
+                <div style="margin-bottom: 16px;">
+                    <textarea id="editTextarea" style="width: 100%; min-height: 100px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 12px; color: var(--vscode-foreground); font-family: var(--vscode-font-family); font-size: 13px; resize: vertical;" placeholder="Edit your message...">\${currentContent}</textarea>
+                </div>
+                <div style="display: flex; gap: 8px; justify-content: flex-end;">
+                    <button id="cancelEditBtn" style="padding: 8px 16px; background: rgba(255,255,255,0.05); color: var(--vscode-foreground); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500;">Cancel</button>
+                    <button id="confirmEditBtn" style="padding: 8px 16px; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500; box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);">Save & Restart</button>
+                </div>
+            \`;
+
+            overlay.appendChild(dialog);
+            document.body.appendChild(overlay);
+
+            const textarea = dialog.querySelector('#editTextarea');
+            const cancelBtn = dialog.querySelector('#cancelEditBtn');
+            const confirmBtn = dialog.querySelector('#confirmEditBtn');
+
+            textarea.focus();
+            textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+
+            cancelBtn.onclick = () => overlay.remove();
+            confirmBtn.onclick = () => {
+                const newContent = textarea.value.trim();
+                if (newContent) {
+                    vscode.postMessage({
+                        type: 'confirmEditMessage',
+                        timestamp: timestamp,
+                        newContent: newContent
+                    });
+                    overlay.remove();
+                }
+            };
+
+            overlay.onclick = (e) => {
+                if (e.target === overlay) {
+                    overlay.remove();
+                }
+            };
+        }
+
+        function showDeleteConfirmDialog(timestamp) {
+            const overlay = document.createElement('div');
+            overlay.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); z-index: 10000; display: flex; align-items: center; justify-content: center; animation: fadeIn 0.2s ease;';
+
+            const dialog = document.createElement('div');
+            dialog.style.cssText = 'background: var(--vscode-editor-background); border: 1px solid var(--vscode-focusBorder); border-radius: 12px; padding: 24px; max-width: 420px; box-shadow: 0 8px 32px rgba(0,0,0,0.4);';
+
+            dialog.innerHTML = \`
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+                    <div style="width: 40px; height: 40px; border-radius: 10px; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); display: flex; align-items: center; justify-content: center; font-size: 20px;">🗑️</div>
+                    <div>
+                        <h3 style="margin: 0; font-size: 15px; font-weight: 600; color: var(--vscode-foreground);">Delete Message</h3>
+                        <p style="margin: 2px 0 0 0; font-size: 11px; color: var(--vscode-descriptionForeground); opacity: 0.8;">This will delete this message and all subsequent messages</p>
+                    </div>
+                </div>
+                <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 8px; padding: 12px; margin-bottom: 20px;">
+                    <p style="margin: 0; font-size: 12px; color: var(--vscode-foreground);">⚠️ This action cannot be undone</p>
+                </div>
+                <div style="display: flex; gap: 8px; justify-content: flex-end;">
+                    <button id="cancelDeleteBtn" style="padding: 8px 16px; background: rgba(255,255,255,0.05); color: var(--vscode-foreground); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500;">Cancel</button>
+                    <button id="confirmDeleteBtn" style="padding: 8px 16px; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);">Delete</button>
+                </div>
+            \`;
+
+            overlay.appendChild(dialog);
+            document.body.appendChild(overlay);
+
+            const cancelBtn = dialog.querySelector('#cancelDeleteBtn');
+            const confirmBtn = dialog.querySelector('#confirmDeleteBtn');
+
+            cancelBtn.onclick = () => overlay.remove();
+            confirmBtn.onclick = () => {
+                vscode.postMessage({
+                    type: 'deleteMessage',
+                    timestamp: timestamp
+                });
+                overlay.remove();
+            };
+
+            overlay.onclick = (e) => {
+                if (e.target === overlay) {
+                    overlay.remove();
+                }
+            };
+        }
+
+        // Handle message updates from backend
+        window.addEventListener('message', event => {
+            const message = event.data;
+
+            switch (message.type) {
+                case 'uiMessagesUpdate':
+                    // Update UI with new message list after edit/delete
+                    messagesDiv.innerHTML = '';
+                    welcomeScreen.classList.add('hidden');
+                    message.messages.forEach(msg => {
+                        if (msg.role === 'user') {
+                            addMessage('user', msg.text, msg.ts);
+                        } else if (msg.role === 'assistant') {
+                            const content = typeof msg.content === 'string' ? msg.content :
+                                           msg.content?.map(b => b.text || '').join('') || '';
+                            addMessage('assistant', content, msg.ts);
+                        }
+                    });
+                    break;
+
+                case 'editingMessage':
+                    // Show that editing is in progress
+                    showAnimatedLoading();
+                    isGenerating = true;
+                    updateSendButton();
+                    break;
+            }
+        });
     </script>
 </body>
 </html>`;
