@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import { MCPPermissionsManager } from './mcp-permissions';
+import { MCPServerManager, MCPServerStatus } from './mcp-server-manager';
 
 export interface MCPServerConfig {
     name: string;
@@ -42,10 +43,12 @@ class MCPServerConnection {
     private config: MCPServerConfig;
     private outputChannel: vscode.OutputChannel;
     private isConnected = false;
+    private serverManager: MCPServerManager;
 
-    constructor(config: MCPServerConfig, outputChannel: vscode.OutputChannel) {
+    constructor(config: MCPServerConfig, outputChannel: vscode.OutputChannel, serverManager: MCPServerManager) {
         this.config = config;
         this.outputChannel = outputChannel;
+        this.serverManager = serverManager;
     }
 
     async connect(): Promise<void> {
@@ -78,6 +81,7 @@ class MCPServerConnection {
             });
 
             this.process.on('error', (error) => {
+                this.serverManager.markError(this.config.name, error.message);
                 this.outputChannel.appendLine(`[${this.config.name}] Process error: ${error.message}`);
                 vscode.window.showErrorMessage(`MCP server '${this.config.name}' error: ${error.message}`);
                 reject(error);
@@ -86,16 +90,19 @@ class MCPServerConnection {
             this.process.on('close', (code) => {
                 this.outputChannel.appendLine(`[${this.config.name}] Process closed with code ${code}`);
                 this.isConnected = false;
+                this.serverManager.markDisconnected(this.config.name);
             });
 
             setTimeout(async () => {
                 try {
                     await this.initialize();
                     this.isConnected = true;
+                    this.serverManager.markConnected(this.config.name, this.tools.length);
                     this.outputChannel.appendLine(`[${this.config.name}] Connected with ${this.tools.length} tools`);
                     vscode.window.showInformationMessage(`MCP server '${this.config.name}' connected (${this.tools.length} tools)`);
                     resolve();
                 } catch (error: any) {
+                    this.serverManager.markError(this.config.name, error.message);
                     this.outputChannel.appendLine(`[${this.config.name}] Init failed: ${error.message}`);
                     vscode.window.showErrorMessage(`MCP server '${this.config.name}' init failed: ${error.message}`);
                     reject(error);
@@ -188,9 +195,11 @@ class MCPServerConnection {
             }
 
             this.isConnected = true;
+            this.serverManager.markConnected(this.config.name, this.tools.length);
             this.outputChannel.appendLine(`[${this.config.name}] Connected to remote MCP server with ${this.tools.length} tools`);
             vscode.window.showInformationMessage(`MCP server '${this.config.name}' connected (${this.tools.length} tools)`);
         } catch (error: any) {
+            this.serverManager.markError(this.config.name, error.message);
             this.outputChannel.appendLine(`[${this.config.name}] Remote connection failed: ${error.message}`);
             vscode.window.showErrorMessage(`MCP server '${this.config.name}' connection failed: ${error.message}`);
             throw error;
@@ -327,17 +336,73 @@ class MCPServerConnection {
             this.process = null;
         }
         this.isConnected = false;
+        this.serverManager.markDisconnected(this.config.name);
+    }
+
+    async performHealthCheck(): Promise<boolean> {
+        try {
+            if (this.config.type === 'remote' && this.config.url) {
+                // Simple ping for remote servers
+                const response = await fetch(this.config.url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...this.config.headers
+                    },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: 999999,
+                        method: 'ping',
+                        params: {}
+                    })
+                });
+                return response.ok;
+            } else {
+                // Check if local process is still alive
+                return this.isConnected && this.process !== null && !this.process.killed;
+            }
+        } catch (error) {
+            return false;
+        }
     }
 }
 
 export class MCPClient {
     private servers = new Map<string, MCPServerConnection>();
+    private serverConfigs = new Map<string, MCPServerConfig>();
     private outputChannel: vscode.OutputChannel;
     private permissionsManager: MCPPermissionsManager;
+    private serverManager: MCPServerManager;
 
     constructor(outputChannel: vscode.OutputChannel, context: vscode.ExtensionContext) {
         this.outputChannel = outputChannel;
         this.permissionsManager = MCPPermissionsManager.getInstance(context);
+        this.serverManager = new MCPServerManager(outputChannel);
+
+        // Set up health check callback
+        this.serverManager.setHealthCheckCallback(async (serverName: string) => {
+            const server = this.servers.get(serverName);
+            if (server) {
+                return await server.performHealthCheck();
+            }
+            return false;
+        });
+
+        // Set up reconnection callback
+        this.serverManager.setReconnectCallback(async (serverName: string) => {
+            const config = this.serverConfigs.get(serverName);
+            if (config) {
+                this.outputChannel.appendLine(`[${serverName}] Attempting reconnection...`);
+                const success = await this.connectServer(config);
+                if (success) {
+                    this.outputChannel.appendLine(`[${serverName}] Reconnected successfully`);
+                } else {
+                    this.outputChannel.appendLine(`[${serverName}] Reconnection failed`);
+                }
+                return success;
+            }
+            return false;
+        });
     }
 
     async loadServers(configs: MCPServerConfig[]): Promise<void> {
@@ -347,6 +412,8 @@ export class MCPClient {
             if (!configServer || (configServer as any).enabled === false) {
                 server.disconnect();
                 this.servers.delete(name);
+                this.serverConfigs.delete(name);
+                this.serverManager.unregisterServer(name);
             }
         }
 
@@ -358,6 +425,12 @@ export class MCPClient {
                 continue;
             }
 
+            // Store config for reconnection
+            this.serverConfigs.set(config.name, config);
+
+            // Register with server manager
+            this.serverManager.registerServer(config.name, config.type);
+
             // Skip if already connected
             if (this.servers.has(config.name) && this.servers.get(config.name)!.isActive()) {
                 this.outputChannel.appendLine(`MCP server already connected: ${config.name}`);
@@ -365,7 +438,7 @@ export class MCPClient {
             }
 
             try {
-                const server = new MCPServerConnection(config, this.outputChannel);
+                const server = new MCPServerConnection(config, this.outputChannel, this.serverManager);
                 await server.connect();
                 this.servers.set(config.name, server);
             } catch (error: any) {
@@ -380,7 +453,13 @@ export class MCPClient {
                 this.servers.get(config.name)?.disconnect();
             }
 
-            const server = new MCPServerConnection(config, this.outputChannel);
+            // Store config for reconnection
+            this.serverConfigs.set(config.name, config);
+
+            // Register with server manager
+            this.serverManager.registerServer(config.name, config.type);
+
+            const server = new MCPServerConnection(config, this.outputChannel, this.serverManager);
             await server.connect();
             this.servers.set(config.name, server);
             return true;
@@ -395,6 +474,8 @@ export class MCPClient {
         if (server) {
             server.disconnect();
             this.servers.delete(name);
+            this.serverConfigs.delete(name);
+            this.serverManager.unregisterServer(name);
         }
     }
 
@@ -503,5 +584,25 @@ export class MCPClient {
             server.disconnect();
         }
         this.servers.clear();
+        this.serverConfigs.clear();
+        this.serverManager.dispose();
+    }
+
+    getServerManager(): MCPServerManager {
+        return this.serverManager;
+    }
+
+    getServerStatus(serverName: string): MCPServerStatus {
+        const health = this.serverManager.getServerHealth(serverName);
+        return health ? health.status : MCPServerStatus.Disconnected;
+    }
+
+    getAllServerStatus(): Array<{ name: string; status: MCPServerStatus; toolCount: number }> {
+        const allHealth = this.serverManager.getAllServerHealth();
+        return allHealth.map(health => ({
+            name: health.serverName,
+            status: health.status,
+            toolCount: health.toolCount
+        }));
     }
 }

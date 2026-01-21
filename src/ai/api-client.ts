@@ -3,6 +3,8 @@ import { MCPClient } from './mcp-client';
 import { ContextManager } from './context-manager';
 import { TokenCounter } from './token-counter';
 import { SecretsManager } from './secrets-manager';
+import { ToolSchemaValidator } from './tool-schema-validator';
+import { ErrorHandler, CategorizedError } from './error-handler';
 
 export interface Message {
     role: 'user' | 'assistant';
@@ -266,7 +268,11 @@ export class APIClient {
             if (error.name === 'AbortError') {
                 callbacks.onError('Request cancelled');
             } else {
-                callbacks.onError(error.message || 'Unknown error');
+                // Categorize and handle error properly
+                const categorized = ErrorHandler.categorize(error);
+                const errorMessage = ErrorHandler.getUserMessage(categorized, true);
+                this.outputChannel.appendLine(`[API Error] ${ErrorHandler.formatForLogging(categorized)}`);
+                callbacks.onError(errorMessage);
             }
         } finally {
             this.abortController = null;
@@ -280,20 +286,41 @@ export class APIClient {
 
         while (iteration < maxIterations) {
             iteration++;
-            
+
+            // Wrap API call in retry logic
             let response;
-            if (this.provider === 'anthropic') {
-                response = await this.callAnthropicAPI();
-            } else if (this.provider === 'azure') {
-                response = await this.callAzureAPI();
-            } else if (this.provider === 'deepseek') {
-                response = await this.callDeepSeekAPI();
-            } else if (this.provider === 'grok') {
-                response = await this.callGrokAPI();
-            } else if (this.provider === 'openai') {
-                response = await this.callOpenAIAPI();
-            } else {
-                response = await this.callAnthropicAPI(); // Default to Anthropic
+            try {
+                response = await ErrorHandler.withRetry(
+                    async () => {
+                        if (this.provider === 'anthropic') {
+                            return await this.callAnthropicAPI();
+                        } else if (this.provider === 'azure') {
+                            return await this.callAzureAPI();
+                        } else if (this.provider === 'deepseek') {
+                            return await this.callDeepSeekAPI();
+                        } else if (this.provider === 'grok') {
+                            return await this.callGrokAPI();
+                        } else if (this.provider === 'openai') {
+                            return await this.callOpenAIAPI();
+                        } else {
+                            return await this.callAnthropicAPI(); // Default to Anthropic
+                        }
+                    },
+                    {
+                        maxRetries: 3,
+                        baseDelay: 1000,
+                        maxDelay: 30000,
+                        backoffMultiplier: 2
+                    },
+                    (attempt: number, error: CategorizedError) => {
+                        this.outputChannel.appendLine(
+                            `[API Retry] Attempt ${attempt}: ${error.userMessage}`
+                        );
+                    }
+                );
+            } catch (error: any) {
+                // If retry fails, throw the categorized error
+                throw error;
             }
 
             this.totalInputTokens += response.inputTokens;
@@ -318,11 +345,41 @@ export class APIClient {
             const toolResults: ContentBlock[] = [];
             for (const toolUse of toolUses) {
                 callbacks.onToolUse(toolUse.name!, toolUse.input);
-                
+
                 // Actually call the MCP tool
                 let result: { success: boolean; result: string; error?: string };
                 if (this.mcpClient && toolUse.name) {
                     try {
+                        // Get tool schema for validation
+                        const allTools = this.mcpClient.getAllTools();
+                        const tool = allTools.find(t => {
+                            const name = `mcp_${t.serverName}_${t.name}`.substring(0, 64);
+                            return toolUse.name === name;
+                        });
+
+                        // Validate tool input against schema
+                        if (tool && tool.inputSchema) {
+                            const validation = ToolSchemaValidator.validateAndGetMessage(toolUse.input, tool.inputSchema);
+                            if (!validation.valid) {
+                                this.outputChannel.appendLine(`[Tool Validation Error] ${toolUse.name}: ${validation.message}`);
+                                const validationError = `Tool input validation failed: ${validation.message}`;
+                                result = {
+                                    success: false,
+                                    result: '',
+                                    error: validationError
+                                };
+                                callbacks.onToolResult(toolUse.name!, validationError, true);
+                                toolResults.push({
+                                    type: 'tool_result',
+                                    tool_use_id: toolUse.id,
+                                    content: validationError,
+                                    is_error: true
+                                });
+                                continue;
+                            }
+                        }
+
+                        // Check permissions
                         const hasPermission = await this.mcpClient.checkToolPermission(
                             toolUse.name,
                             toolUse.input,
@@ -332,15 +389,28 @@ export class APIClient {
                         if (!hasPermission) {
                             result = { success: false, result: '', error: 'Permission denied by user' };
                         } else {
-                            result = await this.mcpClient.callTool(toolUse.name, toolUse.input);
+                            // Execute with retry logic and error handling
+                            result = await ErrorHandler.withRetry(
+                                async () => await this.mcpClient!.callTool(toolUse.name!, toolUse.input),
+                                { maxRetries: 2, baseDelay: 1000 }, // Shorter retry for tools
+                                (attempt: number, error: CategorizedError) => {
+                                    this.outputChannel.appendLine(
+                                        `[Tool Retry] ${toolUse.name} - Attempt ${attempt}: ${error.userMessage}`
+                                    );
+                                }
+                            );
                         }
                     } catch (error: any) {
-                        result = { success: false, result: '', error: error.message || 'Tool execution failed' };
+                        // Categorize error and provide better messages
+                        const categorized = ErrorHandler.categorize(error);
+                        const errorMessage = ErrorHandler.getUserMessage(categorized, true);
+                        this.outputChannel.appendLine(`[Tool Error] ${toolUse.name}: ${ErrorHandler.formatForLogging(categorized)}`);
+                        result = { success: false, result: '', error: errorMessage };
                     }
                 } else {
                     result = { success: false, result: '', error: 'MCP client not available' };
                 }
-                
+
                 callbacks.onToolResult(toolUse.name!, result.result || result.error || 'No result', !result.success);
                 toolResults.push({
                     type: 'tool_result',
