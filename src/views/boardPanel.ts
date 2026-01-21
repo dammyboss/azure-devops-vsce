@@ -896,6 +896,25 @@ export class BoardPanel {
         });
         const boardTypes = Array.from(uniqueTypes).sort();
 
+        // Extract unique priorities from work items on the board
+        const uniquePriorities = new Set<number>();
+        workItems.forEach((items) => {
+            items.forEach(item => {
+                if (item.priority !== undefined && item.priority !== null) {
+                    uniquePriorities.add(item.priority);
+                }
+            });
+        });
+        const boardPriorities = Array.from(uniquePriorities).sort((a, b) => a - b);
+
+        // Priority labels mapping
+        const priorityLabels: Record<number, string> = {
+            1: '1 - Critical',
+            2: '2 - High',
+            3: '3 - Medium',
+            4: '4 - Low'
+        };
+
         // Derive default work item type from board name
         const defaultWorkItemType = this._getDefaultWorkItemType();
 
@@ -2230,10 +2249,12 @@ export class BoardPanel {
                 <button class="filter-dropdown-btn" id="priorityDropdownBtn" onclick="toggleDropdown('priorityDropdownContent')">All Priorities</button>
                 <div class="filter-dropdown-content" id="priorityDropdownContent">
                     <label class="filter-checkbox-item"><input type="checkbox" name="priority" value="all" checked onchange="handleFilterChange('priority', this)"> All Priorities</label>
-                    <label class="filter-checkbox-item"><input type="checkbox" name="priority" value="1" onchange="handleFilterChange('priority', this)"> 1 - Critical</label>
-                    <label class="filter-checkbox-item"><input type="checkbox" name="priority" value="2" onchange="handleFilterChange('priority', this)"> 2 - High</label>
-                    <label class="filter-checkbox-item"><input type="checkbox" name="priority" value="3" onchange="handleFilterChange('priority', this)"> 3 - Medium</label>
-                    <label class="filter-checkbox-item"><input type="checkbox" name="priority" value="4" onchange="handleFilterChange('priority', this)"> 4 - Low</label>
+                    ${boardPriorities.map(priority => `
+                        <label class="filter-checkbox-item">
+                            <input type="checkbox" name="priority" value="${priority}" onchange="handleFilterChange('priority', this)">
+                            ${priorityLabels[priority] || priority}
+                        </label>
+                    `).join('')}
                 </div>
             </div>
         </div>

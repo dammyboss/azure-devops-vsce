@@ -34,6 +34,16 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
         this._onDidChangeTreeData.fire();
     }
 
+    /**
+     * Force reload work items by clearing cache and local data
+     * Use this after making changes to work items
+     */
+    forceRefresh(): void {
+        this.cacheManager.invalidatePattern('workitems');
+        this.workItems = []; // Clear local data to force reload
+        this._onDidChangeTreeData.fire();
+    }
+
     setFilter(state: string | null, type: string | null, assignedToMe: boolean): void {
         this.filterState = state;
         this.filterType = type;
@@ -618,8 +628,7 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
                         headers: { 'Content-Type': 'application/json-patch+json' }
                     }
                 );
-                this.cacheManager.invalidatePattern('workitems');
-                this.refresh();
+                this.forceRefresh();
                 return true;
             }
 

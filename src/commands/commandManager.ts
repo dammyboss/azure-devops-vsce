@@ -238,7 +238,7 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
 
             if (workItem) {
                 // Invalidate cache and refresh to show new work item
-                components.workItemProvider.refresh();
+                components.workItemProvider.forceRefresh();
                 
                 const action = await vscode.window.showInformationMessage(
                     `Created ${workItemType} #${workItem.id}: ${title}`,
@@ -887,7 +887,7 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
                     );
 
                     vscode.window.showInformationMessage(`Work item #${workItemId} updated`);
-                    components.workItemProvider.refresh();
+                    components.workItemProvider.forceRefresh();
                 }
             } catch (error) {
                 vscode.window.showErrorMessage(`Failed to update work item: ${error}`);
@@ -952,7 +952,7 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
                 );
 
                 vscode.window.showInformationMessage(`Work item #${workItemId} state changed to: ${newState}`);
-                components.workItemProvider.refresh();
+                components.workItemProvider.forceRefresh();
             } catch (error) {
                 vscode.window.showErrorMessage(`Failed to change state: ${error}`);
             }
@@ -1029,7 +1029,7 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
                         ? `Work item #${workItemId} assigned to ${selected.label}`
                         : `Work item #${workItemId} unassigned`
                 );
-                components.workItemProvider.refresh();
+                components.workItemProvider.forceRefresh();
             } catch (error) {
                 vscode.window.showErrorMessage(`Failed to assign work item: ${error}`);
             }
@@ -1110,7 +1110,7 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
 
             if (successCount > 0) {
                 vscode.window.showInformationMessage(`Changed state to "${newState}" for ${successCount} work item(s)${errorCount > 0 ? ` (${errorCount} failed)` : ''}`);
-                components.workItemProvider.refresh();
+                components.workItemProvider.forceRefresh();
             } else {
                 vscode.window.showErrorMessage('Failed to change state for any work items');
             }
@@ -1216,7 +1216,7 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
                     ? `Assigned ${successCount} work item(s) to ${selected.label}`
                     : `Unassigned ${successCount} work item(s)`;
                 vscode.window.showInformationMessage(`${message}${errorCount > 0 ? ` (${errorCount} failed)` : ''}`);
-                components.workItemProvider.refresh();
+                components.workItemProvider.forceRefresh();
             } else {
                 vscode.window.showErrorMessage('Failed to assign any work items');
             }
@@ -1311,7 +1311,7 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
 
             if (successCount > 0) {
                 vscode.window.showInformationMessage(`Moved ${successCount} work item(s) to ${selected.label}${errorCount > 0 ? ` (${errorCount} failed)` : ''}`);
-                components.workItemProvider.refresh();
+                components.workItemProvider.forceRefresh();
             } else {
                 vscode.window.showErrorMessage('Failed to move any work items');
             }
@@ -1569,7 +1569,7 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
                 );
 
                 vscode.window.showInformationMessage(`Work item #${workItemId} assigned to you`);
-                components.workItemProvider.refresh();
+                components.workItemProvider.forceRefresh();
             } catch (error) {
                 vscode.window.showErrorMessage(`Failed to assign work item: ${error}`);
             }
@@ -1988,7 +1988,7 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
             const success = await components.workItemLinksManager.addLink(workItemId, (selected as any).id, linkType.label);
             if (success) {
                 vscode.window.showInformationMessage(`Linked as ${linkType.label}`);
-                components.workItemProvider.refresh();
+                components.workItemProvider.forceRefresh();
             } else {
                 vscode.window.showErrorMessage('Failed to create link');
             }
@@ -2060,7 +2060,7 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
                     vscode.commands.executeCommand('azureDevOps.viewWorkItemDetails', newWorkItem.id);
                 }
 
-                components.workItemProvider.refresh();
+                components.workItemProvider.forceRefresh();
             } else {
                 vscode.window.showErrorMessage('Work item created but failed to link');
             }
