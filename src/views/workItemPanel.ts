@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { AuthenticationManager } from '../authentication/authenticationManager';
 import { WorkItem } from '../models/workItem';
+import { WorkItemEventManager } from '../events/workItemEventManager';
 
 interface IterationInfo {
     id: string;
@@ -31,6 +32,8 @@ export class WorkItemPanel {
     private _teamMembers: TeamMemberInfo[] = [];
     private _existingTags: string[] = [];
     private _availableStates: string[] = [];
+    private eventManager = WorkItemEventManager.getInstance();
+    private eventSubscription: vscode.Disposable | null = null;
 
     public static createOrShow(
         extensionUri: vscode.Uri,
@@ -66,6 +69,14 @@ export class WorkItemPanel {
         this._extensionUri = extensionUri;
         this.authenticationManager = authenticationManager;
         this._workItem = workItem;
+
+        // Subscribe to work item updates from other views
+        this.eventSubscription = this.eventManager.onWorkItemUpdated((event) => {
+            if (this._workItem && event.workItemId === this._workItem.id) {
+                // Refresh this panel if it's showing the updated work item
+                this.refreshWorkItem();
+            }
+        });
 
         this._update();
 
@@ -160,6 +171,16 @@ export class WorkItemPanel {
                     { headers: { 'Content-Type': 'application/json-patch+json' } }
                 );
 
+                // Broadcast update to all views
+                this.eventManager.notifyWorkItemUpdated({
+                    workItemId: this._workItem.id,
+                    updateType: 'update',
+                    changes: patchDocument.map(p => ({
+                        field: p.path,
+                        newValue: p.value
+                    }))
+                });
+
                 vscode.window.showInformationMessage(`✓ Saved`);
                 await this.refreshWorkItem();
             }
@@ -180,6 +201,13 @@ export class WorkItemPanel {
                 [{ op: 'replace', path: '/fields/System.State', value: newState }],
                 { headers: { 'Content-Type': 'application/json-patch+json' } }
             );
+
+            // Broadcast state change to all views
+            this.eventManager.notifyWorkItemUpdated({
+                workItemId: this._workItem.id,
+                updateType: 'state-change',
+                changes: [{ field: '/fields/System.State', newValue: newState }]
+            });
 
             vscode.window.showInformationMessage(`State changed to ${newState}`);
             await this.refreshWorkItem();
@@ -203,6 +231,13 @@ export class WorkItemPanel {
                 [{ op: 'replace', path: '/fields/System.AssignedTo', value: currentUser.uniqueName }],
                 { headers: { 'Content-Type': 'application/json-patch+json' } }
             );
+
+            // Broadcast assignment to all views
+            this.eventManager.notifyWorkItemUpdated({
+                workItemId: this._workItem.id,
+                updateType: 'assign',
+                changes: [{ field: '/fields/System.AssignedTo', newValue: currentUser.uniqueName }]
+            });
 
             vscode.window.showInformationMessage('Assigned to you');
             await this.refreshWorkItem();
@@ -228,6 +263,13 @@ export class WorkItemPanel {
                 { headers: { 'Content-Type': 'application/json-patch+json' } }
             );
 
+            // Broadcast assignment to all views
+            this.eventManager.notifyWorkItemUpdated({
+                workItemId: this._workItem.id,
+                updateType: 'assign',
+                changes: [{ field: '/fields/System.AssignedTo', newValue: uniqueName }]
+            });
+
             vscode.window.showInformationMessage(uniqueName ? 'Assignee updated' : 'Assignee removed');
             await this.refreshWorkItem();
         } catch (error) {
@@ -252,6 +294,13 @@ export class WorkItemPanel {
                 [patchOp],
                 { headers: { 'Content-Type': 'application/json-patch+json' } }
             );
+
+            // Broadcast field update to all views
+            this.eventManager.notifyWorkItemUpdated({
+                workItemId: this._workItem.id,
+                updateType: 'update',
+                changes: [{ field: fieldPath, newValue: value }]
+            });
 
             vscode.window.showInformationMessage('Field updated');
             await this.refreshWorkItem();
@@ -1929,6 +1978,12 @@ export class WorkItemPanel {
     }
 
     public dispose() {
+        // Unsubscribe from events
+        if (this.eventSubscription) {
+            this.eventSubscription.dispose();
+            this.eventSubscription = null;
+        }
+
         this._panel.dispose();
         while (this._disposables.length) {
             const x = this._disposables.pop();

@@ -18,6 +18,7 @@ import { ConnectionStatusProvider } from '../authentication/connectionStatusProv
 
 import { WorkItemLinksManager } from '../utils/workItemLinksManager';
 import { SettingsUIProvider } from '../ai/settings-ui';
+import { WorkItemEventManager } from '../events/workItemEventManager';
 
 interface ExtensionComponents {
     authenticationManager: AuthenticationManager;
@@ -42,6 +43,8 @@ interface TeamMemberQuickPickItem extends vscode.QuickPickItem {
 }
 
 export function registerCommands(context: vscode.ExtensionContext, components: ExtensionComponents): void {
+    const eventManager = WorkItemEventManager.getInstance();
+
     // Connect command
     context.subscriptions.push(
         vscode.commands.registerCommand('azureDevOps.connect', async () => {
@@ -950,6 +953,13 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
                     [{ op: 'replace', path: '/fields/System.State', value: newState }],
                     { headers: { 'Content-Type': 'application/json-patch+json' } }
                 );
+
+                // Broadcast state change to all views
+                eventManager.notifyWorkItemUpdated({
+                    workItemId,
+                    updateType: 'state-change',
+                    changes: [{ field: '/fields/System.State', newValue: newState }]
+                });
 
                 vscode.window.showInformationMessage(`Work item #${workItemId} state changed to: ${newState}`);
                 components.workItemProvider.forceRefresh();

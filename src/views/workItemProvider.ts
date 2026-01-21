@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { AuthenticationManager } from '../authentication/authenticationManager';
 import { WorkItem, WorkItemTypeEnum, WorkItemStateEnum } from '../models/workItem';
 import { CacheManager } from '../utils/cacheManager';
+import { WorkItemEventManager } from '../events/workItemEventManager';
 
 export type GroupByOption = 'type' | 'state' | 'assignedTo' | 'sprint' | 'none';
 
@@ -24,10 +25,16 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
     private filterAssignedToMe: boolean = false;
     private groupBy: GroupByOption = 'state';
     private cacheManager: CacheManager = new CacheManager();
+    private eventManager = WorkItemEventManager.getInstance();
 
     constructor(context: vscode.ExtensionContext, authenticationManager: AuthenticationManager) {
         this.context = context;
         this.authenticationManager = authenticationManager;
+
+        // Subscribe to work item update events from other views
+        this.eventManager.onWorkItemUpdated(() => {
+            this.forceRefresh();
+        });
     }
 
     refresh(): void {
@@ -628,6 +635,17 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
                         headers: { 'Content-Type': 'application/json-patch+json' }
                     }
                 );
+
+                // Broadcast the update event to all views
+                this.eventManager.notifyWorkItemUpdated({
+                    workItemId: id,
+                    updateType: updates.state ? 'state-change' : 'update',
+                    changes: patchDocument.map(p => ({
+                        field: p.path,
+                        newValue: p.value
+                    }))
+                });
+
                 this.forceRefresh();
                 return true;
             }

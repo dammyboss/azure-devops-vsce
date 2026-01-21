@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { AuthenticationManager } from '../authentication/authenticationManager';
+import { WorkItemEventManager } from '../events/workItemEventManager';
 
 interface BoardColumn {
     id: string;
@@ -51,6 +52,8 @@ export class BoardPanel {
     private boardName: string;
     private _refreshInterval: NodeJS.Timeout | undefined;
     private _lastRefreshTime: number = 0;
+    private eventManager = WorkItemEventManager.getInstance();
+    private eventSubscription: vscode.Disposable | null = null;
 
     public static createOrShow(
         extensionUri: vscode.Uri,
@@ -98,6 +101,12 @@ export class BoardPanel {
 
         // Set initial loading state
         this._panel.webview.html = this._getLoadingHtml();
+
+        // Subscribe to work item updates from other views
+        this.eventSubscription = this.eventManager.onWorkItemUpdated(() => {
+            // Refresh board when any work item is updated
+            this._loadAndRender();
+        });
 
         // Load board data and update
         this._loadAndRender();
@@ -176,6 +185,12 @@ export class BoardPanel {
                         break;
                     case 'deleteWorkItem':
                         await this._deleteWorkItem(message.workItemId);
+                        break;
+                    case 'moveToColumn':
+                        await this._showMoveToColumnPicker(message.workItemId);
+                        break;
+                    case 'moveToIteration':
+                        await this._showMoveToIterationPicker(message.workItemId);
                         break;
                 }
             },
@@ -388,6 +403,13 @@ export class BoardPanel {
                 { headers: { 'Content-Type': 'application/json-patch+json' } }
             );
 
+            // Broadcast state change to all views
+            this.eventManager.notifyWorkItemUpdated({
+                workItemId,
+                updateType: 'state-change',
+                changes: [{ field: '/fields/System.State', newValue: targetState }]
+            });
+
             // Refresh board to update status dots and reflect new state
             await this._loadAndRender();
 
@@ -431,6 +453,16 @@ export class BoardPanel {
                 { headers: { 'Content-Type': 'application/json-patch+json' } }
             );
 
+            // Broadcast work item creation to all views
+            this.eventManager.notifyWorkItemUpdated({
+                workItemId: response.data.id,
+                updateType: 'create',
+                changes: [
+                    { field: '/fields/System.Title', newValue: title },
+                    { field: '/fields/System.State', newValue: state }
+                ]
+            });
+
             vscode.window.showInformationMessage(`Created ${type} #${response.data.id}`);
 
             // Refresh the board
@@ -458,6 +490,13 @@ export class BoardPanel {
                 [{ op: 'replace', path: '/fields/System.AssignedTo', value: currentUser.uniqueName }],
                 { headers: { 'Content-Type': 'application/json-patch+json' } }
             );
+
+            // Broadcast assignment to all views
+            this.eventManager.notifyWorkItemUpdated({
+                workItemId,
+                updateType: 'assign',
+                changes: [{ field: '/fields/System.AssignedTo', newValue: currentUser.uniqueName }]
+            });
 
             vscode.window.showInformationMessage(`Assigned #${workItemId} to you`);
             await this._loadAndRender();
@@ -504,6 +543,13 @@ export class BoardPanel {
                 [{ op: 'replace', path: '/fields/System.State', value: newState }],
                 { headers: { 'Content-Type': 'application/json-patch+json' } }
             );
+
+            // Broadcast state change to all views
+            this.eventManager.notifyWorkItemUpdated({
+                workItemId,
+                updateType: 'state-change',
+                changes: [{ field: '/fields/System.State', newValue: newState }]
+            });
 
             vscode.window.showInformationMessage(`Changed #${workItemId} state to ${newState}`);
             await this._loadAndRender();
@@ -645,6 +691,13 @@ export class BoardPanel {
                 }
             );
 
+            // Broadcast assignment to all views
+            this.eventManager.notifyWorkItemUpdated({
+                workItemId,
+                updateType: 'assign',
+                changes: [{ field: '/fields/System.AssignedTo', newValue: selected.uniqueName }]
+            });
+
             await this._loadAndRender();
             vscode.window.showInformationMessage(`Updated assignee for #${workItemId}`);
 
@@ -669,11 +722,102 @@ export class BoardPanel {
                 }
             );
 
+            // Broadcast deletion to all views
+            this.eventManager.notifyWorkItemUpdated({
+                workItemId,
+                updateType: 'delete'
+            });
+
             await this._loadAndRender();
             vscode.window.showInformationMessage(`Deleted work item #${workItemId}`);
 
         } catch (error: any) {
             vscode.window.showErrorMessage(`Failed to delete work item: ${error?.message || error}`);
+        }
+    }
+
+    private async _showMoveToColumnPicker(workItemId: number): Promise<void> {
+        if (!this.currentBoard) return;
+
+        // Get available columns and their states
+        const columnItems = this.currentBoard.columns.map(col => {
+            const states = Object.values(col.stateMappings);
+            return {
+                label: col.name,
+                description: states.join(', '),
+                column: col
+            };
+        });
+
+        const selected = await vscode.window.showQuickPick(columnItems, {
+            placeHolder: 'Select target column'
+        });
+
+        if (!selected) return;
+
+        // Get the first state in the column's state mappings
+        const targetState = Object.values(selected.column.stateMappings)[0];
+        if (targetState) {
+            await this._moveWorkItem(workItemId, selected.column.name, targetState);
+        }
+    }
+
+    private async _showMoveToIterationPicker(workItemId: number): Promise<void> {
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+
+            if (!axiosInstance || !config?.defaultProject || !config?.defaultTeam) {
+                throw new Error('Not connected or team not configured');
+            }
+
+            // Get iterations for the team
+            const response = await axiosInstance.get(
+                `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/teamsettings/iterations`,
+                { params: { 'api-version': '7.1-preview.1' } }
+            );
+
+            const iterations = response.data.value || [];
+            if (iterations.length === 0) {
+                vscode.window.showInformationMessage('No iterations found');
+                return;
+            }
+
+            interface IterationItem extends vscode.QuickPickItem {
+                iterationPath: string;
+            }
+
+            const items: IterationItem[] = iterations.map((iteration: any) => ({
+                label: iteration.name,
+                description: iteration.path,
+                iterationPath: iteration.path
+            }));
+
+            const selected = await vscode.window.showQuickPick(items, {
+                placeHolder: 'Select target iteration'
+            });
+
+            if (!selected) return;
+
+            // Update the work item's iteration path
+            await axiosInstance.patch(
+                `/_apis/wit/workitems/${workItemId}`,
+                [{ op: 'replace', path: '/fields/System.IterationPath', value: selected.iterationPath }],
+                { headers: { 'Content-Type': 'application/json-patch+json' } }
+            );
+
+            // Broadcast update to all views
+            this.eventManager.notifyWorkItemUpdated({
+                workItemId,
+                updateType: 'update',
+                changes: [{ field: '/fields/System.IterationPath', newValue: selected.iterationPath }]
+            });
+
+            vscode.window.showInformationMessage(`Moved #${workItemId} to ${selected.label}`);
+            await this._loadAndRender();
+
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Failed to move to iteration: ${error?.message || error}`);
         }
     }
 
@@ -2391,24 +2535,25 @@ export class BoardPanel {
     <!-- Card Menu -->
     <div class="card-menu" id="cardMenu">
         <div class="card-menu-item" onclick="cardMenuAction('open')">
-            <span>📄</span> Open Details
+            <i class="codicon codicon-window"></i> Open
         </div>
         <div class="card-menu-item" onclick="cardMenuAction('editTitle')">
-            <span>✏️</span> Edit Title
+            <i class="codicon codicon-edit"></i> Edit title
         </div>
         <div class="card-menu-separator"></div>
         <div class="card-menu-item" onclick="cardMenuAction('moveToColumn')">
-            <span>↔️</span> Move to Column
+            <i class="codicon codicon-arrow-swap"></i> Move to column
         </div>
-        <div class="card-menu-item" onclick="cardMenuAction('addTask')">
-            <span>+</span> Add Task
+        <div class="card-menu-item" onclick="cardMenuAction('moveToIteration')">
+            <i class="codicon codicon-arrow-right"></i> Move to iteration
         </div>
-        <div class="card-menu-item" onclick="cardMenuAction('addBug')">
-            <span>🐛</span> Add Bug
+        <div class="card-menu-separator"></div>
+        <div class="card-menu-item" onclick="cardMenuAction('createBranch')">
+            <i class="codicon codicon-git-branch"></i> New branch...
         </div>
         <div class="card-menu-separator"></div>
         <div class="card-menu-item danger" onclick="cardMenuAction('delete')">
-            <span>🗑️</span> Delete
+            <i class="codicon codicon-trash"></i> Delete
         </div>
     </div>
 
@@ -2904,13 +3049,13 @@ export class BoardPanel {
                     editCardTitle(titleElement, workItemId);
                     break;
                 case 'moveToColumn':
-                    vscode.postMessage({ command: 'changeState', workItemId: workItemId });
+                    vscode.postMessage({ command: 'moveToColumn', workItemId: workItemId });
                     break;
-                case 'addTask':
-                    vscode.postMessage({ command: 'addChildWorkItem', parentId: workItemId, type: 'Task' });
+                case 'moveToIteration':
+                    vscode.postMessage({ command: 'moveToIteration', workItemId: workItemId });
                     break;
-                case 'addBug':
-                    vscode.postMessage({ command: 'addChildWorkItem', parentId: workItemId, type: 'Bug' });
+                case 'createBranch':
+                    vscode.postMessage({ command: 'createBranch', workItemId: workItemId });
                     break;
                 case 'delete':
                     if (confirm(\`Delete work item #\${workItemId}?\`)) {
@@ -3593,6 +3738,12 @@ export class BoardPanel {
     }
 
     public dispose() {
+        // Unsubscribe from events
+        if (this.eventSubscription) {
+            this.eventSubscription.dispose();
+            this.eventSubscription = null;
+        }
+
         this._stopAutoRefresh();
         BoardPanel.currentPanel = undefined;
         this._panel.dispose();
