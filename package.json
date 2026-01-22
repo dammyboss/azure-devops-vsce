@@ -308,13 +308,6 @@
           "contextualTitle": "Azure DevOps Connection Status"
         },
         {
-          "id": "_DISABLED_azureDevOpsAIChat",
-          "name": "_DISABLED_AI Assistant",
-          "type": "webview",
-          "icon": "$(comment-discussion)",
-          "contextualTitle": "Azure DevOps AI Assistant"
-        },
-        {
           "id": "azureDevOpsWorkItems",
           "name": "Work Items",
           "icon": "$(tasklist)",
