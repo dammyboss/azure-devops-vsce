@@ -77,6 +77,7 @@ export class APIClient {
     private secretsManager: SecretsManager | null = null;
     private context: vscode.ExtensionContext | null = null;
     private messageManager: MessageManager;
+    private currentCallbacks: StreamCallbacks | null = null;
 
     constructor(outputChannel: vscode.OutputChannel, context?: vscode.ExtensionContext) {
         this.outputChannel = outputChannel;
@@ -147,6 +148,8 @@ export class APIClient {
         const config = vscode.workspace.getConfiguration('azureDevOps.ai');
         this.provider = config.get('provider', 'anthropic') as Provider;
 
+        this.outputChannel.appendLine(`🔧 Provider configured: ${this.provider}`);
+
         // Load API keys from secure storage if available, fallback to settings
         if (this.secretsManager) {
             this.anthropicApiKey = await this.secretsManager.getAnthropicApiKey() || '';
@@ -154,6 +157,8 @@ export class APIClient {
             this.deepseekApiKey = await this.secretsManager.getDeepSeekApiKey() || '';
             this.grokApiKey = await this.secretsManager.getGrokApiKey() || '';
             this.openaiApiKey = await this.secretsManager.getOpenAIApiKey() || '';
+
+            this.outputChannel.appendLine(`🔑 API Keys from secrets - Anthropic: ${this.anthropicApiKey ? 'SET' : 'NOT SET'}, DeepSeek: ${this.deepseekApiKey ? 'SET' : 'NOT SET'}`);
         } else {
             // Fallback to settings (backwards compatibility)
             this.anthropicApiKey = config.get('anthropic.apiKey', '');
@@ -299,8 +304,12 @@ export class APIClient {
         const maxIterations = 25;
         let iteration = 0;
 
+        // Store callbacks for use in stream processing
+        this.currentCallbacks = callbacks;
+
         while (iteration < maxIterations) {
             iteration++;
+            this.outputChannel.appendLine(`[Agent Loop] Starting iteration ${iteration}`);
 
             // Wrap API call in retry logic
             let response;
@@ -342,18 +351,19 @@ export class APIClient {
             this.totalOutputTokens += response.outputTokens;
 
             const toolUses = response.content.filter(b => b.type === 'tool_use');
+            const textBlocks = response.content.filter(b => b.type === 'text');
+            this.outputChannel.appendLine(`[Agent Loop] Response has ${toolUses.length} tool_use blocks and ${textBlocks.length} text blocks`);
 
             if (toolUses.length === 0) {
-                if (response.bufferedText) {
-                    callbacks.onText(response.bufferedText);
-                }
-                // Add final assistant message to MessageManager
+                // No tools in this response - this is the final response
+                // Text has already been streamed in processAnthropicStream
+                // Just add final assistant message to MessageManager
                 this.messageManager.addAssistantMessage(response.content, false);
                 break;
             }
 
-            // DON'T send buffered text yet - wait until after tool execution
-            // This ensures permission prompts appear before the LLM response text
+            // Text has already been streamed in processAnthropicStream (before tool_use blocks)
+            // Now we handle tool execution
 
             this.conversationHistory.push({ role: 'assistant', content: response.content });
             // Also add to message manager for UI tracking
@@ -437,19 +447,17 @@ export class APIClient {
                 });
             }
 
-            // NOW send the buffered text after all tools have executed
-            // This ensures the message order is: permission → tool execution → LLM response
-            if (response.bufferedText) {
-                // Add line breaks to separate this text from what comes after
-                callbacks.onText(response.bufferedText + '\n\n');
-            }
+            // Text was already streamed before tool_use blocks in processAnthropicStream
+            // Now continue with tool results
 
             this.conversationHistory.push({ role: 'user', content: toolResults });
+            this.outputChannel.appendLine(`[Agent Loop] Tool results added to history. Continuing to next iteration...`);
 
             if (this.abortController?.signal.aborted) {
                 throw new Error('AbortError');
             }
         }
+        this.outputChannel.appendLine(`[Agent Loop] Loop completed after ${iteration} iterations`);
     }
 
     private async callAPI(): Promise<{ content: ContentBlock[]; inputTokens: number; outputTokens: number; bufferedText: string }> {
@@ -464,6 +472,8 @@ export class APIClient {
     }
 
     private async callAnthropicAPI() {
+        this.outputChannel.appendLine(`🌐 Calling Anthropic API with model: ${this.anthropicModel}`);
+
         if (!this.anthropicApiKey) {
             throw new Error('Anthropic API key not configured. Please set azureDevOps.ai.anthropic.apiKey in settings.');
         }
@@ -503,6 +513,10 @@ export class APIClient {
     }
 
     private async processAnthropicStream(response: Response) {
+        const callbacks = this.currentCallbacks;
+        if (!callbacks) {
+            throw new Error('No callbacks available for streaming');
+        }
         const reader = response.body?.getReader();
         if (!reader) throw new Error('No response body');
 
@@ -514,7 +528,10 @@ export class APIClient {
         let currentToolInput = '';
         let inputTokens = 0;
         let outputTokens = 0;
-        let bufferedText = '';
+        let hasToolUse = false;
+        let textDeltas: string[] = []; // Buffer text deltas
+
+        this.outputChannel.appendLine('[Stream] Starting to process Anthropic stream');
 
         while (true) {
             const { done, value } = await reader.read();
@@ -531,13 +548,17 @@ export class APIClient {
 
                 try {
                     const event = JSON.parse(data);
+                    this.outputChannel.appendLine(`[Stream] Event type: ${event.type}`);
 
                     if (event.type === 'message_start' && event.message?.usage) {
                         inputTokens = event.message.usage.input_tokens || 0;
                     } else if (event.type === 'content_block_start') {
+                        this.outputChannel.appendLine(`[Stream] content_block_start: ${event.content_block?.type}`);
                         if (event.content_block?.type === 'text') {
                             currentTextBlock = { type: 'text', text: '' };
                         } else if (event.content_block?.type === 'tool_use') {
+                            // Mark that we encountered a tool_use block
+                            hasToolUse = true;
                             currentToolUseBlock = {
                                 type: 'tool_use',
                                 id: event.content_block.id,
@@ -547,9 +568,12 @@ export class APIClient {
                             currentToolInput = '';
                         }
                     } else if (event.type === 'content_block_delta') {
+                        this.outputChannel.appendLine(`[Stream] content_block_delta: delta.type=${event.delta?.type}, hasTextBlock=${!!currentTextBlock}, hasToolBlock=${!!currentToolUseBlock}`);
                         if (event.delta?.type === 'text_delta' && currentTextBlock) {
                             currentTextBlock.text += event.delta.text;
-                            bufferedText += event.delta.text;
+                            // Buffer text deltas - don't send yet
+                            textDeltas.push(event.delta.text);
+                            this.outputChannel.appendLine(`[Stream] Buffering text delta: ${event.delta.text.substring(0, 50)}...`);
                         } else if (event.delta?.type === 'input_json_delta' && currentToolUseBlock) {
                             currentToolInput += event.delta.partial_json;
                         }
@@ -572,7 +596,20 @@ export class APIClient {
             }
         }
 
-        return { content: contentBlocks, inputTokens, outputTokens, bufferedText };
+        // After streaming completes, check if there are tool_use blocks
+        if (hasToolUse) {
+            // Don't stream text if there are tool_use blocks - permission prompt needs to come first
+            this.outputChannel.appendLine(`[Stream] Response has tool_use blocks - NOT streaming buffered text`);
+        } else {
+            // No tool_use blocks - send all buffered text as a single chunk
+            const allText = textDeltas.join('');
+            if (allText) {
+                this.outputChannel.appendLine(`[Stream] No tool_use blocks - sending buffered text as single chunk (${allText.length} chars)`);
+                callbacks.onText(allText);
+            }
+        }
+
+        return { content: contentBlocks, inputTokens, outputTokens, bufferedText: '' };
     }
 
     private async callAzureAPI() {
@@ -674,6 +711,11 @@ export class APIClient {
     }
 
     private async processOpenAIStream(response: Response) {
+        const callbacks = this.currentCallbacks;
+        if (!callbacks) {
+            throw new Error('No callbacks available for streaming');
+        }
+
         const reader = response.body?.getReader();
         if (!reader) throw new Error('No response body');
 
@@ -684,6 +726,9 @@ export class APIClient {
         let currentToolCalls: Map<number, { id: string; name: string; arguments: string }> = new Map();
         let inputTokens = 0;
         let outputTokens = 0;
+        let textDeltas: string[] = []; // Buffer text deltas
+
+        this.outputChannel.appendLine('[Stream] Starting to process OpenAI-compatible stream (DeepSeek/OpenAI/etc)');
 
         while (true) {
             const { done, value } = await reader.read();
@@ -704,6 +749,9 @@ export class APIClient {
 
                     if (choice?.delta?.content) {
                         currentText += choice.delta.content;
+                        // Buffer text deltas - don't send yet
+                        textDeltas.push(choice.delta.content);
+                        this.outputChannel.appendLine(`[Stream] Buffering text delta: ${choice.delta.content.substring(0, 50)}...`);
                     }
 
                     if (choice?.delta?.tool_calls) {
@@ -726,6 +774,20 @@ export class APIClient {
                 } catch (e) {
                     this.outputChannel.appendLine(`Parse error: ${e}`);
                 }
+            }
+        }
+
+        // After streaming completes, check if there are tool calls
+        const hasToolCalls = currentToolCalls.size > 0;
+
+        if (hasToolCalls) {
+            // Don't stream text if there are tool calls - permission prompt needs to come first
+            this.outputChannel.appendLine(`[Stream] Response has tool calls - NOT streaming buffered text`);
+        } else {
+            // No tool calls - send all buffered text as a single chunk
+            if (currentText) {
+                this.outputChannel.appendLine(`[Stream] No tool calls - sending buffered text as single chunk (${currentText.length} chars)`);
+                callbacks.onText(currentText);
             }
         }
 

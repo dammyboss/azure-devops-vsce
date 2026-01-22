@@ -116,6 +116,12 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
                     break;
                 case 'permissionResponse':
                     this.mcpClient.getPermissionsManager().respondToPermission(message.id, message.action);
+                    // Echo back to webview to update UI
+                    webviewPanel.webview.postMessage({
+                        type: 'permissionResponse',
+                        id: message.id,
+                        action: message.action
+                    });
                     break;
             }
         });
@@ -1362,13 +1368,25 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
             currentChatId = Date.now();
         }
 
-        function showPermissionPrompt(id, serverName, toolName, toolInput) {
-            // Add assistant message explaining the action
-            const explainMsg = addMessage('assistant', \`I'll use the \${toolName} tool on the \${serverName} MCP server.\`);
+        // Create a permanent permission message (Roo Code style)
+        function addPermissionMessage(id, serverName, toolName, toolInput) {
+            console.log('[DEBUG] addPermissionMessage called with id:', id, 'at', new Date().toISOString());
+            console.trace('[DEBUG] Call stack for addPermissionMessage');
 
-            // Mark this message so we can identify it later
-            explainMsg.setAttribute('data-permission-id', id);
-            explainMsg.classList.add('permission-explanation');
+            // Check if this permission was already shown
+            if (window.shownPermissions && window.shownPermissions.has(id)) {
+                console.log('[DEBUG] Permission', id, 'already shown, skipping');
+                return;
+            }
+
+            // Track shown permissions
+            if (!window.shownPermissions) {
+                window.shownPermissions = new Set();
+            }
+            window.shownPermissions.add(id);
+
+            // Add explanation message
+            const explainMsg = addMessage('assistant', \`I'll use the \${toolName} tool on the \${serverName} MCP server.\`);
 
             // Add permission request card
             const permCard = document.createElement('div');
@@ -1472,6 +1490,8 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
 
             // Action buttons
             const actionsDiv = document.createElement('div');
+            actionsDiv.className = 'permission-actions';
+            actionsDiv.setAttribute('data-permission-actions', id);
             actionsDiv.style.cssText = 'display: flex; gap: 8px;';
             actionsDiv.innerHTML = \`
                 <button onclick="respondPermission('\${id}', 'deny')" style="flex: 1; padding: 8px 12px; background: rgba(255,255,255,0.05); color: var(--vscode-foreground); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500;">Deny</button>
@@ -1493,29 +1513,40 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
         }
 
         function respondPermission(id, action) {
+            console.log('[DEBUG] respondPermission called with id:', id, 'action:', action);
+
             // Check if "always allow" is checked
             const alwaysAllowCheckbox = document.getElementById(\`always-allow-\${id}\`);
             const finalAction = (alwaysAllowCheckbox && alwaysAllowCheckbox.checked) ? 'allow-always' : action;
 
             vscode.postMessage({ type: 'permissionResponse', id, action: finalAction });
 
-            // Remove BOTH the permission card AND the explanation message
-            if (window.currentPermissionCard && window.currentPermissionCard.id === id) {
-                // Remove the card
-                if (window.currentPermissionCard.card && window.currentPermissionCard.card.parentNode) {
-                    window.currentPermissionCard.card.remove();
-                }
-                // Remove the explanation message
-                if (window.currentPermissionCard.explanationMsg && window.currentPermissionCard.explanationMsg.parentNode) {
-                    window.currentPermissionCard.explanationMsg.remove();
-                }
-                window.currentPermissionCard = null;
-            }
+            // DON'T remove the card - instead update it to show approved/denied state (Roo Code style)
+            const permCard = document.querySelector(\`[data-permission-id="\${id}"]\`);
+            console.log('[DEBUG] Found permCard:', permCard);
 
-            // Also try to remove by data attribute (fallback)
-            const cardByAttr = document.querySelector(\`[data-permission-id="\${id}"]\`);
-            if (cardByAttr && cardByAttr.parentNode) {
-                cardByAttr.remove();
+            if (permCard) {
+                // Find and replace the action buttons with approval status
+                const actionsDiv = permCard.querySelector('.permission-actions');
+                console.log('[DEBUG] Found actionsDiv:', actionsDiv);
+
+                if (actionsDiv) {
+                    if (action === 'allow') {
+                        actionsDiv.innerHTML = \`
+                            <div style="display: flex; align-items: center; gap: 8px; padding: 8px; background: rgba(158, 204, 59, 0.1); border-radius: 6px;">
+                                <div style="width: 6px; height: 6px; border-radius: 50%; background: #9ecc3b;"></div>
+                                <span style="color: #9ecc3b; font-weight: 500; font-size: 12px;">Approved</span>
+                            </div>
+                        \`;
+                    } else {
+                        actionsDiv.innerHTML = \`
+                            <div style="display: flex; align-items: center; gap: 8px; padding: 8px; background: rgba(241, 76, 76, 0.1); border-radius: 6px;">
+                                <div style="width: 6px; height: 6px; border-radius: 50%; background: #f14c4c;"></div>
+                                <span style="color: #f14c4c; font-weight: 500; font-size: 12px;">Denied</span>
+                            </div>
+                        \`;
+                    }
+                }
             }
 
             // Show loading animation after approval to indicate tool execution
@@ -1599,8 +1630,8 @@ export class ChatEditorProvider implements vscode.CustomTextEditorProvider {
                     isGenerating = true; // Keep generating state active
                     updateSendButton();
 
-                    // Show permission prompt inline
-                    showPermissionPrompt(message.id, message.serverName, message.toolName, message.toolInput);
+                    // Add permission prompt as a permanent message (Roo Code style)
+                    addPermissionMessage(message.id, message.serverName, message.toolName, message.toolInput);
                     break;
 
                 case 'error':

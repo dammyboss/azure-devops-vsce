@@ -12,6 +12,7 @@ import { StatusBarManager } from './utils/statusBarManager';
 import { WorkItemLinksManager } from './utils/workItemLinksManager';
 import { AIChatProvider } from './ai/chat-provider';
 import { ChatEditorProvider, openChatEditor } from './ai/chat-editor';
+import { AzureDevOpsChatParticipant } from './ai/chat-participant';
 
 export let authenticationManager: AuthenticationManager;
 export let workItemProvider: WorkItemProvider;
@@ -59,6 +60,14 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('azureDevOps.openAIChat', () => vscode.commands.executeCommand('azureDevOps.openAIChatEditor'))
     );
+
+    // Register chat participant for VSCode's built-in chat
+    const chatParticipant = new AzureDevOpsChatParticipant(aiOutputChannel, context);
+    const participant = vscode.chat.createChatParticipant('azure-devops.chat', async (request, chatContext, stream, token) => {
+        await chatParticipant.handleChatRequest(request, chatContext, stream, token);
+    });
+    participant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'icon.png');
+    context.subscriptions.push(participant);
 
     // Initialize providers
     workItemProvider = new WorkItemProvider(context, authenticationManager);

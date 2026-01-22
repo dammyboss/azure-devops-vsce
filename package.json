@@ -16,6 +16,20 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "chatParticipants": [
+      {
+        "id": "azure-devops.chat",
+        "name": "azure-devops",
+        "description": "AI assistant for Azure DevOps - manage work items, boards, and more",
+        "isSticky": true,
+        "commands": [
+          {
+            "name": "help",
+            "description": "Get help with Azure DevOps commands"
+          }
+        ]
+      }
+    ],
     "customEditors": [
       {
         "viewType": "azureDevOps.chatEditor",
@@ -783,25 +797,42 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run compile && npm run webpack",
     "compile": "tsc -p ./",
+    "webpack": "webpack --mode production",
+    "webpack:dev": "webpack --mode development --watch",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
-    "test": "node ./out/test/runTest.js"
+    "test": "node ./out/test/runTest.js",
+    "build": "npm run compile && npm run webpack"
   },
   "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
     "@types/node": "18.x",
+    "@types/react": "^19.2.9",
+    "@types/react-dom": "^19.2.3",
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^6.13.1",
     "@typescript-eslint/parser": "^6.13.1",
+    "css-loader": "^7.1.2",
     "eslint": "^8.54.0",
-    "typescript": "^5.3.2"
+    "style-loader": "^4.0.0",
+    "ts-loader": "^9.5.4",
+    "typescript": "^5.3.2",
+    "webpack": "^5.104.1",
+    "webpack-cli": "^6.0.1"
   },
   "dependencies": {
     "@azure/msal-node": "^3.8.5",
     "@vscode/codicons": "^0.0.44",
     "axios": "^1.6.2",
+    "markdown-it": "^14.1.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1",
     "vscode-uri": "^3.0.7"
   },
   "repository": {
