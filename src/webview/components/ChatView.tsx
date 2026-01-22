@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ChatMessage, ExtensionMessage, PermissionRequest } from '../types/messages';
 import { ChatRow } from './ChatRow';
 import { ChatTextArea, ChatTextAreaRef } from './ChatTextArea';
+import { ChatBottomControls } from './ChatBottomControls';
 import { ProgressIndicator } from './ProgressIndicator';
 import { vscode } from '../utils/vscode';
 
@@ -275,6 +276,11 @@ export const ChatView: React.FC = () => {
           disabled={isGenerating}
           isStreaming={isGenerating}
           placeholder="Ask about work items, sprints, or Azure DevOps..."
+        />
+        <ChatBottomControls
+          currentMode="code"
+          currentApiConfig="default"
+          autoApprovedCount={7}
         />
       </div>
     </div>

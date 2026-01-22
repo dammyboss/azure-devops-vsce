@@ -427,3 +427,58 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Chat Bottom Controls */
+.chat-bottom-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-editor-background);
+}
+
+.control-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+  color: var(--vscode-foreground);
+  font-size: 12px;
+  font-family: var(--vscode-font-family);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.control-button:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.control-button.mode-button,
+.control-button.api-config-button {
+  min-width: 80px;
+}
+
+.control-button.auto-approve-button {
+  color: var(--vscode-descriptionForeground);
+}
+
+.control-label {
+  font-weight: 500;
+}
+
+.controls-spacer {
+  flex: 1;
+}
+
+.control-button.settings-button {
+  padding: 6px 8px;
+  border: none;
+}
+
+.control-button.settings-button:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}

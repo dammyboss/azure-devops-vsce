@@ -150,6 +150,18 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
                 case 'updatePermissions':
                     await this.updatePermissions(message.permissions);
                     break;
+                case 'searchFiles':
+                    await this.searchFiles(message.query);
+                    break;
+                case 'getCommands':
+                    await this.getCommands(message.query);
+                    break;
+                case 'openAutoApproveSettings':
+                    await this.openAutoApproveSettings();
+                    break;
+                case 'getApiConfigurations':
+                    await this.getApiConfigurations();
+                    break;
             }
         });
     }
@@ -408,6 +420,70 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
         } catch (error) {
             console.error('Error updating permissions:', error);
             vscode.window.showErrorMessage(`Failed to update permissions: ${error}`);
+        }
+    }
+
+    private async searchFiles(query: string): Promise<void> {
+        try {
+            // Search workspace for files matching query
+            const files = await vscode.workspace.findFiles(
+                query ? `**/*${query}*` : '**/*',
+                '**/node_modules/**',
+                20
+            );
+
+            const results = files.map(uri => ({
+                path: vscode.workspace.asRelativePath(uri),
+                name: uri.path.split('/').pop() || uri.path,
+            }));
+
+            this.view?.webview.postMessage({
+                type: 'fileSearchResults',
+                files: results,
+            });
+        } catch (error) {
+            console.error('Error searching files:', error);
+        }
+    }
+
+    private async getCommands(query: string): Promise<void> {
+        try {
+            // Return available commands
+            const commands = [
+                { name: 'help', description: 'Show help information' },
+                { name: 'clear', description: 'Clear chat history' },
+                { name: 'settings', description: 'Open settings' },
+                { name: 'reset', description: 'Reset conversation' },
+            ].filter(cmd => !query || cmd.name.includes(query.toLowerCase()));
+
+            this.view?.webview.postMessage({
+                type: 'commandsResults',
+                commands,
+            });
+        } catch (error) {
+            console.error('Error getting commands:', error);
+        }
+    }
+
+    private async openAutoApproveSettings(): Promise<void> {
+        await vscode.commands.executeCommand('workbench.action.openSettings', 'azureDevOps.ai.permissions');
+    }
+
+    private async getApiConfigurations(): Promise<void> {
+        try {
+            const config = vscode.workspace.getConfiguration('azureDevOps.ai');
+            const provider = config.get<string>('provider', 'anthropic');
+
+            const configurations = [
+                { name: 'default', provider },
+            ];
+
+            this.view?.webview.postMessage({
+                type: 'apiConfigurationsResults',
+                configurations,
+            });
+        } catch (error) {
+            console.error('Error getting API configurations:', error);
         }
     }
 
