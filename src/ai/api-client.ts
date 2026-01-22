@@ -104,7 +104,10 @@ export class APIClient {
     }
 
     private buildSystemPrompt(): string {
-        return `You are an AI assistant integrated into Azure DevOps Boards VS Code extension. You help developers manage work items, sprints, boards, and development workflows.
+        const config = vscode.workspace.getConfiguration('azureDevOps.ai');
+        const allowTodoList = config.get<boolean>('permissions.alwaysAllowTodoList', false);
+
+        let prompt = `You are an AI assistant integrated into Azure DevOps Boards VS Code extension. You help developers manage work items, sprints, boards, and development workflows.
 
 ## Capabilities
 - Query and manage Azure DevOps work items
@@ -118,6 +121,13 @@ export class APIClient {
 2. Use Azure DevOps terminology correctly
 3. Provide step-by-step guidance when needed
 4. Use tools when available for real-time data`;
+
+        // Add or exclude todo list instructions based on permissions
+        if (!allowTodoList) {
+            prompt += `\n5. DO NOT use todo lists or task tracking in your responses - this feature is disabled`;
+        }
+
+        return prompt;
     }
 
     /**
