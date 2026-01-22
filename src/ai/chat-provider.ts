@@ -162,6 +162,12 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
                 case 'getApiConfigurations':
                     await this.getApiConfigurations();
                     break;
+                case 'newChat':
+                    await this.handleNewChat();
+                    break;
+                case 'selectApiConfig':
+                    await this.selectApiConfig(message.config);
+                    break;
             }
         });
     }
@@ -484,6 +490,39 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             });
         } catch (error) {
             console.error('Error getting API configurations:', error);
+        }
+    }
+
+    private async handleNewChat(): Promise<void> {
+        try {
+            // Clear chat history
+            this.apiClient.clearHistory();
+
+            // Notify webview to clear messages
+            this.view?.webview.postMessage({
+                type: 'clearMessages',
+            });
+
+            vscode.window.showInformationMessage('Started new chat');
+        } catch (error) {
+            console.error('Error starting new chat:', error);
+            vscode.window.showErrorMessage('Failed to start new chat');
+        }
+    }
+
+    private async selectApiConfig(configName: string): Promise<void> {
+        try {
+            // For now, we just store the selected config name
+            // In the future, this could switch between different API configurations
+            console.log('Selected API config:', configName);
+
+            // Notify webview of the change
+            this.view?.webview.postMessage({
+                type: 'apiConfigSelected',
+                config: configName,
+            });
+        } catch (error) {
+            console.error('Error selecting API config:', error);
         }
     }
 

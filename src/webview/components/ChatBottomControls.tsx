@@ -1,70 +1,65 @@
-import React, { useState } from 'react';
-import { Code, Settings, CheckCircle2, ChevronDown } from 'lucide-react';
+import React from 'react';
+import { Code, Settings, Plus, ChevronDown } from 'lucide-react';
+import { ApiConfigSelector } from './ApiConfigSelector';
+import { AutoApproveDropdown } from './AutoApproveDropdown';
 import { vscode } from '../utils/vscode';
 
 interface ChatBottomControlsProps {
   currentMode?: string;
   currentApiConfig?: string;
   autoApprovedCount?: number;
+  permissions?: any;
 }
 
 export const ChatBottomControls: React.FC<ChatBottomControlsProps> = ({
   currentMode = 'code',
   currentApiConfig = 'default',
   autoApprovedCount = 0,
+  permissions,
 }) => {
-  const [showModeMenu, setShowModeMenu] = useState(false);
-  const [showApiMenu, setShowApiMenu] = useState(false);
+  const handleNewChat = () => {
+    vscode.postMessage({ type: 'newChat' });
+  };
 
   const handleModeClick = () => {
-    setShowModeMenu(!showModeMenu);
-  };
-
-  const handleApiConfigClick = () => {
-    setShowApiMenu(!showApiMenu);
-    vscode.postMessage({ type: 'getApiConfigurations' });
-  };
-
-  const handleAutoApproveClick = () => {
-    vscode.postMessage({ type: 'openAutoApproveSettings' });
+    // Future: Show mode selector
+    console.log('Mode selector clicked');
   };
 
   const handleOpenSettings = () => {
-    vscode.postMessage({ type: 'openSettings', section: 'permissions' });
+    vscode.postMessage({ type: 'openSettings' });
   };
 
   return (
     <div className="chat-bottom-controls">
+      {/* New Chat Button */}
+      <button
+        className="control-button"
+        onClick={handleNewChat}
+        title="New chat"
+      >
+        <Plus size={14} />
+      </button>
+
       {/* Mode Selector */}
       <button
         className="control-button mode-button"
         onClick={handleModeClick}
         title="Select mode"
       >
-        <Code size={14} />
+        <Code size={12} />
         <span className="control-label">{currentMode}</span>
-        <ChevronDown size={12} />
+        <ChevronDown size={10} />
       </button>
 
-      {/* API Config Selector */}
-      <button
-        className="control-button api-config-button"
-        onClick={handleApiConfigClick}
-        title="Select API configuration"
-      >
-        <span className="control-label">{currentApiConfig}</span>
-        <ChevronDown size={12} />
-      </button>
+      {/* API Config Selector with Popup */}
+      <ApiConfigSelector currentConfig={currentApiConfig} />
 
-      {/* Auto-Approve Status */}
-      <button
-        className="control-button auto-approve-button"
-        onClick={handleAutoApproveClick}
-        title="Auto-approval settings"
-      >
-        <CheckCircle2 size={14} />
-        <span className="control-label">{autoApprovedCount} auto-approved</span>
-      </button>
+      {/* Auto-Approve Dropdown with Popup */}
+      <AutoApproveDropdown
+        autoApprovedCount={autoApprovedCount}
+        permissions={permissions}
+      />
 
       <div className="controls-spacer" />
 
@@ -74,7 +69,7 @@ export const ChatBottomControls: React.FC<ChatBottomControlsProps> = ({
         onClick={handleOpenSettings}
         title="Open settings"
       >
-        <Settings size={16} />
+        <Settings size={14} />
       </button>
     </div>
   );

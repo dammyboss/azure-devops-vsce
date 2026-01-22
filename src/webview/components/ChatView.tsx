@@ -15,6 +15,20 @@ export const ChatView: React.FC = () => {
   const chatTextAreaRef = useRef<ChatTextAreaRef>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
+  const [permissions, setPermissions] = useState<any>({
+    autoApproveEnabled: false,
+    alwaysAllowReadOnly: false,
+    alwaysAllowWrite: false,
+    alwaysAllowBrowser: false,
+    alwaysAllowMcp: false,
+    alwaysAllowExecute: false,
+    alwaysAllowTodoList: false,
+  });
+
+  // Request initial settings on mount
+  useEffect(() => {
+    vscode.postMessage({ type: 'getSettings' });
+  }, []);
 
   // Scroll to bottom when messages change (if auto-scroll is enabled)
   useEffect(() => {
@@ -212,6 +226,18 @@ export const ChatView: React.FC = () => {
             return updated;
           });
           break;
+
+        case 'clearMessages':
+          setMessages([]);
+          setInputValue('');
+          currentStreamingMessageRef.current = null;
+          break;
+
+        case 'settingsUpdated':
+          if (message.settings?.permissions) {
+            setPermissions(message.settings.permissions);
+          }
+          break;
       }
     };
 
@@ -280,7 +306,10 @@ export const ChatView: React.FC = () => {
         <ChatBottomControls
           currentMode="code"
           currentApiConfig="default"
-          autoApprovedCount={7}
+          autoApprovedCount={Object.values(permissions).filter(
+            (v, i) => i > 0 && v === true
+          ).length}
+          permissions={permissions}
         />
       </div>
     </div>

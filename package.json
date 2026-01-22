@@ -878,6 +878,7 @@
   },
   "dependencies": {
     "@azure/msal-node": "^3.8.5",
+    "@radix-ui/react-popover": "^1.1.15",
     "@vscode/codicons": "^0.0.44",
     "axios": "^1.6.2",
     "lucide-react": "^0.562.0",
