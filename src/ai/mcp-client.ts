@@ -509,6 +509,26 @@ export class MCPClient {
         }
     }
 
+    async restartServer(name: string): Promise<boolean> {
+        const config = this.serverConfigs.get(name);
+        if (!config) {
+            this.outputChannel.appendLine(`[${name}] Cannot restart: config not found`);
+            return false;
+        }
+
+        this.outputChannel.appendLine(`[${name}] Restarting server...`);
+
+        // Disconnect if connected
+        const existingServer = this.servers.get(name);
+        if (existingServer) {
+            existingServer.disconnect();
+            this.servers.delete(name);
+        }
+
+        // Reconnect
+        return await this.connectServer(config);
+    }
+
     getAllTools(): MCPTool[] {
         const tools: MCPTool[] = [];
         for (const [_, server] of this.servers) {

@@ -827,6 +827,7 @@
     "@azure/msal-node": "^3.8.5",
     "@vscode/codicons": "^0.0.44",
     "axios": "^1.6.2",
+    "lucide-react": "^0.562.0",
     "markdown-it": "^14.1.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",

@@ -1,4 +1,5 @@
 import React from 'react';
+import { MessageSquare, History, Settings, Plus } from 'lucide-react';
 import { TabType } from './App';
 
 interface HeaderProps {
@@ -6,6 +7,47 @@ interface HeaderProps {
   onTabChange: (tab: TabType) => void;
   onNewChat: () => void;
 }
+
+const TabButton: React.FC<{
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}> = ({ active, onClick, icon, label }) => (
+  <button
+    onClick={onClick}
+    style={{
+      padding: '6px 12px',
+      background: active ? 'var(--vscode-button-background)' : 'transparent',
+      color: active ? 'var(--vscode-button-foreground)' : 'var(--vscode-foreground)',
+      border: active ? 'none' : '1px solid var(--vscode-panel-border)',
+      borderRadius: '4px',
+      cursor: 'pointer',
+      fontSize: '13px',
+      fontWeight: 500,
+      display: 'flex',
+      alignItems: 'center',
+      gap: '6px',
+      transition: 'all 0.2s ease',
+      opacity: active ? 1 : 0.8,
+    }}
+    onMouseEnter={(e) => {
+      if (!active) {
+        e.currentTarget.style.opacity = '1';
+        e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)';
+      }
+    }}
+    onMouseLeave={(e) => {
+      if (!active) {
+        e.currentTarget.style.opacity = '0.8';
+        e.currentTarget.style.background = 'transparent';
+      }
+    }}
+  >
+    {icon}
+    {label}
+  </button>
+);
 
 export const Header: React.FC<HeaderProps> = ({ activeTab, onTabChange, onNewChat }) => {
   return (
@@ -17,55 +59,29 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, onTabChange, onNewCha
         padding: '8px 12px',
         borderBottom: '1px solid var(--vscode-panel-border)',
         background: 'var(--vscode-editor-background)',
+        gap: '8px',
       }}
     >
       {/* Left: Tab Navigation */}
       <div style={{ display: 'flex', gap: '4px' }}>
-        <button
+        <TabButton
+          active={activeTab === 'chat'}
           onClick={() => onTabChange('chat')}
-          style={{
-            padding: '6px 12px',
-            background: activeTab === 'chat' ? 'var(--vscode-button-background)' : 'transparent',
-            color: activeTab === 'chat' ? 'var(--vscode-button-foreground)' : 'var(--vscode-foreground)',
-            border: activeTab === 'chat' ? 'none' : '1px solid var(--vscode-panel-border)',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontSize: '13px',
-            fontWeight: 500,
-          }}
-        >
-          Chat
-        </button>
-        <button
+          icon={<MessageSquare size={16} />}
+          label="Chat"
+        />
+        <TabButton
+          active={activeTab === 'history'}
           onClick={() => onTabChange('history')}
-          style={{
-            padding: '6px 12px',
-            background: activeTab === 'history' ? 'var(--vscode-button-background)' : 'transparent',
-            color: activeTab === 'history' ? 'var(--vscode-button-foreground)' : 'var(--vscode-foreground)',
-            border: activeTab === 'history' ? 'none' : '1px solid var(--vscode-panel-border)',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontSize: '13px',
-            fontWeight: 500,
-          }}
-        >
-          History
-        </button>
-        <button
+          icon={<History size={16} />}
+          label="History"
+        />
+        <TabButton
+          active={activeTab === 'settings'}
           onClick={() => onTabChange('settings')}
-          style={{
-            padding: '6px 12px',
-            background: activeTab === 'settings' ? 'var(--vscode-button-background)' : 'transparent',
-            color: activeTab === 'settings' ? 'var(--vscode-button-foreground)' : 'var(--vscode-foreground)',
-            border: activeTab === 'settings' ? 'none' : '1px solid var(--vscode-panel-border)',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontSize: '13px',
-            fontWeight: 500,
-          }}
-        >
-          Settings
-        </button>
+          icon={<Settings size={16} />}
+          label="Settings"
+        />
       </div>
 
       {/* Right: Action Buttons */}
@@ -84,13 +100,16 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, onTabChange, onNewCha
             display: 'flex',
             alignItems: 'center',
             gap: '6px',
+            transition: 'all 0.2s ease',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'var(--vscode-button-hoverBackground)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'var(--vscode-button-background)';
           }}
         >
-          {/* Plus icon */}
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
+          <Plus size={16} />
           New Chat
         </button>
       </div>
