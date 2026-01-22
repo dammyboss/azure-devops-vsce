@@ -1472,6 +1472,10 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             // Add assistant message explaining the action
             const explainMsg = addMessage('assistant', \`I'll use the \${toolName} tool on the \${serverName} MCP server.\`);
 
+            // Mark this message so we can identify it later
+            explainMsg.setAttribute('data-permission-id', id);
+            explainMsg.classList.add('permission-explanation');
+
             // Add permission request card
             const permCard = document.createElement('div');
             permCard.className = 'permission-request';
@@ -1584,11 +1588,14 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
             permCard.appendChild(detailsContainer);
             permCard.appendChild(actionsDiv);
 
+            // Mark the card with the permission ID
+            permCard.setAttribute('data-permission-id', id);
+
             messagesDiv.appendChild(permCard);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
 
-            // Store reference
-            window.currentPermissionCard = { id, card: permCard };
+            // Store reference including the explanation message
+            window.currentPermissionCard = { id, card: permCard, explanationMsg: explainMsg };
         }
 
         function respondPermission(id, action) {
@@ -1598,10 +1605,23 @@ export class AIChatProvider implements vscode.WebviewViewProvider {
 
             vscode.postMessage({ type: 'permissionResponse', id, action: finalAction });
 
-            // Remove the permission card
+            // Remove BOTH the permission card AND the explanation message
             if (window.currentPermissionCard && window.currentPermissionCard.id === id) {
-                window.currentPermissionCard.card.remove();
+                // Remove the card
+                if (window.currentPermissionCard.card && window.currentPermissionCard.card.parentNode) {
+                    window.currentPermissionCard.card.remove();
+                }
+                // Remove the explanation message
+                if (window.currentPermissionCard.explanationMsg && window.currentPermissionCard.explanationMsg.parentNode) {
+                    window.currentPermissionCard.explanationMsg.remove();
+                }
                 window.currentPermissionCard = null;
+            }
+
+            // Also try to remove by data attribute (fallback)
+            const cardByAttr = document.querySelector(\`[data-permission-id="\${id}"]\`);
+            if (cardByAttr && cardByAttr.parentNode) {
+                cardByAttr.remove();
             }
 
             // Show loading animation after approval to indicate tool execution
