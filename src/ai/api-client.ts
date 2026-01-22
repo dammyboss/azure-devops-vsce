@@ -367,8 +367,9 @@ export class APIClient {
             if (toolUses.length === 0) {
                 // No tools in this response - this is the final response
                 // Text has already been streamed in processAnthropicStream
-                // Just add final assistant message to MessageManager
+                // Just add final assistant message to MessageManager and ContextManager
                 this.messageManager.addAssistantMessage(response.content, false);
+                this.contextManager.addMessage({ role: 'assistant', content: response.content });
                 break;
             }
 
@@ -378,6 +379,8 @@ export class APIClient {
             this.conversationHistory.push({ role: 'assistant', content: response.content });
             // Also add to message manager for UI tracking
             this.messageManager.addAssistantMessage(response.content, false);
+            // CRITICAL: Add to context manager so next API call sees this response
+            this.contextManager.addMessage({ role: 'assistant', content: response.content });
 
             const toolResults: ContentBlock[] = [];
             for (const toolUse of toolUses) {
@@ -461,6 +464,8 @@ export class APIClient {
             // Now continue with tool results
 
             this.conversationHistory.push({ role: 'user', content: toolResults });
+            // CRITICAL: Add to context manager so next API call sees the tool results
+            this.contextManager.addMessage({ role: 'user', content: toolResults });
             this.outputChannel.appendLine(`[Agent Loop] Tool results added to history. Continuing to next iteration...`);
 
             if (this.abortController?.signal.aborted) {
