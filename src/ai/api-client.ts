@@ -488,13 +488,17 @@ export class APIClient {
             throw new Error('Anthropic API key not configured. Please set azureDevOps.ai.anthropic.apiKey in settings.');
         }
 
-        // Get trimmed context window for API call (keeps full history in conversationHistory for UI)
+        // Always use context manager's managed window to prevent token overflow
+        // The context manager properly accounts for system prompt, tools, and output buffer
         const contextWindow = this.contextManager.getContextWindow();
-        const messagesToSend = contextWindow.isTruncated ? contextWindow.messages : this.conversationHistory;
+        const messagesToSend = contextWindow.messages;
 
         if (contextWindow.isTruncated) {
             this.outputChannel.appendLine(`📎 Trimmed ${contextWindow.removedCount} old messages for API call (full history preserved in UI)`);
         }
+
+        this.outputChannel.appendLine(`📊 Sending ${messagesToSend.length} messages (${contextWindow.tokenCount.total} tokens)`);
+
 
         const response = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
@@ -627,13 +631,15 @@ export class APIClient {
             throw new Error('Azure OpenAI not configured. Please set endpoint, apiKey, and deployment in settings.');
         }
 
-        // Get trimmed context window for API call
+        // Always use context manager's managed window to prevent token overflow
         const contextWindow = this.contextManager.getContextWindow();
-        const messagesToSend = contextWindow.isTruncated ? contextWindow.messages : this.conversationHistory;
+        const messagesToSend = contextWindow.messages;
 
         if (contextWindow.isTruncated) {
             this.outputChannel.appendLine(`📎 Trimmed ${contextWindow.removedCount} old messages for API call (full history preserved in UI)`);
         }
+
+        this.outputChannel.appendLine(`📊 Sending ${messagesToSend.length} messages (${contextWindow.tokenCount.total} tokens)`);
 
         const url = `${this.azureEndpoint}/openai/deployments/${this.azureDeployment}/chat/completions?api-version=${this.azureApiVersion}`;
 
@@ -685,13 +691,15 @@ export class APIClient {
     }
 
     private async callOpenAICompatible(url: string, apiKey: string, model: string) {
-        // Get trimmed context window for API call
+        // Always use context manager's managed window to prevent token overflow
         const contextWindow = this.contextManager.getContextWindow();
-        const messagesToSend = contextWindow.isTruncated ? contextWindow.messages : this.conversationHistory;
+        const messagesToSend = contextWindow.messages;
 
         if (contextWindow.isTruncated) {
             this.outputChannel.appendLine(`📎 Trimmed ${contextWindow.removedCount} old messages for API call (full history preserved in UI)`);
         }
+
+        this.outputChannel.appendLine(`📊 Sending ${messagesToSend.length} messages (${contextWindow.tokenCount.total} tokens)`);
 
         const response = await fetch(url, {
             method: 'POST',
