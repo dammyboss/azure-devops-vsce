@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import { aiChatProvider } from '../extension';
+// DISABLED: AI Chat features - uncomment to re-enable in future
+// import { aiChatProvider } from '../extension';
 
 export interface ProviderSettings {
     provider: 'anthropic' | 'azure' | 'deepseek' | 'grok' | 'openai';
@@ -1680,7 +1681,9 @@ export class SettingsUIProvider {
 
             // Get actual tool counts from MCP client
             const statuses: any = {};
-            
+
+            // DISABLED: AI Chat features - uncomment to re-enable in future
+            const aiChatProvider: any = null;
             if (aiChatProvider) {
                 const mcpClient = aiChatProvider.getMCPClient();
                 const allTools = mcpClient.getAllTools();

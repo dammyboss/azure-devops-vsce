@@ -16,7 +16,7 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
-    "chatParticipants": [
+    "_DISABLED_chatParticipants": [
       {
         "id": "azure-devops.chat",
         "name": "azure-devops",
@@ -30,7 +30,7 @@
         ]
       }
     ],
-    "customEditors": [
+    "_DISABLED_customEditors": [
       {
         "viewType": "azureDevOps.chatEditor",
         "displayName": "Azure DevOps AI Chat",
@@ -308,8 +308,8 @@
           "contextualTitle": "Azure DevOps Connection Status"
         },
         {
-          "id": "azureDevOpsAIChat",
-          "name": "AI Assistant",
+          "id": "_DISABLED_azureDevOpsAIChat",
+          "name": "_DISABLED_AI Assistant",
           "type": "webview",
           "icon": "$(comment-discussion)",
           "contextualTitle": "Azure DevOps AI Assistant"
