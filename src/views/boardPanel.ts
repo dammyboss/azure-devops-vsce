@@ -513,8 +513,12 @@ export class BoardPanel {
                 changes: [{ field: '/fields/System.State', newValue: targetState }]
             });
 
-            // Refresh board to update status dots and reflect new state
-            await this._loadAndRender();
+            // Send success message to webview (no full refresh needed - card already moved visually)
+            this._panel.webview.postMessage({
+                command: 'moveSuccess',
+                workItemId,
+                targetState
+            });
 
             vscode.window.showInformationMessage(`Moved #${workItemId} to ${targetColumn}`);
 
@@ -601,8 +605,14 @@ export class BoardPanel {
                 changes: [{ field: '/fields/System.AssignedTo', newValue: currentUser.uniqueName }]
             });
 
+            // Send update to webview to update assignee avatar
+            this._panel.webview.postMessage({
+                command: 'updateAssignee',
+                workItemId,
+                assignee: currentUser
+            });
+
             vscode.window.showInformationMessage(`Assigned #${workItemId} to you`);
-            await this._loadAndRender();
 
         } catch (error: any) {
             vscode.window.showErrorMessage(`Failed to assign: ${error?.message || error}`);
@@ -654,8 +664,14 @@ export class BoardPanel {
                 changes: [{ field: '/fields/System.State', newValue: newState }]
             });
 
+            // Send update to webview to update state badge
+            this._panel.webview.postMessage({
+                command: 'updateState',
+                workItemId,
+                state: newState
+            });
+
             vscode.window.showInformationMessage(`Changed #${workItemId} state to ${newState}`);
-            await this._loadAndRender();
 
         } catch (error: any) {
             vscode.window.showErrorMessage(`Failed to change state: ${error?.message || error}`);
@@ -716,7 +732,7 @@ export class BoardPanel {
                 }
             );
 
-            await this._loadAndRender();
+            // No need for full refresh - webview already updated the title
             vscode.window.showInformationMessage(`Updated title for #${workItemId}`);
 
         } catch (error: any) {
@@ -747,7 +763,7 @@ export class BoardPanel {
                 }
             );
 
-            await this._loadAndRender();
+            // No need for full refresh - webview already updated the effort
             vscode.window.showInformationMessage(`Updated effort for #${workItemId}`);
 
         } catch (error: any) {
@@ -801,7 +817,16 @@ export class BoardPanel {
                 changes: [{ field: '/fields/System.AssignedTo', newValue: selected.uniqueName }]
             });
 
-            await this._loadAndRender();
+            // Send update to webview to update assignee avatar
+            this._panel.webview.postMessage({
+                command: 'updateAssignee',
+                workItemId,
+                assignee: selected.uniqueName ? {
+                    uniqueName: selected.uniqueName,
+                    displayName: selected.label
+                } : null
+            });
+
             vscode.window.showInformationMessage(`Updated assignee for #${workItemId}`);
 
         } catch (error: any) {
