@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ChatMessage, ExtensionMessage, PermissionRequest } from '../types/messages';
 import { ChatRow } from './ChatRow';
+import { ChatTextArea, ChatTextAreaRef } from './ChatTextArea';
+import { ProgressIndicator } from './ProgressIndicator';
 import { vscode } from '../utils/vscode';
 
 export const ChatView: React.FC = () => {
@@ -9,11 +11,25 @@ export const ChatView: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const currentStreamingMessageRef = useRef<string | null>(null);
+  const chatTextAreaRef = useRef<ChatTextAreaRef>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
 
-  // Scroll to bottom when messages change
+  // Scroll to bottom when messages change (if auto-scroll is enabled)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (shouldAutoScroll) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, shouldAutoScroll]);
+
+  // Handle scroll to detect if user scrolled up
+  const handleScroll = useCallback(() => {
+    if (!messagesContainerRef.current) return;
+
+    const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+    const isAtBottom = Math.abs(scrollHeight - clientHeight - scrollTop) < 50;
+    setShouldAutoScroll(isAtBottom);
+  }, []);
 
   // Handle messages from extension
   useEffect(() => {
@@ -214,13 +230,6 @@ export const ChatView: React.FC = () => {
     setIsGenerating(true);
   }, [inputValue, isGenerating]);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
   // Debug: Log whenever messages change
   useEffect(() => {
     console.log('[ChatView] Messages state updated. Count:', messages.length);
@@ -229,28 +238,44 @@ export const ChatView: React.FC = () => {
 
   return (
     <div className="chat-container">
-      <div className="messages-container">
-        <div style={{ padding: '10px', background: '#333', color: '#fff', fontSize: '12px' }}>
-          Debug: {messages.length} messages in state
-        </div>
+      <div
+        className="messages-container"
+        ref={messagesContainerRef}
+        onScroll={handleScroll}
+      >
+        {messages.length === 0 && (
+          <div className="empty-state">
+            <div className="empty-state-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+            </div>
+            <h2>Azure DevOps Assistant</h2>
+            <p>Ask me about work items, sprints, boards, or anything related to Azure DevOps.</p>
+          </div>
+        )}
         {messages.map((message) => (
           <ChatRow key={message.id} message={message} />
         ))}
+        {isGenerating && messages[messages.length - 1]?.role !== 'assistant' && (
+          <div className="message assistant loading-message">
+            <ProgressIndicator size={16} />
+            <span className="loading-text">Thinking...</span>
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 
       <div className="input-container">
-        <textarea
+        <ChatTextArea
+          ref={chatTextAreaRef}
           value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Ask about work items, sprints, or Azure DevOps..."
+          onChange={setInputValue}
+          onSend={handleSend}
           disabled={isGenerating}
-          rows={3}
+          isStreaming={isGenerating}
+          placeholder="Ask about work items, sprints, or Azure DevOps..."
         />
-        <button onClick={handleSend} disabled={isGenerating || !inputValue.trim()}>
-          {isGenerating ? 'Generating...' : 'Send'}
-        </button>
       </div>
     </div>
   );

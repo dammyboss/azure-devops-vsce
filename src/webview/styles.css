@@ -204,3 +204,226 @@ body {
 .messages-container::-webkit-scrollbar-thumb:hover {
   background: var(--vscode-scrollbarSlider-hoverBackground);
 }
+
+/* Empty State */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
+  padding: 48px 24px;
+  opacity: 0.7;
+}
+
+.empty-state-icon {
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+.empty-state h2 {
+  margin: 0 0 8px 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+.empty-state p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--vscode-descriptionForeground);
+  max-width: 400px;
+  line-height: 1.6;
+}
+
+/* Loading Message */
+.loading-message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0.8;
+}
+
+.loading-text {
+  font-size: 13px;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* Progress Indicator */
+.progress-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.progress-indicator .spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ChatTextArea */
+.chat-text-area-container {
+  width: 100%;
+}
+
+.chat-text-area-wrapper {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 8px;
+  transition: border-color 0.2s ease;
+}
+
+.chat-text-area-wrapper.focused {
+  border-color: var(--vscode-focusBorder);
+}
+
+.chat-textarea {
+  flex: 1;
+  padding: 12px 48px 12px 12px;
+  background: transparent;
+  color: var(--vscode-input-foreground);
+  border: none;
+  outline: none;
+  font-family: var(--vscode-font-family);
+  font-size: 13px;
+  line-height: 1.6;
+  resize: none;
+}
+
+.chat-textarea::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
+.chat-textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.chat-text-area-buttons {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  gap: 4px;
+}
+
+.chat-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--vscode-foreground);
+  transition: all 0.2s ease;
+}
+
+.chat-button:hover:not(:disabled) {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.chat-button.send-button {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+
+.chat-button.send-button:hover:not(:disabled) {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.chat-button.stop-button {
+  color: var(--vscode-errorForeground);
+  background: rgba(241, 76, 76, 0.1);
+}
+
+.chat-button.stop-button:hover:not(:disabled) {
+  background: rgba(241, 76, 76, 0.2);
+}
+
+.chat-button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.chat-button.disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Context Menu */
+.context-menu {
+  position: absolute;
+  z-index: 1000;
+  background: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-editorWidget-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  max-height: 300px;
+  overflow-y: auto;
+  min-width: 200px;
+}
+
+.context-menu-items {
+  padding: 4px;
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.context-menu-item:hover,
+.context-menu-item.selected {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.context-menu-item-icon {
+  display: flex;
+  align-items: center;
+  color: var(--vscode-descriptionForeground);
+}
+
+.context-menu-item-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.context-menu-item-label {
+  font-size: 13px;
+  color: var(--vscode-foreground);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.context-menu-item-description {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
