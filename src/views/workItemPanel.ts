@@ -1029,6 +1029,37 @@ export class WorkItemPanel {
         .quick-actions {
             display: flex;
             gap: 8px;
+            position: relative;
+        }
+        .menu-dropdown {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            margin-top: 4px;
+            background: var(--vscode-menu-background);
+            border: 1px solid var(--vscode-menu-border);
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            z-index: 1000;
+            min-width: 180px;
+        }
+        .menu-item {
+            padding: 10px 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            font-size: 13px;
+            transition: background 0.2s;
+        }
+        .menu-item:hover {
+            background: var(--vscode-menu-selectionBackground);
+            color: var(--vscode-menu-selectionForeground);
+        }
+        .menu-item:first-child {
+            border-radius: 6px 6px 0 0;
+        }
+        .menu-item:last-child {
+            border-radius: 0 0 6px 6px;
         }
         .btn-icon {
             padding: 6px 12px;
@@ -1066,6 +1097,28 @@ export class WorkItemPanel {
         /* DETAILS CARD */
         .details-card { background: var(--vscode-editor-background); }
         .form-group { margin-bottom: 16px; }
+        .description-display {
+            line-height: 1.6;
+            color: var(--vscode-foreground);
+            transition: all 0.2s ease;
+            border: 1px solid transparent;
+        }
+        .description-display:hover {
+            background: var(--vscode-list-hoverBackground);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 6px;
+            padding: 12px;
+        }
+        #descriptionEditorContainer {
+            transition: all 0.3s ease;
+            opacity: 0;
+            max-height: 0;
+            overflow: hidden;
+        }
+        #descriptionEditorContainer.show {
+            opacity: 1;
+            max-height: 500px;
+        }
         label {
             display: block;
             font-size: 12px;
@@ -1650,7 +1703,22 @@ export class WorkItemPanel {
             <span class="state-pill" onclick="scrollToState()">${this.escapeHtml(state)}</span>
             <div class="quick-actions">
                 ${assignedTo === 'Unassigned' ? '<button class="btn-icon" onclick="assignToMe()">Assign to me</button>' : ''}
-                <button class="btn-icon" onclick="openInBrowser()">⋯</button>
+                <button class="btn-icon" onclick="toggleMenu(event)">⋯</button>
+                <div id="menuDropdown" class="menu-dropdown" style="display: none;">
+                    <div class="menu-item" onclick="openInBrowser(); hideMenu();">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="margin-right: 8px;">
+                            <path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8zm7.5-6.923c-.67.204-1.335.82-1.887 1.855A7.97 7.97 0 0 0 5.145 4H7.5V1.077zM4.09 4a9.267 9.267 0 0 1 .64-1.539 6.7 6.7 0 0 1 .597-.933A7.025 7.025 0 0 0 2.255 4H4.09zm-.582 3.5c.03-.877.138-1.718.312-2.5H1.674a6.958 6.958 0 0 0-.656 2.5h2.49zM4.847 5a12.5 12.5 0 0 0-.338 2.5H7.5V5H4.847zM8.5 5v2.5h2.99a12.495 12.495 0 0 0-.337-2.5H8.5zM4.51 8.5a12.5 12.5 0 0 0 .337 2.5H7.5V8.5H4.51zm3.99 0V11h2.653c.187-.765.306-1.608.338-2.5H8.5zM5.145 12c.138.386.295.744.468 1.068.552 1.035 1.218 1.65 1.887 1.855V12H5.145zm.182 2.472a6.696 6.696 0 0 1-.597-.933A9.268 9.268 0 0 1 4.09 12H2.255a7.024 7.024 0 0 0 3.072 2.472zM3.82 11a13.652 13.652 0 0 1-.312-2.5h-2.49c.062.89.291 1.733.656 2.5H3.82zm6.853 3.472A7.024 7.024 0 0 0 13.745 12H11.91a9.27 9.27 0 0 1-.64 1.539 6.688 6.688 0 0 1-.597.933zM8.5 12v2.923c.67-.204 1.335-.82 1.887-1.855.173-.324.33-.682.468-1.068H8.5zm3.68-1h2.146c.365-.767.594-1.61.656-2.5h-2.49a13.65 13.65 0 0 1-.312 2.5zm2.802-3.5a6.959 6.959 0 0 0-.656-2.5H12.18c.174.782.282 1.623.312 2.5h2.49zM11.27 2.461c.247.464.462.98.64 1.539h1.835a7.024 7.024 0 0 0-3.072-2.472c.218.284.418.598.597.933zM10.855 4a7.966 7.966 0 0 0-.468-1.068C9.835 1.897 9.17 1.282 8.5 1.077V4h2.355z"/>
+                        </svg>
+                        Open in Browser
+                    </div>
+                    <div class="menu-item" onclick="refresh(); hideMenu();">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="margin-right: 8px;">
+                            <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+                            <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+                        </svg>
+                        Refresh
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1662,9 +1730,12 @@ export class WorkItemPanel {
             </div>
             <div class="form-group">
                 <label>Description</label>
-                <div id="descriptionEditor" style="background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); border-radius: 6px;"></div>
+                <div id="descriptionDisplay" class="description-display" onclick="showDescriptionEditor()" style="min-height: 40px; cursor: text; padding: 12px;">${description || '<span style="color: var(--vscode-input-placeholderForeground);">Click to add description...</span>'}</div>
+                <div id="descriptionEditorContainer">
+                    <div id="descriptionEditor" style="background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); border-radius: 6px;"></div>
+                </div>
             </div>
-            <div class="action-bar">
+            <div class="action-bar" style="display: none;">
                 <button class="btn-primary" onclick="saveWorkItem()">
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="margin-right: 6px;">
                         <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z"/>
@@ -1847,6 +1918,44 @@ export class WorkItemPanel {
         console.log('Iterations count:', ${this._iterations.length});
         console.log('Areas count:', ${this._areas.length});
 
+        function showDescriptionEditor() {
+            const display = document.getElementById('descriptionDisplay');
+            const container = document.getElementById('descriptionEditorContainer');
+            
+            display.style.display = 'none';
+            container.classList.add('show');
+            setTimeout(() => descriptionQuill.focus(), 100);
+        }
+
+        function hideDescriptionEditor() {
+            const html = descriptionQuill.root.innerHTML;
+            const display = document.getElementById('descriptionDisplay');
+            const container = document.getElementById('descriptionEditorContainer');
+            
+            container.classList.remove('show');
+            setTimeout(() => {
+                display.innerHTML = html || '<span style="color: var(--vscode-input-placeholderForeground);">Click to add description...</span>';
+                display.style.display = 'block';
+            }, 300);
+            
+            const title = document.getElementById('title').value;
+            vscode.postMessage({ command: 'save', data: { title, description: html } });
+        }
+
+        function toggleMenu(event) {
+            event.stopPropagation();
+            const menu = document.getElementById('menuDropdown');
+            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function hideMenu() {
+            document.getElementById('menuDropdown').style.display = 'none';
+        }
+
+        document.addEventListener('click', function() {
+            hideMenu();
+        });
+
         function saveWorkItem() {
             const title = document.getElementById('title').value;
             const description = descriptionQuill ? descriptionQuill.root.innerHTML : '';
@@ -1901,10 +2010,11 @@ export class WorkItemPanel {
                     descToolbar.style.display = 'none';
                 
                     descriptionQuill.on('selection-change', function(range) {
-                        if (range) {
-                            descToolbar.style.display = 'block';
-                        } else {
+                        if (!range && descToolbar) {
                             descToolbar.style.display = 'none';
+                            hideDescriptionEditor();
+                        } else if (range && descToolbar) {
+                            descToolbar.style.display = 'block';
                         }
                     });
                 }
