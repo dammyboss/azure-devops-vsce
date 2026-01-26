@@ -481,20 +481,24 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
     }
 
     private getIconForWorkItemState(state: string): vscode.ThemeIcon {
-        switch (state) {
-            case WorkItemStateEnum.New:
-            case WorkItemStateEnum.ToDo:
+        // Normalize state for case-insensitive matching
+        const normalizedState = state?.trim().toLowerCase();
+
+        switch (normalizedState) {
+            case 'new':
+            case 'to do':
                 return new vscode.ThemeIcon('circle-outline', new vscode.ThemeColor('charts.gray'));
-            case WorkItemStateEnum.Active:
-            case WorkItemStateEnum.InProgress:
+            case 'active':
+            case 'in progress':
                 return new vscode.ThemeIcon('play-circle', new vscode.ThemeColor('charts.blue'));
-            case WorkItemStateEnum.Resolved:
-            case WorkItemStateEnum.ReadyForReview:
+            case 'resolved':
+            case 'ready for review':
+            case 'approved':
                 return new vscode.ThemeIcon('check-circle', new vscode.ThemeColor('charts.yellow'));
-            case WorkItemStateEnum.Closed:
-            case WorkItemStateEnum.Done:
+            case 'closed':
+            case 'done':
                 return new vscode.ThemeIcon('pass-filled', new vscode.ThemeColor('charts.green'));
-            case WorkItemStateEnum.Removed:
+            case 'removed':
                 return new vscode.ThemeIcon('circle-slash', new vscode.ThemeColor('charts.red'));
             default:
                 return new vscode.ThemeIcon('circle');
