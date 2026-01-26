@@ -968,7 +968,7 @@ export class WorkItemPanel {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data: vscode-resource:; script-src 'unsafe-inline' https://cdn.quilljs.com; style-src 'unsafe-inline' https://cdn.quilljs.com; font-src https://cdn.quilljs.com;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data: vscode-resource:; script-src 'unsafe-inline' 'unsafe-eval' https://cdn.quilljs.com; style-src 'unsafe-inline' https://cdn.quilljs.com; font-src https://cdn.quilljs.com; connect-src https://cdn.quilljs.com;">
     <title>#${this._workItem.id}</title>
     <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
     <style>
@@ -1075,7 +1075,7 @@ export class WorkItemPanel {
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
-        input[type="text"], textarea {
+        input[type='text'], textarea {
             width: 100%;
             padding: 10px 12px;
             background: var(--vscode-input-background);
@@ -1086,7 +1086,7 @@ export class WorkItemPanel {
             font-size: 14px;
             transition: all 0.2s;
         }
-        input[type="text"]:focus, textarea:focus {
+        input[type='text']:focus, textarea:focus {
             outline: none;
             border-color: var(--vscode-focusBorder);
             box-shadow: 0 0 0 2px var(--vscode-focusBorder);
@@ -1471,12 +1471,17 @@ export class WorkItemPanel {
         .timeline-text .ql-indent-2 { padding-left: 6em; }
         .timeline-text .ql-indent-3 { padding-left: 9em; }
         .ql-toolbar { background: var(--vscode-input-background) !important; border: none !important; border-bottom: 1px solid var(--vscode-input-border) !important; border-radius: 6px 6px 0 0 !important; padding: 4px 6px !important; }
+        #descriptionEditor .ql-toolbar { display: none !important; }
+        #descriptionEditor .ql-toolbar.show { display: block !important; }
+        #commentEditor .ql-toolbar { display: block !important; }
         .ql-toolbar .ql-formats { margin-right: 8px !important; margin-bottom: 0 !important; }
         .ql-toolbar button { width: 24px !important; height: 24px !important; padding: 2px !important; }
         .ql-toolbar .ql-picker-label { padding: 2px 4px !important; height: 24px !important; line-height: 20px !important; }
         .ql-toolbar .ql-picker { height: 24px !important; }
         .ql-container { border: none !important; font-size: 13px !important; }
         .ql-editor { min-height: 100px; color: var(--vscode-input-foreground) !important; }
+        #descriptionEditor .ql-editor { min-height: 120px; }
+        #commentEditor .ql-editor { min-height: 100px; }
         .ql-editor.ql-blank::before { color: var(--vscode-input-placeholderForeground) !important; font-style: normal !important; }
         .ql-stroke { stroke: var(--vscode-foreground) !important; }
         .ql-fill { fill: var(--vscode-foreground) !important; }
@@ -1651,7 +1656,7 @@ export class WorkItemPanel {
             </div>
             <div class="form-group">
                 <label>Description</label>
-                <textarea id="description" placeholder="Add a clear description, acceptance criteria, or notes...">${this.escapeHtml(this.stripHtml(description))}</textarea>
+                <div id="descriptionEditor" style="background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); border-radius: 6px;"></div>
             </div>
             <div class="action-bar">
                 <button class="btn-primary" onclick="saveWorkItem()">💾 Save Changes</button>
@@ -1772,7 +1777,10 @@ export class WorkItemPanel {
         </div>
 
         <div class="card">
-            <div class="card-title">💬 Add Comment</div>
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+                <div style="width: 32px; height: 32px; border-radius: 50%; background: ${this.getAvatarColor(assignedTo)}; color: white; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 12px;">${this.getInitials(assignedTo)}</div>
+                <div class="card-title" style="margin-bottom: 0;">Add a comment</div>
+            </div>
             <div class="comment-input-area">
                 <div id="commentEditor" style="width: 100%; background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); border-radius: 6px;"></div>
                 <button class="btn-secondary" onclick="addComment()">Add Comment</button>
@@ -1819,7 +1827,7 @@ export class WorkItemPanel {
 
         function saveWorkItem() {
             const title = document.getElementById('title').value;
-            const description = document.getElementById('description').value;
+            const description = descriptionQuill ? descriptionQuill.root.innerHTML : '';
             vscode.postMessage({ command: 'save', data: { title, description } });
         }
 
@@ -1828,20 +1836,71 @@ export class WorkItemPanel {
         }
 
         let quill;
+        let descriptionQuill;
         let editQuills = {};
         
         function initQuill() {
+            try {
+                console.log('Starting Quill initialization...');
+                // Initialize description editor
+                console.log('Initializing description editor...');
+                descriptionQuill = new Quill('#descriptionEditor', {
+                theme: 'snow',
+                placeholder: 'Add a clear description, acceptance criteria, or notes...',
+                modules: {
+                    toolbar: [
+                        [{ header: [1, 2, 3, false] }],
+                        ['bold', 'italic', 'underline', 'strike'],
+                        [{ color: [] }, { background: [] }],
+                        [{ align: [] }],
+                        [{ list: 'ordered'}, { list: 'bullet' }, { indent: '-1'}, { indent: '+1' }],
+                        ['blockquote', 'code-block'],
+                        ['link'],
+                        ['clean']
+                    ]
+                }
+            });
+            console.log('Description editor created');
+
+            // Set initial content
+            const descriptionContent = ${JSON.stringify(description || '')};
+            if (descriptionContent) {
+                descriptionQuill.root.innerHTML = descriptionContent;
+            }
+
+            // Hide toolbar after Quill finishes rendering
+            setTimeout(() => {
+                const descContainer = document.querySelector('#descriptionEditor');
+                const descToolbar = descContainer ? descContainer.previousElementSibling : null;
+                console.log('Description container:', descContainer);
+                console.log('Description toolbar (previousSibling):', descToolbar);
+                if (descToolbar && descToolbar.classList.contains('ql-toolbar')) {
+                    console.log('Hiding description toolbar');
+                    descToolbar.style.display = 'none';
+                
+                    descriptionQuill.on('selection-change', function(range) {
+                        if (range) {
+                            descToolbar.style.display = 'block';
+                        } else {
+                            descToolbar.style.display = 'none';
+                        }
+                    });
+                }
+            }, 100);
+
+            // Initialize comment editor (always show toolbar)
+            console.log('Initializing comment editor...');
             quill = new Quill('#commentEditor', {
                 theme: 'snow',
                 placeholder: 'Write a comment... (supports rich text formatting)',
                 modules: {
                     toolbar: {
                         container: [
-                            [{ 'header': [1, 2, 3, false] }],
+                            [{ header: [1, 2, 3, false] }],
                             ['bold', 'italic', 'underline', 'strike'],
-                            [{ 'color': [] }, { 'background': [] }],
-                            [{ 'align': [] }],
-                            [{ 'list': 'ordered'}, { 'list': 'bullet' }, { 'indent': '-1'}, { 'indent': '+1' }],
+                            [{ color: [] }, { background: [] }],
+                            [{ align: [] }],
+                            [{ list: 'ordered'}, { list: 'bullet' }, { indent: '-1'}, { indent: '+1' }],
                             ['blockquote', 'code-block'],
                             ['link', 'image'],
                             ['clean']
@@ -1852,7 +1911,29 @@ export class WorkItemPanel {
                     }
                 }
             });
+
+            // Hide comment toolbar initially, show on focus
+            console.log('Comment editor initialized');
+            setTimeout(() => {
+                const commentContainer = document.querySelector('#commentEditor');
+                const commentToolbar = commentContainer ? commentContainer.previousElementSibling : null;
+                if (commentToolbar && commentToolbar.classList.contains('ql-toolbar')) {
+                    commentToolbar.style.display = 'none';
+                    
+                    quill.on('selection-change', function(range) {
+                        if (range) {
+                            commentToolbar.style.display = 'block';
+                        } else {
+                            commentToolbar.style.display = 'none';
+                        }
+                    });
+                }
+            }, 100);
+        } catch (error) {
+            console.error('Error initializing Quill:', error);
+            console.error('Error details:', error.message, error.stack);
         }
+    }
 
         function imageHandler() {
             const input = document.createElement('input');
@@ -1896,11 +1977,11 @@ export class WorkItemPanel {
                     theme: 'snow',
                     modules: {
                         toolbar: [
-                            [{ 'header': [1, 2, 3, false] }],
+                            [{ header: [1, 2, 3, false] }],
                             ['bold', 'italic', 'underline', 'strike'],
-                            [{ 'color': [] }, { 'background': [] }],
-                            [{ 'align': [] }],
-                            [{ 'list': 'ordered'}, { 'list': 'bullet' }, { 'indent': '-1'}, { 'indent': '+1' }],
+                            [{ color: [] }, { background: [] }],
+                            [{ align: [] }],
+                            [{ list: 'ordered'}, { list: 'bullet' }, { indent: '-1'}, { indent: '+1' }],
                             ['blockquote', 'code-block'],
                             ['link', 'image'],
                             ['clean']
