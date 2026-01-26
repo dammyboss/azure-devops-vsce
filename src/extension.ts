@@ -33,6 +33,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Initialize managers
     authenticationManager = new AuthenticationManager(context);
+    await authenticationManager.initialize();
+    context.subscriptions.push(...authenticationManager.registerListeners());
+
     statusBarManager = new StatusBarManager();
     gitIntegration = new GitIntegration();
     workItemLinksManager = new WorkItemLinksManager(authenticationManager);

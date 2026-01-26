@@ -94,6 +94,15 @@ export class WorkItemPanel {
                     case 'addComment':
                         await this.addComment(message.comment);
                         break;
+                    case 'uploadImage':
+                        await this.uploadImageForComment(message.imageData);
+                        break;
+                    case 'updateComment':
+                        await this.updateComment(message.commentId, message.comment);
+                        break;
+                    case 'deleteComment':
+                        await this.deleteComment(message.commentId);
+                        break;
                     case 'refresh':
                         await this.refreshWorkItem();
                         break;
@@ -447,8 +456,41 @@ export class WorkItemPanel {
         }
     }
 
-    private async addComment(comment: string) {
-        if (!this._workItem || !comment.trim()) return;
+    private async uploadImageForComment(base64Data: string): Promise<void> {
+        if (!this._workItem) return;
+
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+
+            if (!axiosInstance || !config?.defaultProject) return;
+
+            // Convert base64 to buffer
+            const base64Image = base64Data.split(',')[1];
+            const buffer = Buffer.from(base64Image, 'base64');
+
+            // Upload as attachment
+            const uploadResponse = await axiosInstance.post(
+                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/attachments`,
+                buffer,
+                {
+                    params: { fileName: `image-${Date.now()}.png`, 'api-version': '7.0' },
+                    headers: { 'Content-Type': 'application/octet-stream' }
+                }
+            );
+
+            // Send URL back to webview
+            this._panel.webview.postMessage({
+                command: 'imageUploaded',
+                url: uploadResponse.data.url
+            });
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to upload image: ${error}`);
+        }
+    }
+
+    private async addComment(commentHtml: string) {
+        if (!this._workItem || !commentHtml.trim()) return;
 
         try {
             const axiosInstance = this.authenticationManager.getAxiosInstance();
@@ -458,7 +500,7 @@ export class WorkItemPanel {
 
             await axiosInstance.post(
                 `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workItems/${this._workItem.id}/comments`,
-                { text: comment },
+                { text: commentHtml },
                 { params: { 'api-version': '7.0-preview.3' } }
             );
 
@@ -466,6 +508,57 @@ export class WorkItemPanel {
             await this.refreshWorkItem();
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to add comment: ${error}`);
+        }
+    }
+
+    private async updateComment(commentId: number, commentHtml: string) {
+        if (!this._workItem || !commentHtml.trim()) return;
+
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+
+            if (!axiosInstance || !config?.defaultProject) return;
+
+            await axiosInstance.patch(
+                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workItems/${this._workItem.id}/comments/${commentId}`,
+                { text: commentHtml },
+                { params: { 'api-version': '7.0-preview.3' } }
+            );
+
+            vscode.window.showInformationMessage('Comment updated');
+            await this.refreshWorkItem();
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to update comment: ${error}`);
+        }
+    }
+
+    private async deleteComment(commentId: number) {
+        if (!this._workItem) return;
+
+        const confirm = await vscode.window.showWarningMessage(
+            'Delete this comment?',
+            { modal: true },
+            'Delete'
+        );
+
+        if (confirm !== 'Delete') return;
+
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+
+            if (!axiosInstance || !config?.defaultProject) return;
+
+            await axiosInstance.delete(
+                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workItems/${this._workItem.id}/comments/${commentId}`,
+                { params: { 'api-version': '7.0-preview.3' } }
+            );
+
+            vscode.window.showInformationMessage('Comment deleted');
+            await this.refreshWorkItem();
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to delete comment: ${error}`);
         }
     }
 
@@ -875,7 +968,9 @@ export class WorkItemPanel {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data: vscode-resource:; script-src 'unsafe-inline' https://cdn.quilljs.com; style-src 'unsafe-inline' https://cdn.quilljs.com; font-src https://cdn.quilljs.com;">
     <title>#${this._workItem.id}</title>
+    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -1279,8 +1374,8 @@ export class WorkItemPanel {
         /* COMMENTS */
         .comment-input-area {
             display: flex;
+            flex-direction: column;
             gap: 12px;
-            align-items: flex-start;
         }
         .comment-input-area textarea {
             flex: 1;
@@ -1315,7 +1410,29 @@ export class WorkItemPanel {
         .timeline-header {
             display: flex;
             justify-content: space-between;
+            align-items: center;
             margin-bottom: 6px;
+        }
+        .comment-actions {
+            display: flex;
+            gap: 4px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .timeline-item:hover .comment-actions {
+            opacity: 1;
+        }
+        .comment-action-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            padding: 4px;
+            opacity: 0.6;
+            transition: opacity 0.2s;
+        }
+        .comment-action-btn:hover {
+            opacity: 1;
         }
         .timeline-author {
             font-weight: 600;
@@ -1328,8 +1445,49 @@ export class WorkItemPanel {
         .timeline-text {
             font-size: 13px;
             line-height: 1.5;
-            white-space: pre-wrap;
         }
+        .timeline-text p { margin: 0 0 8px 0; }
+        .timeline-text h1 { font-size: 24px; font-weight: 700; margin: 12px 0 8px 0; }
+        .timeline-text h2 { font-size: 20px; font-weight: 700; margin: 10px 0 6px 0; }
+        .timeline-text h3 { font-size: 16px; font-weight: 700; margin: 8px 0 4px 0; }
+        .timeline-text ul, .timeline-text ol { margin: 0 0 8px 20px; }
+        .timeline-text li { margin: 2px 0; }
+        .timeline-text strong { font-weight: 600; }
+        .timeline-text em { font-style: italic; }
+        .timeline-text s { text-decoration: line-through; }
+        .timeline-text u { text-decoration: underline; }
+        .timeline-text blockquote { border-left: 3px solid var(--vscode-textBlockQuote-border); padding-left: 12px; margin: 8px 0; color: var(--vscode-textBlockQuote-foreground); background: var(--vscode-textBlockQuote-background); }
+        .timeline-text code { background: var(--vscode-textCodeBlock-background); padding: 2px 4px; border-radius: 3px; font-family: monospace; }
+        .timeline-text pre { background: var(--vscode-textCodeBlock-background); padding: 8px; border-radius: 4px; overflow-x: auto; margin: 8px 0; }
+        .timeline-text pre code { padding: 0; background: none; }
+        .timeline-text a { color: var(--vscode-textLink-foreground); text-decoration: none; }
+        .timeline-text a:hover { text-decoration: underline; }
+        .timeline-text img { max-width: 100%; height: auto; margin: 8px 0; border-radius: 4px; display: block; }
+        .ql-editor img { max-width: 100%; height: auto; }
+        .timeline-text .ql-align-center { text-align: center; }
+        .timeline-text .ql-align-right { text-align: right; }
+        .timeline-text .ql-align-justify { text-align: justify; }
+        .timeline-text .ql-indent-1 { padding-left: 3em; }
+        .timeline-text .ql-indent-2 { padding-left: 6em; }
+        .timeline-text .ql-indent-3 { padding-left: 9em; }
+        .ql-toolbar { background: var(--vscode-input-background) !important; border: none !important; border-bottom: 1px solid var(--vscode-input-border) !important; border-radius: 6px 6px 0 0 !important; padding: 4px 6px !important; }
+        .ql-toolbar .ql-formats { margin-right: 8px !important; margin-bottom: 0 !important; }
+        .ql-toolbar button { width: 24px !important; height: 24px !important; padding: 2px !important; }
+        .ql-toolbar .ql-picker-label { padding: 2px 4px !important; height: 24px !important; line-height: 20px !important; }
+        .ql-toolbar .ql-picker { height: 24px !important; }
+        .ql-container { border: none !important; font-size: 13px !important; }
+        .ql-editor { min-height: 100px; color: var(--vscode-input-foreground) !important; }
+        .ql-editor.ql-blank::before { color: var(--vscode-input-placeholderForeground) !important; font-style: normal !important; }
+        .ql-stroke { stroke: var(--vscode-foreground) !important; }
+        .ql-fill { fill: var(--vscode-foreground) !important; }
+        .ql-picker-label { color: var(--vscode-foreground) !important; }
+        .ql-picker-options { background: var(--vscode-dropdown-background) !important; border: 1px solid var(--vscode-dropdown-border) !important; }
+        .ql-picker-item { color: var(--vscode-dropdown-foreground) !important; }
+        .ql-picker-item:hover { background: var(--vscode-list-hoverBackground) !important; }
+        .ql-toolbar button:hover, .ql-toolbar button.ql-active { color: var(--vscode-button-background) !important; }
+        .ql-toolbar button:hover .ql-stroke, .ql-toolbar button.ql-active .ql-stroke { stroke: var(--vscode-button-background) !important; }
+        .ql-toolbar button:hover .ql-fill, .ql-toolbar button.ql-active .ql-fill { fill: var(--vscode-button-background) !important; }
+        #commentEditor { display: flex; flex-direction: column; }
         .linked-items {
             display: flex;
             flex-direction: column;
@@ -1470,6 +1628,7 @@ export class WorkItemPanel {
             font-size: 13px;
         }
     </style>
+    <script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -1615,8 +1774,8 @@ export class WorkItemPanel {
         <div class="card">
             <div class="card-title">💬 Add Comment</div>
             <div class="comment-input-area">
-                <textarea id="comment" placeholder="Write an update... (Markdown supported)"></textarea>
-                <button class="btn-secondary" onclick="addComment()">Add</button>
+                <div id="commentEditor" style="width: 100%; background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); border-radius: 6px;"></div>
+                <button class="btn-secondary" onclick="addComment()">Add Comment</button>
             </div>
         </div>
 
@@ -1626,13 +1785,23 @@ export class WorkItemPanel {
             <div class="timeline">
                 ${comments.map(c => `
                     <div class="timeline-item">
-                        <div class="timeline-icon">💬</div>
+                        <div class="timeline-icon" style="background: ${this.getAvatarColor(c.createdBy?.displayName || 'Unknown')}; color: white; font-weight: 600; font-size: 12px;">${this.getInitials(c.createdBy?.displayName || 'Unknown')}</div>
                         <div class="timeline-content">
                             <div class="timeline-header">
-                                <span class="timeline-author">${this.escapeHtml(c.createdBy?.displayName || 'Unknown')}</span>
-                                <span class="timeline-date">${this.formatRelativeTime(c.createdDate)}</span>
+                                <span class="timeline-author">${this.escapeHtml(c.createdBy?.displayName || 'Unknown')} <span style="text-decoration: underline; font-weight: normal;">commented ${this.formatRelativeTime(c.createdDate)}</span></span>
+                                <div class="comment-actions">
+                                    <button class="comment-action-btn" onclick="editComment(${c.id})" title="Edit">✏️</button>
+                                    <button class="comment-action-btn" onclick="deleteComment(${c.id})" title="Delete">🗑️</button>
+                                </div>
                             </div>
-                            <div class="timeline-text">${this.escapeHtml(this.decodeHtml(this.stripHtml(c.text || '')))}</div>
+                            <div class="timeline-text" id="comment-${c.id}" style="word-wrap: break-word;">${this.sanitizeHtml(c.text || '')}</div>
+                            <div id="edit-${c.id}" style="display: none;">
+                                <div id="editor-${c.id}" style="background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); border-radius: 6px; margin-top: 8px;"></div>
+                                <div style="margin-top: 8px; display: flex; gap: 8px;">
+                                    <button class="btn-secondary" onclick="saveEdit(${c.id})">Save</button>
+                                    <button class="btn-secondary" onclick="cancelEdit(${c.id})">Cancel</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 `).join('')}
@@ -1658,12 +1827,133 @@ export class WorkItemPanel {
             vscode.postMessage({ command: 'changeState', state });
         }
 
-        function addComment() {
-            const comment = document.getElementById('comment').value;
-            if (comment.trim()) {
-                vscode.postMessage({ command: 'addComment', comment });
-                document.getElementById('comment').value = '';
+        let quill;
+        let editQuills = {};
+        
+        function initQuill() {
+            quill = new Quill('#commentEditor', {
+                theme: 'snow',
+                placeholder: 'Write a comment... (supports rich text formatting)',
+                modules: {
+                    toolbar: {
+                        container: [
+                            [{ 'header': [1, 2, 3, false] }],
+                            ['bold', 'italic', 'underline', 'strike'],
+                            [{ 'color': [] }, { 'background': [] }],
+                            [{ 'align': [] }],
+                            [{ 'list': 'ordered'}, { 'list': 'bullet' }, { 'indent': '-1'}, { 'indent': '+1' }],
+                            ['blockquote', 'code-block'],
+                            ['link', 'image'],
+                            ['clean']
+                        ],
+                        handlers: {
+                            image: imageHandler
+                        }
+                    }
+                }
+            });
+        }
+
+        function imageHandler() {
+            const input = document.createElement('input');
+            input.setAttribute('type', 'file');
+            input.setAttribute('accept', 'image/*');
+            input.click();
+
+            input.onchange = () => {
+                const file = input.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        vscode.postMessage({ 
+                            command: 'uploadImage', 
+                            imageData: e.target.result 
+                        });
+                    };
+                    reader.readAsDataURL(file);
+                }
+            };
+        }
+
+        window.addEventListener('message', event => {
+            const message = event.data;
+            if (message.command === 'imageUploaded') {
+                const range = quill.getSelection(true);
+                quill.insertEmbed(range.index, 'image', message.url);
             }
+        });
+
+        function editComment(commentId) {
+            const commentDiv = document.getElementById('comment-' + commentId);
+            const editDiv = document.getElementById('edit-' + commentId);
+            const editorDiv = document.getElementById('editor-' + commentId);
+            
+            commentDiv.style.display = 'none';
+            editDiv.style.display = 'block';
+            
+            if (!editQuills[commentId]) {
+                editQuills[commentId] = new Quill('#editor-' + commentId, {
+                    theme: 'snow',
+                    modules: {
+                        toolbar: [
+                            [{ 'header': [1, 2, 3, false] }],
+                            ['bold', 'italic', 'underline', 'strike'],
+                            [{ 'color': [] }, { 'background': [] }],
+                            [{ 'align': [] }],
+                            [{ 'list': 'ordered'}, { 'list': 'bullet' }, { 'indent': '-1'}, { 'indent': '+1' }],
+                            ['blockquote', 'code-block'],
+                            ['link', 'image'],
+                            ['clean']
+                        ]
+                    }
+                });
+                editQuills[commentId].root.innerHTML = commentDiv.innerHTML;
+            }
+        }
+
+        function saveEdit(commentId) {
+            const editor = editQuills[commentId];
+            if (!editor) return;
+            
+            const html = editor.root.innerHTML;
+            const text = editor.getText().trim();
+            
+            if (text) {
+                vscode.postMessage({ command: 'updateComment', commentId: commentId, comment: html });
+            }
+        }
+
+        function cancelEdit(commentId) {
+            const commentDiv = document.getElementById('comment-' + commentId);
+            const editDiv = document.getElementById('edit-' + commentId);
+            
+            commentDiv.style.display = 'block';
+            editDiv.style.display = 'none';
+        }
+
+        function deleteComment(commentId) {
+            vscode.postMessage({ command: 'deleteComment', commentId: commentId });
+        }
+
+        function addComment() {
+            if (!quill) return;
+            let html = quill.root.innerHTML;
+            const text = quill.getText().trim();
+            
+            // Remove base64 images (they cause 500 errors)
+            html = html.replace(/<img[^>]+src="data:image[^>]+>/gi, '<p>[Image removed - use attachment upload instead]</p>');
+            
+            if (text) {
+                vscode.postMessage({ command: 'addComment', comment: html });
+                quill.setContents([]);
+            }
+        }
+        
+        // Initialize Quill after page loads
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initQuill);
+        } else {
+            initQuill();
         }
 
         function refresh() {
@@ -1891,12 +2181,16 @@ export class WorkItemPanel {
         const date = new Date(dateStr);
         const now = new Date();
         const diff = now.getTime() - date.getTime();
-        const hours = Math.floor(diff / (1000 * 60 * 60));
+        const minutes = Math.floor(diff / (1000 * 60));
         
-        if (hours < 1) return 'just now';
+        if (minutes < 1) return 'just now';
+        if (minutes < 60) return `${minutes}m ago`;
+        const hours = Math.floor(minutes / 60);
         if (hours < 24) return `${hours}h ago`;
         const days = Math.floor(hours / 24);
         if (days < 7) return `${days}d ago`;
+        const weeks = Math.floor(days / 7);
+        if (weeks < 4) return `${weeks}w ago`;
         return date.toLocaleDateString();
     }
 
@@ -1931,6 +2225,27 @@ export class WorkItemPanel {
             '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
         };
         return text.replace(/[&<>"']/g, m => map[m]);
+    }
+
+    private sanitizeHtml(html: string): string {
+        // Allow safe HTML tags for rich text display
+        const allowedTags = ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'strike', 'ul', 'ol', 'li', 'a', 'code', 'pre', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'div', 'img'];
+        const allowedAttributes: Record<string, string[]> = {
+            'a': ['href', 'title', 'data-vss-mention'],
+            'span': ['style', 'class'],
+            'div': ['style', 'class'],
+            'p': ['class'],
+            'img': ['src', 'alt', 'width', 'height'],
+            'li': ['class']
+        };
+
+        // Basic sanitization - remove script tags and dangerous attributes
+        let sanitized = html
+            .replace(/<script[^>]*>.*?<\/script>/gi, '')
+            .replace(/on\w+\s*=\s*["'][^"']*["']/gi, '')
+            .replace(/javascript:/gi, '');
+
+        return sanitized;
     }
 
     private stripHtml(html: string): string {
@@ -1975,6 +2290,24 @@ export class WorkItemPanel {
         const sizes = ['B', 'KB', 'MB', 'GB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    private getInitials(name: string): string {
+        return name
+            .split(' ')
+            .map(n => n[0])
+            .join('')
+            .toUpperCase()
+            .substring(0, 2);
+    }
+
+    private getAvatarColor(name: string): string {
+        const colors = ['#0078d4', '#8764b8', '#00b7c3', '#8cbd18', '#ffb900', '#d13438', '#00cc6a', '#e3008c'];
+        let hash = 0;
+        for (let i = 0; i < name.length; i++) {
+            hash = name.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        return colors[Math.abs(hash) % colors.length];
     }
 
     public dispose() {

@@ -68,21 +68,17 @@ export class ConnectionSetupWizard {
      * Step 1: Authenticate user
      */
     private async authenticate(): Promise<vscode.AuthenticationSession | null> {
-        try {
-            const session = await vscode.authentication.getSession('microsoft', [
-                'https://app.vssps.visualstudio.com/.default'
-            ], { createIfNone: true });
+        // Get existing session (should already be authenticated from connect command)
+        const session = await vscode.authentication.getSession('microsoft', [
+            '499b84ac-1321-427f-aa17-267ca6975798/.default'
+        ], { createIfNone: false, silent: true });
 
-            if (!session) {
-                vscode.window.showErrorMessage('Authentication cancelled or failed.');
-                return null;
-            }
-
-            return session;
-        } catch (error: any) {
-            vscode.window.showErrorMessage(`Authentication error: ${error.message}`);
+        if (!session) {
+            vscode.window.showErrorMessage('Not authenticated. Please sign in first.');
             return null;
         }
+
+        return session;
     }
 
     /**
@@ -90,34 +86,98 @@ export class ConnectionSetupWizard {
      */
     private async selectOrganizationStep(accessToken: string): Promise<Organization | undefined> {
         try {
-            // Show progress
             return await vscode.window.withProgress(
                 {
                     location: vscode.ProgressLocation.Notification,
-                    title: 'Fetching organizations...',
+                    title: 'Discovering your Azure DevOps organizations...',
                     cancellable: false
                 },
                 async () => {
-                    // Try to fetch fresh organizations
-                    let organizations = await this.orgManager.getOrganizations(accessToken);
+                    // Auto-discover organizations using profile API
+                    const organizations = await this.discoverOrganizations(accessToken);
 
-                    // If fetch fails, try cached
-                    if (organizations.length === 0) {
-                        organizations = await this.orgManager.getCachedOrganizations();
+                    if (!organizations || organizations.length === 0) {
+                        throw new Error('No Azure DevOps organizations found. Please make sure you have access to at least one organization.');
                     }
 
-                    // If we have organizations, show picker
-                    if (organizations.length > 0) {
-                        // Cache them for next time
-                        await this.orgManager.cacheOrganizations(organizations);
-                        return await this.orgManager.selectOrganization(organizations);
-                    }
+                    // Show discovered organizations
+                    const orgItems = organizations.map(org => ({
+                        label: org.name,
+                        description: org.url,
+                        detail: `Select this organization`,
+                        org
+                    }));
 
-                    throw new Error('No organizations found. Make sure you have access to Azure DevOps organizations.');
+                    const selectedOrg = await vscode.window.showQuickPick(orgItems, {
+                        placeHolder: `Select an organization (found ${organizations.length})`,
+                        ignoreFocusOut: true,
+                        matchOnDescription: true
+                    });
+
+                    return selectedOrg?.org;
                 }
             );
         } catch (error: any) {
             throw new Error(`Failed to select organization: ${error.message}`);
+        }
+    }
+
+    /**
+     * Auto-discover organizations using Azure DevOps profile API
+     */
+    private async discoverOrganizations(accessToken: string): Promise<Organization[]> {
+        const axios = require('axios');
+        
+        try {
+            // Get user profile
+            const profileResponse = await axios.get(
+                'https://app.vssps.visualstudio.com/_apis/profile/profiles/me',
+                {
+                    headers: { 'Authorization': `Bearer ${accessToken}` },
+                    params: { 'api-version': '7.1' }
+                }
+            );
+
+            const memberId = profileResponse.data.id;
+
+            // Get organizations for this user
+            const accountsResponse = await axios.get(
+                'https://app.vssps.visualstudio.com/_apis/accounts',
+                {
+                    headers: { 'Authorization': `Bearer ${accessToken}` },
+                    params: {
+                        'memberId': memberId,
+                        'api-version': '7.1'
+                    }
+                }
+            );
+
+            if (accountsResponse.data && accountsResponse.data.count > 0) {
+                return accountsResponse.data.value.map((account: any) => {
+                    let accountUri = account.accountUri || '';
+
+                    // Normalize URL
+                    if (accountUri) {
+                        accountUri = accountUri.replace('vssps.dev.azure.com', 'dev.azure.com');
+                        accountUri = accountUri.replace('.vssps.visualstudio.com', '.visualstudio.com');
+                        accountUri = accountUri.replace(/\/+$/, '');
+                    }
+
+                    if (!accountUri || !accountUri.startsWith('http')) {
+                        accountUri = `https://dev.azure.com/${account.accountName}`;
+                    }
+
+                    return {
+                        id: account.accountId,
+                        name: account.accountName,
+                        url: accountUri
+                    };
+                });
+            }
+
+            return [];
+        } catch (error: any) {
+            throw new Error(`Unable to discover organizations: ${error.message}`);
         }
     }
 
@@ -129,16 +189,58 @@ export class ConnectionSetupWizard {
             return await vscode.window.withProgress(
                 {
                     location: vscode.ProgressLocation.Notification,
-                    title: `Fetching projects from ${org.name}...`,
+                    title: `Loading projects from ${org.name}...`,
                     cancellable: false
                 },
                 async () => {
-                    const projects = await this.orgManager.getProjects(org.url, accessToken);
-                    return await this.orgManager.selectProject(projects);
+                    const projects = await this.getProjects(org.url, accessToken);
+                    
+                    if (!projects || projects.length === 0) {
+                        throw new Error(`No projects found in organization "${org.name}".`);
+                    }
+
+                    const projectItems = projects.map(project => ({
+                        label: project.name,
+                        project
+                    }));
+
+                    const selectedProject = await vscode.window.showQuickPick(projectItems, {
+                        placeHolder: 'Select a project',
+                        ignoreFocusOut: true
+                    });
+
+                    return selectedProject?.project;
                 }
             );
         } catch (error: any) {
             throw new Error(`Failed to select project: ${error.message}`);
+        }
+    }
+
+    /**
+     * Get projects from organization
+     */
+    private async getProjects(organizationUrl: string, accessToken: string): Promise<Project[]> {
+        const axios = require('axios');
+        
+        try {
+            const cleanUrl = organizationUrl.trim().replace(/\/+$/, '');
+            const projectsUrl = `${cleanUrl}/_apis/projects`;
+
+            const response = await axios.get(projectsUrl, {
+                headers: { 'Authorization': `Bearer ${accessToken}` },
+                params: { 'api-version': '7.1' }
+            });
+
+            return response.data.value || [];
+        } catch (error: any) {
+            if (error.response?.status === 401) {
+                throw new Error('Authentication failed. Your access token may have expired.');
+            } else if (error.response?.status === 404) {
+                throw new Error('Organization not found. Please verify the organization name.');
+            } else {
+                throw new Error(`Failed to access organization: ${error.message}`);
+            }
         }
     }
 
@@ -150,17 +252,54 @@ export class ConnectionSetupWizard {
             return await vscode.window.withProgress(
                 {
                     location: vscode.ProgressLocation.Notification,
-                    title: `Fetching teams from ${project.name}...`,
+                    title: `Loading teams from ${project.name}...`,
                     cancellable: false
                 },
                 async () => {
-                    const teams = await this.orgManager.getTeams(org.url, project.id, accessToken);
-                    return await this.orgManager.selectTeam(teams);
+                    const teams = await this.getTeams(org.url, project.id, accessToken);
+                    
+                    if (!teams || teams.length === 0) {
+                        return undefined;
+                    }
+
+                    const teamItems = teams.map(team => ({
+                        label: team.name,
+                        team
+                    }));
+
+                    const selectedTeam = await vscode.window.showQuickPick(teamItems, {
+                        placeHolder: 'Select a team (optional)',
+                        ignoreFocusOut: true
+                    });
+
+                    return selectedTeam?.team;
                 }
             );
         } catch (error: any) {
             console.error('Team selection error (non-critical):', error);
             return undefined;
+        }
+    }
+
+    /**
+     * Get teams from project
+     */
+    private async getTeams(organizationUrl: string, projectId: string, accessToken: string): Promise<Team[]> {
+        const axios = require('axios');
+        
+        try {
+            const cleanUrl = organizationUrl.trim().replace(/\/+$/, '');
+            const teamsUrl = `${cleanUrl}/_apis/projects/${encodeURIComponent(projectId)}/teams`;
+
+            const response = await axios.get(teamsUrl, {
+                headers: { 'Authorization': `Bearer ${accessToken}` },
+                params: { 'api-version': '7.1-preview.3' }
+            });
+
+            return response.data.value || [];
+        } catch (error: any) {
+            console.error('Failed to get teams:', error);
+            return [];
         }
     }
 

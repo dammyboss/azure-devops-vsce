@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import axios, { AxiosInstance } from 'axios';
-import { AzureDevOpsAuthenticationProvider } from './azureDevOpsAuthProvider';
 
 export interface AzureDevOpsConfig {
     organizationUrl: string;
@@ -17,38 +16,53 @@ export interface ConnectionStatus {
 }
 
 export class AuthenticationManager {
+    private static readonly SCOPES = [
+        '499b84ac-1321-427f-aa17-267ca6975798/.default' // Azure DevOps scope
+    ];
+
     private context: vscode.ExtensionContext;
     private config: AzureDevOpsConfig | null = null;
     private axiosInstance: AxiosInstance | null = null;
     private connectionStatus: ConnectionStatus = { isConnected: false };
-    private authProvider: AzureDevOpsAuthenticationProvider;
-    private currentSession: vscode.AuthenticationSession | null = null;
-    private setupWizard: any = null; // Lazy loaded
+    private session: vscode.AuthenticationSession | undefined;
+    private readonly onDidChangeSessionEmitter = new vscode.EventEmitter<vscode.AuthenticationSession | undefined>();
+    public readonly onDidChangeSession = this.onDidChangeSessionEmitter.event;
 
     constructor(context: vscode.ExtensionContext) {
         this.context = context;
-        this.authProvider = new AzureDevOpsAuthenticationProvider(context);
-        context.subscriptions.push(this.authProvider);
         this.loadConfiguration().catch(() => {});
     }
 
     private async loadConfiguration(): Promise<void> {
-        // Try to load from stored session first
-        const sessions = await vscode.authentication.getSession('azure-devops', [], { createIfNone: false });
-        if (sessions) {
-            this.currentSession = sessions;
-            const organizationUrl = sessions.account.id.replace(/\/+$/, '');
-            const config = vscode.workspace.getConfiguration('azureDevOps');
-            const defaultProject = config.get<string>('defaultProject', '');
-            const defaultTeam = config.get<string>('defaultTeam', '');
-            
-            this.config = {
-                organizationUrl,
-                personalAccessToken: sessions.accessToken,
-                defaultProject,
-                defaultTeam
-            };
-            this.createAxiosInstance();
+        try {
+            const storedSessionId = await this.context.secrets.get('ado-session-id');
+            if (storedSessionId) {
+                const session = await vscode.authentication.getSession(
+                    'microsoft',
+                    AuthenticationManager.SCOPES,
+                    { silent: true }
+                );
+
+                if (session) {
+                    this.session = session;
+                    const config = vscode.workspace.getConfiguration('azureDevOps');
+                    const organizationUrl = config.get<string>('organizationUrl', '');
+                    const defaultProject = config.get<string>('defaultProject', '');
+                    const defaultTeam = config.get<string>('defaultTeam', '');
+                    
+                    if (organizationUrl) {
+                        this.config = {
+                            organizationUrl: organizationUrl.replace(/\/+$/, ''),
+                            personalAccessToken: session.accessToken,
+                            defaultProject,
+                            defaultTeam
+                        };
+                        this.createAxiosInstance();
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load configuration:', error);
         }
     }
 
@@ -147,96 +161,176 @@ export class AuthenticationManager {
 
     public async connect(): Promise<boolean> {
         try {
-            // Check if there's an existing session
-            const existingSession = await vscode.authentication.getSession('microsoft', [
-                'https://app.vssps.visualstudio.com/.default'
-            ], { createIfNone: false, silent: true });
-
-            let forceNewSession = false;
-
-            if (existingSession) {
-                // Prompt user if they want to use a different account
-                const useNewAccount = await vscode.window.showQuickPick(
-                    [
-                        { label: `$(account) Continue as ${existingSession.account.label}`, value: 'current' },
-                        { label: '$(sign-out) Sign in with different account', value: 'new' }
-                    ],
-                    {
-                        placeHolder: 'Choose authentication method',
-                        title: 'Azure DevOps Connection'
-                    }
-                );
-
-                if (!useNewAccount) {
-                    return false;
+            // Step 1: Get Microsoft session with account picker
+            const session = await vscode.authentication.getSession(
+                'microsoft',
+                AuthenticationManager.SCOPES,
+                {
+                    clearSessionPreference: true,
+                    forceNewSession: true
                 }
-
-                forceNewSession = useNewAccount.value === 'new';
-            }
-
-            // Get Microsoft session for auth using Azure DevOps app scope
-            const sessionOptions: any = forceNewSession
-                ? { forceNewSession: true, clearSessionPreference: true }
-                : { createIfNone: true };
-
-            const session = await vscode.authentication.getSession('microsoft', [
-                'https://app.vssps.visualstudio.com/.default'
-            ], sessionOptions);
+            );
 
             if (!session) {
-                vscode.window.showErrorMessage('Authentication cancelled.');
-                return false;
+                throw new Error('Failed to create authentication session');
             }
 
-            // Store the Microsoft session
-            this.currentSession = session;
+            // Step 2: Ask if user wants to switch tenant
+            const switchTenant = await vscode.window.showQuickPick(
+                [
+                    { label: 'Use primary tenant', value: false },
+                    { label: 'Switch to different tenant', value: true }
+                ],
+                { placeHolder: 'Do you want to switch to a different tenant?' }
+            );
 
-            // Always show setup wizard for fresh connection
-            vscode.window.showInformationMessage('Opening Azure DevOps setup wizard...');
-            await vscode.commands.executeCommand('azureDevOps.setupWizard');
-            return false;
+            if (!switchTenant || !switchTenant.value) {
+                // Use current session
+                this.session = session;
+                await this.context.secrets.store('ado-session-id', this.session.id);
+                this.onDidChangeSessionEmitter.fire(this.session);
+                vscode.commands.executeCommand('setContext', 'azureDevOps.signedIn', true);
+                vscode.window.showInformationMessage('Successfully signed in! Opening setup wizard...');
+                
+                // Show setup wizard to configure organization and project
+                await vscode.commands.executeCommand('azureDevOps.setupWizard');
+                return true;
+            }
+
+            // Step 3: Show input box to enter tenant ID
+            const tenantId = await vscode.window.showInputBox({
+                prompt: 'Enter Tenant ID (you can find this in Azure Portal)',
+                placeHolder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+                validateInput: (value) => {
+                    if (!value || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+                        return 'Please enter a valid tenant ID (GUID format)';
+                    }
+                    return null;
+                }
+            });
+
+            if (!tenantId) {
+                throw new Error('Tenant selection cancelled');
+            }
+
+            // Step 4: Re-authenticate with selected tenant
+            this.session = await vscode.authentication.getSession(
+                'microsoft',
+                [`${AuthenticationManager.SCOPES[0]}`, `VSCODE_TENANT:${tenantId}`],
+                { forceNewSession: true }
+            );
+
+            if (this.session) {
+                await this.context.secrets.store('ado-session-id', this.session.id);
+                await this.context.secrets.store('ado-tenant-id', tenantId);
+                this.onDidChangeSessionEmitter.fire(this.session);
+                vscode.commands.executeCommand('setContext', 'azureDevOps.signedIn', true);
+                vscode.window.showInformationMessage('Successfully signed in! Opening setup wizard...');
+                
+                // Show setup wizard to configure organization and project
+                await vscode.commands.executeCommand('azureDevOps.setupWizard');
+                return true;
+            }
+
+            throw new Error('Failed to create authentication session');
         } catch (error) {
-            vscode.window.showErrorMessage(`Connection error: ${error}`);
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            vscode.window.showErrorMessage(`Failed to sign in: ${errorMessage}`);
             return false;
         }
     }
 
     public async disconnect(): Promise<void> {
-        // Clear all sessions from auth provider
-        await this.authProvider.disconnect();
-        this.currentSession = null;
+        if (this.session) {
+            await this.context.secrets.delete('ado-session-id');
+            await this.context.secrets.delete('ado-tenant-id');
+            this.session = undefined;
+            this.onDidChangeSessionEmitter.fire(undefined);
+        }
 
-        // Clear config
         this.config = null;
         this.axiosInstance = null;
         this.connectionStatus = { isConnected: false };
         
-        // Clear workspace settings
         await vscode.workspace.getConfiguration('azureDevOps').update('organizationUrl', '', true);
         await vscode.workspace.getConfiguration('azureDevOps').update('defaultProject', '', true);
         await vscode.workspace.getConfiguration('azureDevOps').update('defaultTeam', '', true);
 
-        vscode.window.showInformationMessage('Disconnected from Azure DevOps. Please reconnect to use a different account.');
+        vscode.commands.executeCommand('setContext', 'azureDevOps.signedIn', false);
+        vscode.window.showInformationMessage('Successfully signed out from Azure DevOps');
     }
 
     public async refreshConfiguration(): Promise<void> {
-        const sessions = await vscode.authentication.getSession('azure-devops', [], { createIfNone: false });
-        if (sessions) {
-            this.currentSession = sessions;
-            const organizationUrl = sessions.account.id.replace(/\/+$/, '');
-            const config = vscode.workspace.getConfiguration('azureDevOps');
-            const defaultProject = config.get<string>('defaultProject', '');
-            const defaultTeam = config.get<string>('defaultTeam', '');
-            
-            this.config = {
-                organizationUrl,
-                personalAccessToken: sessions.accessToken,
-                defaultProject,
-                defaultTeam
-            };
-            this.createAxiosInstance();
+        await this.loadConfiguration();
+        if (this.config && this.axiosInstance) {
             await this.autoConnect();
         }
+    }
+
+    public async getSession(): Promise<vscode.AuthenticationSession | undefined> {
+        if (this.session) {
+            return this.session;
+        }
+
+        try {
+            const storedSessionId = await this.context.secrets.get('ado-session-id');
+            if (storedSessionId) {
+                const session = await vscode.authentication.getSession(
+                    'microsoft',
+                    AuthenticationManager.SCOPES,
+                    { silent: true }
+                );
+
+                if (session) {
+                    this.session = session;
+                    this.onDidChangeSessionEmitter.fire(this.session);
+                    vscode.commands.executeCommand('setContext', 'azureDevOps.signedIn', true);
+                    return this.session;
+                }
+            }
+        } catch (error) {
+            console.error('Failed to restore session:', error);
+        }
+
+        return undefined;
+    }
+
+    public async initialize(): Promise<void> {
+        try {
+            const session = await this.getSession();
+            if (session) {
+                vscode.commands.executeCommand('setContext', 'azureDevOps.signedIn', true);
+            } else {
+                vscode.commands.executeCommand('setContext', 'azureDevOps.signedIn', false);
+            }
+        } catch (error) {
+            console.error('Failed to initialize authentication:', error);
+            vscode.commands.executeCommand('setContext', 'azureDevOps.signedIn', false);
+        }
+    }
+
+    public registerListeners(): vscode.Disposable[] {
+        return [
+            vscode.authentication.onDidChangeSessions(async (e) => {
+                if (e.provider.id === 'microsoft') {
+                    const session = await this.getSession();
+                    this.onDidChangeSessionEmitter.fire(session);
+                }
+            })
+        ];
+    }
+
+    public async getUserInfo(): Promise<{ name: string; email: string; id: string } | undefined> {
+        const session = await this.getSession();
+        if (!session) {
+            return undefined;
+        }
+
+        return {
+            name: session.account.label,
+            email: session.account.id,
+            id: session.account.id
+        };
     }
 
     public getAxiosInstance(): AxiosInstance | null {
