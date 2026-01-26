@@ -903,7 +903,7 @@ export class BoardPanel {
             border-radius: 4px 0 0 4px;
         }
 
-        .card-type-border.user-story { background: #009ccc; }
+        .card-type-border.user-story { background: #4396C2; }
         .card-type-border.task { background: #f2cb1d; }
         .card-type-border.bug { background: #cc293d; }
         .card-type-border.feature { background: #773b93; }

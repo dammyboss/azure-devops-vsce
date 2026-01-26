@@ -1772,7 +1772,7 @@ export class BoardPanel {
         .card {
             background: var(--vscode-editor-background);
             border: 2px solid var(--vscode-panel-border);
-            border-left: 4px solid var(--card-type-color, #009ccc);
+            border-left: 4px solid var(--card-type-color, #4396C2);
             border-radius: 6px;
             padding: 12px;
             cursor: pointer;
@@ -1790,14 +1790,14 @@ export class BoardPanel {
         }
 
         .card.keyboard-moving {
-            outline: 2px solid var(--card-type-color, #009ccc);
-            box-shadow: 0 0 0 4px rgba(0, 156, 204, 0.2);
+            outline: 2px solid var(--card-type-color, #4396C2);
+            box-shadow: 0 0 0 4px rgba(67, 150, 194, 0.2);
         }
 
         /* Work Item Type Colors - Azure DevOps Standard */
-        .card[data-type="User Story"] { --card-type-color: #009ccc; }
-        .card[data-type="Product Backlog Item"] { --card-type-color: #009ccc; }
-        .card[data-type="Requirement"] { --card-type-color: #009ccc; }
+        .card[data-type="User Story"] { --card-type-color: #4396C2; }
+        .card[data-type="Product Backlog Item"] { --card-type-color: #4396C2; }
+        .card[data-type="Requirement"] { --card-type-color: #4396C2; }
         .card[data-type="Feature"] { --card-type-color: #773b93; }
         .card[data-type="Epic"] { --card-type-color: #ff7b00; }
         .card[data-type="Bug"] { --card-type-color: #cc293d; }
@@ -4026,7 +4026,7 @@ export class BoardPanel {
             'Issue': '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="2" width="10" height="12" rx="1" fill="#28A745" opacity="0.3"/><path d="M4 4h8M4 7h6M4 10h5" stroke="#28A745" stroke-width="1.5" stroke-linecap="round"/></svg>',
             'Bug': '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="5" fill="#CC293D" opacity="0.3"/><path d="M6 6l4 4M10 6l-4 4" stroke="#CC293D" stroke-width="1.5" stroke-linecap="round"/></svg>',
             'Epic': '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 2l1.5 3 3.5.5-2.5 2.5.5 3.5L8 10l-3 1.5.5-3.5L3 5.5l3.5-.5L8 2z" fill="#FF8C00" opacity="0.3"/><path d="M8 2l1.5 3 3.5.5-2.5 2.5.5 3.5L8 10l-3 1.5.5-3.5L3 5.5l3.5-.5L8 2z" stroke="#FF8C00" stroke-width="1" stroke-linejoin="round"/></svg>',
-            'User Story': '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="10" height="10" rx="1" fill="#0078D4" opacity="0.3"/><path d="M5 5h6M5 8h6M5 11h4" stroke="#0078D4" stroke-width="1.5" stroke-linecap="round"/></svg>',
+            'User Story': '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="10" height="10" rx="1" fill="#4396C2" opacity="0.3"/><path d="M5 5h6M5 8h6M5 11h4" stroke="#4396C2" stroke-width="1.5" stroke-linecap="round"/></svg>',
             'Feature': '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="5" fill="#773B93" opacity="0.3"/><path d="M8 5v6M5 8h6" stroke="#773B93" stroke-width="1.5" stroke-linecap="round"/></svg>'
         };
 
@@ -4037,7 +4037,7 @@ export class BoardPanel {
         // Use SVG icons with Azure DevOps standard colors
         switch(type) {
             case 'User Story':
-                return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 448" width="16" height="16"><path fill="#0078D4" d="M320 352c-22.846 0-60.713 5.861-80 16.588V55.635C257.752 40.563 296.084 32 320 32h64v320h-64zm-192 32H32V64H0v352h208s-16-32-80-32zM64 32v320h64c22.848 0 60.707 5.865 80 16.594V55.635C190.244 40.561 151.902 32 128 32H64zm352 32v320h-96c-64 0-80 32-80 32h208V64h-32z" /></svg>`;
+                return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 448" width="16" height="16"><path fill="#4396C2" d="M320 352c-22.846 0-60.713 5.861-80 16.588V55.635C257.752 40.563 296.084 32 320 32h64v320h-64zm-192 32H32V64H0v352h208s-16-32-80-32zM64 32v320h64c22.848 0 60.707 5.865 80 16.594V55.635C190.244 40.561 151.902 32 128 32H64zm352 32v320h-96c-64 0-80 32-80 32h208V64h-32z" /></svg>`;
 
             case 'Feature':
                 return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 448" width="16" height="16"><path fill="#773B93" d="M145.619 384H128c-17.674 0-32 14.326-32 32v32h256v-32c0-17.674-14.327-32-32-32h-17.619c-7.434-36.47-39.75-64-78.381-64s-70.947 27.53-78.381 64zM224 352c20.832 0 38.425 13.418 45.053 32h-90.106c6.627-18.582 24.221-32 45.053-32zM352 64V32H96v32H32v80c0 40.051 29.686 73.018 68.153 78.8C114.003 278.531 163.984 320 224 320c60.016 0 109.997-41.469 123.846-97.2C386.313 217.018 416 184.051 416 144V64h-64zM96 189.053C77.417 182.426 64 164.832 64 144V96h32v93.053zM384 144c0 20.832-13.418 38.426-32 45.053V96h32v48z" /></svg>`;
