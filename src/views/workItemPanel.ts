@@ -1436,6 +1436,16 @@ export class WorkItemPanel {
             flex-direction: column;
             gap: 12px;
         }
+        #addCommentBtn {
+            transition: all 0.3s ease;
+            opacity: 0;
+            max-height: 0;
+            overflow: hidden;
+        }
+        #addCommentBtn.show {
+            opacity: 1;
+            max-height: 50px;
+        }
         .comment-input-area textarea {
             flex: 1;
             min-height: 80px;
@@ -1876,7 +1886,7 @@ export class WorkItemPanel {
             </div>
             <div class="comment-input-area">
                 <div id="commentEditor" style="width: 100%; background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); border-radius: 6px;"></div>
-                <button class="btn-secondary" onclick="addComment()">Add Comment</button>
+                <button id="addCommentBtn" class="btn-secondary" onclick="addComment()" style="display: none;">Add Comment</button>
             </div>
         </div>
 
@@ -2049,14 +2059,25 @@ export class WorkItemPanel {
             setTimeout(() => {
                 const commentContainer = document.querySelector('#commentEditor');
                 const commentToolbar = commentContainer ? commentContainer.previousElementSibling : null;
+                const addCommentBtn = document.getElementById('addCommentBtn');
+                
                 if (commentToolbar && commentToolbar.classList.contains('ql-toolbar')) {
                     commentToolbar.style.display = 'none';
+                    commentToolbar.style.transition = 'all 0.3s ease';
                     
                     quill.on('selection-change', function(range) {
                         if (range) {
                             commentToolbar.style.display = 'block';
+                            if (addCommentBtn) {
+                                addCommentBtn.style.display = 'block';
+                                setTimeout(() => addCommentBtn.classList.add('show'), 10);
+                            }
                         } else {
                             commentToolbar.style.display = 'none';
+                            if (addCommentBtn) {
+                                addCommentBtn.classList.remove('show');
+                                setTimeout(() => addCommentBtn.style.display = 'none', 300);
+                            }
                         }
                     });
                 }
