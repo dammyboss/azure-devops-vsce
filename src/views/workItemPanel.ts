@@ -1736,7 +1736,7 @@ export class WorkItemPanel {
             <div class="card-title">Details</div>
             <div class="form-group">
                 <label>Title</label>
-                <input type="text" id="title" value="${title}">
+                <input type="text" id="title" value="${title}" onblur="saveTitleOnBlur()">
             </div>
             <div class="form-group">
                 <label>Description</label>
@@ -1965,6 +1965,12 @@ export class WorkItemPanel {
         document.addEventListener('click', function() {
             hideMenu();
         });
+
+        function saveTitleOnBlur() {
+            const title = document.getElementById('title').value;
+            const description = descriptionQuill ? descriptionQuill.root.innerHTML : '';
+            vscode.postMessage({ command: 'save', data: { title, description } });
+        }
 
         function saveWorkItem() {
             const title = document.getElementById('title').value;
@@ -2230,7 +2236,8 @@ export class WorkItemPanel {
             const input = document.getElementById('effortInput');
             const value = input.value ? parseFloat(input.value) : null;
             console.log('Effort value:', value);
-            vscode.postMessage({ command: 'updateField', field: 'Microsoft.VSTS.Scheduling.Effort', value: value });
+            // Try both field names for story points
+            vscode.postMessage({ command: 'updateField', field: 'Microsoft.VSTS.Scheduling.StoryPoints', value: value });
         }
 
         function updateSprint() {
