@@ -480,9 +480,22 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
         }
     }
 
-    private getIconForWorkItemState(state: string): vscode.ThemeIcon {
+    private getIconForWorkItemState(state: string | any): vscode.ThemeIcon {
+        // Handle both string and object state values (Azure DevOps can return either)
+        let stateValue: string;
+        if (typeof state === 'string') {
+            stateValue = state;
+        } else if (state && typeof state === 'object' && state.name) {
+            stateValue = state.name;
+        } else if (state && typeof state === 'object') {
+            // Try to extract state name from various possible properties
+            stateValue = state.value || state.state || String(state);
+        } else {
+            stateValue = String(state || '');
+        }
+
         // Normalize state for case-insensitive matching
-        const normalizedState = state?.trim().toLowerCase();
+        const normalizedState = stateValue?.trim().toLowerCase();
 
         switch (normalizedState) {
             case 'new':
