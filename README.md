@@ -12,10 +12,12 @@ Manage your Azure DevOps Boards, work items, sprints, and backlogs directly from
 ## Features
 
 ### Secure Authentication
-- Personal Access Token (PAT) based authentication
+- OAuth 2.0 authentication using Microsoft accounts
+- No Personal Access Token (PAT) required
 - Secure token storage using VS Code's SecretStorage API
 - Support for multiple organizations and projects
 - Auto-connect on startup
+- Multi-tenant support
 
 ### Work Item Management
 - View work items by type (User Stories, Tasks, Bugs, Epics)
@@ -59,30 +61,20 @@ Manage your Azure DevOps Boards, work items, sprints, and backlogs directly from
 
 1. Install the extension from the VS Code Marketplace
 2. Click the Azure DevOps icon in the Activity Bar
-3. Click "Connect to Organization"
-4. Enter your Azure DevOps organization URL
-5. Enter your Personal Access Token (PAT)
+3. Click "Sign In" to authenticate with your Microsoft account
+4. Select your Azure DevOps organization
+5. Select your project and team
 6. Start managing your work items!
-
-### Creating a Personal Access Token
-
-1. Go to your Azure DevOps organization
-2. Click on User Settings → Personal Access Tokens
-3. Click "New Token"
-4. Give it a name and select scopes:
-   - **Work Items**: Read & Write
-   - **Code**: Read (for Git integration)
-5. Copy the token and paste it into VS Code
 
 ## Usage
 
 ### Authentication
 
 1. Open the Azure DevOps Boards view from the Activity Bar
-2. Click "Connect to Organization"
-3. Enter your organization URL (e.g., `https://dev.azure.com/your-org`)
-4. Enter your Personal Access Token
-5. Select your default project and team
+2. Click "Sign In" in the Connection section
+3. Authenticate with your Microsoft account in the browser
+4. Return to VS Code - you're now connected!
+5. Complete the setup wizard to select your organization, project, and team
 
 ### Managing Work Items
 
@@ -140,16 +132,16 @@ Manage your Azure DevOps Boards, work items, sprints, and backlogs directly from
 ### Changing Organization/Project
 
 - Click the status bar item (bottom left) showing your connection
-- Or use Command Palette: "Azure DevOps: Connect to Organization"
-- Enter new organization URL and credentials
-- Select a different project or team
+- Or use Command Palette: "Azure DevOps: Setup Wizard"
+- Choose a different organization, project, or team
 
 ## Commands
 
 Access these commands from the Command Palette (`Cmd+Shift+P` or `Ctrl+Shift+P`):
 
-- `Azure DevOps: Connect to Organization` - Connect to Azure DevOps
-- `Azure DevOps: Disconnect` - Disconnect from Azure DevOps
+- `Azure DevOps: Sign In to Azure DevOps` - Authenticate with Microsoft account
+- `Azure DevOps: Sign Out` - Sign out from Azure DevOps
+- `Azure DevOps: Setup Wizard` - Configure organization, project, and team
 - `Azure DevOps: Create Work Item` - Create a new work item
 - `Azure DevOps: Search Work Items` - Search for work items
 - `Azure DevOps: Open Board` - Open team board
@@ -160,7 +152,7 @@ Access these commands from the Command Palette (`Cmd+Shift+P` or `Ctrl+Shift+P`)
 
 - Visual Studio Code 1.85.0 or higher
 - Azure DevOps account with appropriate permissions
-- Personal Access Token with Work Items (Read & Write) scope
+- Microsoft account for authentication
 
 ## Features in Detail
 
