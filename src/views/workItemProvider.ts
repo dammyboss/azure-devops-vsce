@@ -26,6 +26,7 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
     private groupBy: GroupByOption = 'state';
     private cacheManager: CacheManager = new CacheManager();
     private eventManager = WorkItemEventManager.getInstance();
+    private stateCategoryCache: Map<string, string> = new Map(); // Maps "workItemType:state" -> "category"
 
     constructor(context: vscode.ExtensionContext, authenticationManager: AuthenticationManager) {
         this.context = context;
@@ -204,7 +205,10 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
             });
 
             this.workItems = detailsResponse.data.value || [];
-            
+
+            // Prefetch state categories for all unique work item types
+            await this.prefetchStateCategoriesForWorkItems();
+
             // Cache the results
             this.cacheManager.set(cacheKey, this.workItems);
         } catch (error: any) {
@@ -238,10 +242,11 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
             return items.map(item => {
                 const title = item.fields['System.Title'];
                 const state = item.fields['System.State'];
+                const type = item.fields['System.WorkItemType'];
                 const assignedTo = item.fields['System.AssignedTo']?.displayName || 'Unassigned';
 
                 // Check if item has children
-                const hasChildren = item.relations?.some((rel: any) => 
+                const hasChildren = item.relations?.some((rel: any) =>
                     rel.rel === 'System.LinkTypes.Hierarchy-Forward'
                 ) || false;
 
@@ -258,7 +263,7 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
                 treeItem.description = `${state} • ${assignedTo}`;
                 treeItem.contextValue = 'workItem';
                 treeItem.tooltip = this.createWorkItemTooltip(item);
-                treeItem.iconPath = this.getIconForWorkItemState(state);
+                treeItem.iconPath = this.getIconForWorkItemState(state, type);
                 treeItem.workItemId = item.id;
                 treeItem.workItem = item;
 
@@ -367,7 +372,7 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
         treeItem.description = `${type} • ${state}`;
         treeItem.contextValue = 'workItem';
         treeItem.tooltip = this.createWorkItemTooltip(item);
-        treeItem.iconPath = this.getIconForWorkItemState(state);
+        treeItem.iconPath = this.getIconForWorkItemState(state, type);
         treeItem.workItemId = item.id;
         treeItem.workItem = item;
 
@@ -424,7 +429,7 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
                 treeItem.description = `${type} • ${state}`;
                 treeItem.contextValue = 'workItem';
                 treeItem.workItemId = child.id;
-                treeItem.iconPath = this.getIconForWorkItemState(state);
+                treeItem.iconPath = this.getIconForWorkItemState(state, type);
 
                 return treeItem;
             });
@@ -480,7 +485,90 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
         }
     }
 
-    private getIconForWorkItemState(state: string | any): vscode.ThemeIcon {
+    /**
+     * Prefetch state categories for all unique work item types in current work items
+     */
+    private async prefetchStateCategoriesForWorkItems(): Promise<void> {
+        // Get unique work item types from current work items
+        const uniqueTypes = new Set<string>();
+        this.workItems.forEach(item => {
+            const type = item.fields['System.WorkItemType'];
+            if (type) {
+                uniqueTypes.add(type);
+            }
+        });
+
+        // Fetch state categories for each unique type
+        const fetchPromises = Array.from(uniqueTypes).map(type =>
+            this.fetchStateCategoriesForType(type)
+        );
+
+        await Promise.all(fetchPromises);
+    }
+
+    /**
+     * Fetch state categories for a specific work item type from Azure DevOps API
+     * Returns a map of state name (lowercase) -> category
+     */
+    private async fetchStateCategoriesForType(workItemType: string): Promise<Map<string, string>> {
+        const stateCategories = new Map<string, string>();
+
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+
+            if (!axiosInstance || !config?.defaultProject) {
+                return stateCategories;
+            }
+
+            const response = await axiosInstance.get(
+                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workitemtypes/${encodeURIComponent(workItemType)}/states`,
+                {
+                    params: {
+                        'api-version': '7.1'
+                    }
+                }
+            );
+
+            if (response.data && response.data.value) {
+                response.data.value.forEach((stateInfo: any) => {
+                    if (stateInfo.name && stateInfo.category) {
+                        const stateName = stateInfo.name.toLowerCase();
+                        const category = stateInfo.category;
+                        stateCategories.set(stateName, category);
+                        // Cache it globally with workItemType:state key
+                        this.stateCategoryCache.set(`${workItemType}:${stateName}`, category);
+                    }
+                });
+            }
+        } catch (error) {
+            // Silently fail - will use fallback logic
+        }
+
+        return stateCategories;
+    }
+
+    /**
+     * Get icon based on state category
+     */
+    private getIconForStateCategory(category: string): vscode.ThemeIcon {
+        switch (category) {
+            case 'Proposed':
+                return new vscode.ThemeIcon('circle-outline', new vscode.ThemeColor('charts.gray'));
+            case 'InProgress':
+                return new vscode.ThemeIcon('sync', new vscode.ThemeColor('charts.blue'));
+            case 'Resolved':
+                return new vscode.ThemeIcon('pass', new vscode.ThemeColor('charts.orange'));
+            case 'Completed':
+                return new vscode.ThemeIcon('pass-filled', new vscode.ThemeColor('charts.green'));
+            case 'Removed':
+                return new vscode.ThemeIcon('circle-slash', new vscode.ThemeColor('charts.red'));
+            default:
+                return new vscode.ThemeIcon('circle');
+        }
+    }
+
+    private getIconForWorkItemState(state: string | any, workItemType?: string): vscode.ThemeIcon {
         // Handle both string and object state values (Azure DevOps can return either)
         let stateValue: string;
         if (typeof state === 'string') {
@@ -488,28 +576,42 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
         } else if (state && typeof state === 'object' && state.name) {
             stateValue = state.name;
         } else if (state && typeof state === 'object') {
-            // Try to extract state name from various possible properties
             stateValue = state.value || state.state || String(state);
         } else {
             stateValue = String(state || '');
         }
 
-        // Normalize state for case-insensitive matching
         const normalizedState = stateValue?.trim().toLowerCase();
 
+        // Try to use category-based icon if we have work item type and cached category
+        if (workItemType) {
+            const cacheKey = `${workItemType}:${normalizedState}`;
+            const category = this.stateCategoryCache.get(cacheKey);
+
+            if (category) {
+                return this.getIconForStateCategory(category);
+            }
+        }
+
+        // Fallback to hardcoded state name matching
+        // This handles cases where we don't have the work item type or cached categories
         switch (normalizedState) {
             case 'new':
             case 'to do':
+            case 'proposed':
                 return new vscode.ThemeIcon('circle-outline', new vscode.ThemeColor('charts.gray'));
             case 'active':
             case 'in progress':
+            case 'doing':
+            case 'committed':
+            case 'approved':
                 return new vscode.ThemeIcon('sync', new vscode.ThemeColor('charts.blue'));
             case 'resolved':
             case 'ready for review':
-            case 'approved':
                 return new vscode.ThemeIcon('pass', new vscode.ThemeColor('charts.orange'));
             case 'closed':
             case 'done':
+            case 'completed':
                 return new vscode.ThemeIcon('pass-filled', new vscode.ThemeColor('charts.green'));
             case 'removed':
                 return new vscode.ThemeIcon('circle-slash', new vscode.ThemeColor('charts.red'));
