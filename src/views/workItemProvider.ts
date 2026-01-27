@@ -503,11 +503,11 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
                 return new vscode.ThemeIcon('circle-outline', new vscode.ThemeColor('charts.gray'));
             case 'active':
             case 'in progress':
-                return new vscode.ThemeIcon('play-circle', new vscode.ThemeColor('charts.blue'));
+                return new vscode.ThemeIcon('sync', new vscode.ThemeColor('charts.blue'));
             case 'resolved':
             case 'ready for review':
             case 'approved':
-                return new vscode.ThemeIcon('check-circle', new vscode.ThemeColor('charts.orange'));
+                return new vscode.ThemeIcon('pass', new vscode.ThemeColor('charts.orange'));
             case 'closed':
             case 'done':
                 return new vscode.ThemeIcon('pass-filled', new vscode.ThemeColor('charts.green'));
