@@ -2435,17 +2435,26 @@ export class BoardPanel {
             display: block;
         }
 
-        .filter-group {
-            display: flex;
-            align-items: center;
-            gap: 8px;
+        .filter-clear-btn {
+            width: 100%;
+            padding: 6px 12px;
+            background: transparent;
+            border: none;
+            color: var(--vscode-descriptionForeground);
+            font-size: 12px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.15s;
         }
 
-        .filter-label {
-            font-size: 11px;
-            color: var(--vscode-descriptionForeground);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+        .filter-clear-btn:not(:disabled):hover {
+            background: var(--vscode-list-hoverBackground);
+            color: var(--vscode-foreground);
+        }
+
+        .filter-clear-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
         }
 
         .filter-select {
@@ -2696,86 +2705,81 @@ export class BoardPanel {
 
         <div class="filter-divider"></div>
 
-        <div class="filter-group">
-            <span class="filter-label">Assigned</span>
-            <div class="filter-dropdown" id="assigneeDropdown">
-                <button class="filter-dropdown-btn" id="assigneeDropdownBtn" onclick="toggleDropdown('assigneeDropdownContent')">All Assignees</button>
-                <div class="filter-dropdown-content" id="assigneeDropdownContent">
-                    <label class="filter-checkbox-item"><input type="checkbox" name="assignee" value="all" checked onchange="handleFilterChange('assignee', this)"> All</label>
-                    <label class="filter-checkbox-item"><input type="checkbox" name="assignee" value="me" onchange="handleFilterChange('assignee', this)"> @Me</label>
-                    <label class="filter-checkbox-item"><input type="checkbox" name="assignee" value="unassigned" onchange="handleFilterChange('assignee', this)"> Unassigned</label>
-                    <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
-                    ${this._teamMembers.map(m => `
-                        <label class="filter-checkbox-item">
-                            <input type="checkbox" name="assignee" value="${this._escapeHtml(m.uniqueName)}" onchange="handleFilterChange('assignee', this)">
-                            ${this._escapeHtml(m.displayName)}
-                        </label>
-                    `).join('')}
-                </div>
+        <div class="filter-dropdown" id="assigneeDropdown">
+            <button class="filter-dropdown-btn" id="assigneeDropdownBtn" onclick="toggleDropdown('assigneeDropdownContent')">Assigned ▼</button>
+            <div class="filter-dropdown-content" id="assigneeDropdownContent">
+                <label class="filter-checkbox-item"><input type="checkbox" name="assignee" value="all" checked onchange="handleFilterChange('assignee', this)"> All</label>
+                <label class="filter-checkbox-item"><input type="checkbox" name="assignee" value="me" onchange="handleFilterChange('assignee', this)"> @Me</label>
+                <label class="filter-checkbox-item"><input type="checkbox" name="assignee" value="unassigned" onchange="handleFilterChange('assignee', this)"> Unassigned</label>
+                <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
+                ${this._teamMembers.map(m => `
+                    <label class="filter-checkbox-item">
+                        <input type="checkbox" name="assignee" value="${this._escapeHtml(m.uniqueName)}" onchange="handleFilterChange('assignee', this)">
+                        ${this._escapeHtml(m.displayName)}
+                    </label>
+                `).join('')}
+                <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
+                <button class="filter-clear-btn" id="assigneeClearBtn" onclick="clearFilter('assignee')" disabled>Clear</button>
             </div>
         </div>
 
-        <div class="filter-group">
-            <span class="filter-label">Type</span>
-            <div class="filter-dropdown" id="typeDropdown">
-                <button class="filter-dropdown-btn" id="typeDropdownBtn" onclick="toggleDropdown('typeDropdownContent')">All Types</button>
-                <div class="filter-dropdown-content" id="typeDropdownContent">
-                    <label class="filter-checkbox-item"><input type="checkbox" name="type" value="all" checked onchange="handleFilterChange('type', this)"> All Types</label>
-                    ${boardTypes.map(type => `
-                        <label class="filter-checkbox-item">
-                            <input type="checkbox" name="type" value="${this._escapeHtml(type)}" onchange="handleFilterChange('type', this)">
-                            ${this._escapeHtml(type)}
-                        </label>
-                    `).join('')}
-                </div>
+        <div class="filter-dropdown" id="typeDropdown">
+            <button class="filter-dropdown-btn" id="typeDropdownBtn" onclick="toggleDropdown('typeDropdownContent')">Type ▼</button>
+            <div class="filter-dropdown-content" id="typeDropdownContent">
+                <label class="filter-checkbox-item"><input type="checkbox" name="type" value="all" checked onchange="handleFilterChange('type', this)"> All</label>
+                ${boardTypes.map(type => `
+                    <label class="filter-checkbox-item">
+                        <input type="checkbox" name="type" value="${this._escapeHtml(type)}" onchange="handleFilterChange('type', this)">
+                        ${this._escapeHtml(type)}
+                    </label>
+                `).join('')}
+                <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
+                <button class="filter-clear-btn" id="typeClearBtn" onclick="clearFilter('type')" disabled>Clear</button>
             </div>
         </div>
 
-        <div class="filter-group">
-            <span class="filter-label">Priority</span>
-            <div class="filter-dropdown" id="priorityDropdown">
-                <button class="filter-dropdown-btn" id="priorityDropdownBtn" onclick="toggleDropdown('priorityDropdownContent')">All Priorities</button>
-                <div class="filter-dropdown-content" id="priorityDropdownContent">
-                    <label class="filter-checkbox-item"><input type="checkbox" name="priority" value="all" checked onchange="handleFilterChange('priority', this)"> All Priorities</label>
-                    ${boardPriorities.map(priority => `
-                        <label class="filter-checkbox-item">
-                            <input type="checkbox" name="priority" value="${priority}" onchange="handleFilterChange('priority', this)">
-                            ${priorityLabels[priority] || priority}
-                        </label>
-                    `).join('')}
-                </div>
+        <div class="filter-dropdown" id="priorityDropdown">
+            <button class="filter-dropdown-btn" id="priorityDropdownBtn" onclick="toggleDropdown('priorityDropdownContent')">Priority ▼</button>
+            <div class="filter-dropdown-content" id="priorityDropdownContent">
+                <label class="filter-checkbox-item"><input type="checkbox" name="priority" value="all" checked onchange="handleFilterChange('priority', this)"> All</label>
+                ${boardPriorities.map(priority => `
+                    <label class="filter-checkbox-item">
+                        <input type="checkbox" name="priority" value="${priority}" onchange="handleFilterChange('priority', this)">
+                        ${priorityLabels[priority] || priority}
+                    </label>
+                `).join('')}
+                <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
+                <button class="filter-clear-btn" id="priorityClearBtn" onclick="clearFilter('priority')" disabled>Clear</button>
             </div>
         </div>
 
-        <div class="filter-group">
-            <span class="filter-label">State</span>
-            <div class="filter-dropdown" id="stateDropdown">
-                <button class="filter-dropdown-btn" id="stateDropdownBtn" onclick="toggleDropdown('stateDropdownContent')">All States</button>
-                <div class="filter-dropdown-content" id="stateDropdownContent">
-                    <label class="filter-checkbox-item"><input type="checkbox" name="state" value="all" checked onchange="handleFilterChange('state', this)"> All States</label>
-                    ${boardStates.map(state => `
-                        <label class="filter-checkbox-item">
-                            <input type="checkbox" name="state" value="${this._escapeHtml(state)}" onchange="handleFilterChange('state', this)">
-                            ${this._escapeHtml(state)}
-                        </label>
-                    `).join('')}
-                </div>
+        <div class="filter-dropdown" id="stateDropdown">
+            <button class="filter-dropdown-btn" id="stateDropdownBtn" onclick="toggleDropdown('stateDropdownContent')">State ▼</button>
+            <div class="filter-dropdown-content" id="stateDropdownContent">
+                <label class="filter-checkbox-item"><input type="checkbox" name="state" value="all" checked onchange="handleFilterChange('state', this)"> All</label>
+                ${boardStates.map(state => `
+                    <label class="filter-checkbox-item">
+                        <input type="checkbox" name="state" value="${this._escapeHtml(state)}" onchange="handleFilterChange('state', this)">
+                        ${this._escapeHtml(state)}
+                    </label>
+                `).join('')}
+                <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
+                <button class="filter-clear-btn" id="stateClearBtn" onclick="clearFilter('state')" disabled>Clear</button>
             </div>
         </div>
 
-        <div class="filter-group">
-            <span class="filter-label">Area</span>
-            <div class="filter-dropdown" id="areaDropdown">
-                <button class="filter-dropdown-btn" id="areaDropdownBtn" onclick="toggleDropdown('areaDropdownContent')">All Areas</button>
-                <div class="filter-dropdown-content" id="areaDropdownContent">
-                    <label class="filter-checkbox-item"><input type="checkbox" name="area" value="all" checked onchange="handleFilterChange('area', this)"> All Areas</label>
-                    ${boardAreas.map(area => `
-                        <label class="filter-checkbox-item">
-                            <input type="checkbox" name="area" value="${this._escapeHtml(area)}" onchange="handleFilterChange('area', this)">
-                            ${this._escapeHtml(area)}
-                        </label>
-                    `).join('')}
-                </div>
+        <div class="filter-dropdown" id="areaDropdown">
+            <button class="filter-dropdown-btn" id="areaDropdownBtn" onclick="toggleDropdown('areaDropdownContent')">Area ▼</button>
+            <div class="filter-dropdown-content" id="areaDropdownContent">
+                <label class="filter-checkbox-item"><input type="checkbox" name="area" value="all" checked onchange="handleFilterChange('area', this)"> All</label>
+                ${boardAreas.map(area => `
+                    <label class="filter-checkbox-item">
+                        <input type="checkbox" name="area" value="${this._escapeHtml(area)}" onchange="handleFilterChange('area', this)">
+                        ${this._escapeHtml(area)}
+                    </label>
+                `).join('')}
+                <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
+                <button class="filter-clear-btn" id="areaClearBtn" onclick="clearFilter('area')" disabled>Clear</button>
             </div>
         </div>
 
@@ -3759,20 +3763,49 @@ export class BoardPanel {
         function updateDropdownButton(type) {
             const dropdownId = type + 'DropdownContent';
             const btnId = type + 'DropdownBtn';
+            const clearBtnId = type + 'ClearBtn';
             const container = document.getElementById(dropdownId);
             const btn = document.getElementById(btnId);
+            const clearBtn = document.getElementById(clearBtnId);
             const checkboxes = container.querySelectorAll('input[type="checkbox"]:checked');
+            const allCheckbox = container.querySelector('input[value="all"]');
+            const isAllSelected = allCheckbox && allCheckbox.checked;
             
-            if (checkboxes.length === 0 || (checkboxes.length === 1 && checkboxes[0].value === 'all')) {
-                btn.textContent = 'All ' + (type === 'assignee' ? 'Assignees' : (type === 'type' ? 'Types' : 'Priorities'));
+            const labels = {
+                assignee: 'Assigned',
+                type: 'Type',
+                priority: 'Priority',
+                state: 'State',
+                area: 'Area'
+            };
+            
+            if (isAllSelected) {
+                btn.textContent = labels[type] + ' ▼';
+                if (clearBtn) clearBtn.disabled = true;
             } else {
-                if (checkboxes.length === 1) {
-                    const label = checkboxes[0].parentElement.textContent.trim();
-                    btn.textContent = label;
+                const selectedCheckboxes = Array.from(checkboxes).filter(cb => cb.value !== 'all');
+                if (selectedCheckboxes.length === 1) {
+                    const label = selectedCheckboxes[0].parentElement.textContent.trim();
+                    btn.textContent = label + ' ▼';
+                } else if (selectedCheckboxes.length > 1) {
+                    const firstLabel = selectedCheckboxes[0].parentElement.textContent.trim();
+                    btn.textContent = firstLabel + ' (+' + (selectedCheckboxes.length - 1) + ') ▼';
                 } else {
-                    btn.textContent = checkboxes.length + ' selected';
+                    btn.textContent = labels[type] + ' ▼';
                 }
+                if (clearBtn) clearBtn.disabled = false;
             }
+        }
+
+        function clearFilter(type) {
+            const dropdownId = type + 'DropdownContent';
+            const container = document.getElementById(dropdownId);
+            const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+            checkboxes.forEach(cb => {
+                cb.checked = cb.value === 'all';
+            });
+            updateDropdownButton(type);
+            applyFilters();
         }
 
         function getSelectedValues(type) {
