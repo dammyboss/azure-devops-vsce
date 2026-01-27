@@ -24,6 +24,7 @@ interface BoardWorkItem {
     };
     priority?: number;
     tags?: string;
+    areaPath?: string;
     boardColumn?: string;
     children?: {
         id: number;
@@ -60,6 +61,7 @@ export class BoardPanel {
     private _lastRefreshTime: number = 0;
     private eventManager = WorkItemEventManager.getInstance();
     private eventSubscription: vscode.Disposable | null = null;
+    private _tagColors: Map<string, string> = new Map();
 
     public static createOrShow(
         extensionUri: vscode.Uri,
@@ -220,6 +222,8 @@ export class BoardPanel {
 
             // Load available boards for the dropdown
             this.availableBoards = await this._getAvailableBoards();
+            // Load tag colors from Azure DevOps
+            await this._getTagColors();
             // Load team members for filter
             this._teamMembers = await this._getTeamMembers();
             await this._loadBoardData();
@@ -350,7 +354,7 @@ export class BoardPanel {
         // Query work items for all columns
         for (const column of columns) {
             try {
-                const wiql = `SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo], [Microsoft.VSTS.Common.Priority], [System.Tags]
+                const wiql = `SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo], [Microsoft.VSTS.Common.Priority], [System.Tags], [System.AreaPath]
                               FROM WorkItems
                               WHERE [System.TeamProject] = @project
                               AND [System.BoardColumn] = '${column.name.replace(/'/g, "''")}'
@@ -369,7 +373,7 @@ export class BoardPanel {
                     const detailsResponse = await axiosInstance.get('/_apis/wit/workitems', {
                         params: {
                             'ids': workItemIds,
-                            'fields': 'System.Id,System.Title,System.State,System.WorkItemType,System.AssignedTo,Microsoft.VSTS.Common.Priority,System.Tags,System.BoardColumn'
+                            'fields': 'System.Id,System.Title,System.State,System.WorkItemType,System.AssignedTo,Microsoft.VSTS.Common.Priority,System.Tags,System.BoardColumn,System.AreaPath'
                         }
                     });
 
@@ -381,6 +385,7 @@ export class BoardPanel {
                         assignedTo: item.fields['System.AssignedTo'],
                         priority: item.fields['Microsoft.VSTS.Common.Priority'],
                         tags: item.fields['System.Tags'],
+                        areaPath: item.fields['System.AreaPath'],
                         boardColumn: item.fields['System.BoardColumn'] || column.name
                     }));
 
@@ -1133,6 +1138,53 @@ export class BoardPanel {
         }
     }
 
+    private async _getTagColors(): Promise<void> {
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+
+            if (!axiosInstance || !config?.defaultProject || !config?.defaultTeam) {
+                return;
+            }
+
+            // Clear existing colors
+            this._tagColors.clear();
+
+            // Fetch tag colors from card rule settings API
+            try {
+                const ruleResponse = await axiosInstance.get(
+                    `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/boards/${encodeURIComponent(this.boardId)}/cardrulesettings`,
+                    {
+                        params: {
+                            'api-version': '7.1'
+                        }
+                    }
+                );
+
+                // Check for tag colors in rules
+                if (ruleResponse.data && ruleResponse.data.rules) {
+                    const rules = ruleResponse.data.rules;
+
+                    // Look for tagStyle in rules - it's an array of tag style objects
+                    if (rules.tagStyle && Array.isArray(rules.tagStyle)) {
+                        rules.tagStyle.forEach((tagStyle: any) => {
+                            // Each tagStyle has: name, isEnabled, settings { "background-color": "#HEX" }
+                            if (tagStyle.name && tagStyle.settings && tagStyle.settings['background-color']) {
+                                const tagName = tagStyle.name;
+                                const tagColor = tagStyle.settings['background-color'];
+                                this._tagColors.set(tagName.toLowerCase(), tagColor);
+                            }
+                        });
+                    }
+                }
+            } catch (error) {
+                // Silently fail if card rule settings are not available
+            }
+        } catch (error) {
+            console.error('Failed to fetch tag colors:', error);
+        }
+    }
+
     private _getLoadingHtml(): string {
         return `<!DOCTYPE html>
 <html lang="en">
@@ -1266,6 +1318,28 @@ export class BoardPanel {
             4: '4 - Low'
         };
 
+        // Extract unique states from work items on the board
+        const uniqueStates = new Set<string>();
+        workItems.forEach((items) => {
+            items.forEach(item => {
+                if (item.state) {
+                    uniqueStates.add(item.state);
+                }
+            });
+        });
+        const boardStates = Array.from(uniqueStates).sort();
+
+        // Extract unique areas from work items on the board
+        const uniqueAreas = new Set<string>();
+        workItems.forEach((items) => {
+            items.forEach(item => {
+                if (item.areaPath) {
+                    uniqueAreas.add(item.areaPath);
+                }
+            });
+        });
+        const boardAreas = Array.from(uniqueAreas).sort();
+
         // Derive default work item type from board name
         const defaultWorkItemType = this._getDefaultWorkItemType();
 
@@ -1384,6 +1458,9 @@ export class BoardPanel {
         }
 
         .board-dropdown-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
             padding: 8px 12px;
             cursor: pointer;
             font-size: 13px;
@@ -1397,6 +1474,20 @@ export class BoardPanel {
         .board-dropdown-item.active {
             background: var(--vscode-list-activeSelectionBackground);
             color: var(--vscode-list-activeSelectionForeground);
+        }
+
+        .board-icon {
+            display: flex;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .board-icon svg {
+            display: block;
+        }
+
+        .board-name {
+            flex: 1;
         }
 
         .board-actions {
@@ -1982,39 +2073,12 @@ export class BoardPanel {
 
         .tag {
             padding: 2px 8px;
-            border-radius: 4px;
+            border-radius: 12px;
             font-size: 11px;
             font-weight: 500;
-        }
-
-        .tag.blue {
-            background: rgba(33, 150, 243, 0.2);
-            color: #2196f3;
-        }
-
-        .tag.green {
-            background: rgba(76, 175, 80, 0.2);
-            color: #4caf50;
-        }
-
-        .tag.purple {
-            background: rgba(156, 39, 176, 0.2);
-            color: #9c27b0;
-        }
-
-        .tag.pink {
-            background: rgba(233, 30, 99, 0.2);
-            color: #e91e63;
-        }
-
-        .tag.yellow {
-            background: rgba(255, 193, 7, 0.2);
-            color: #ffc107;
-        }
-
-        .tag.cyan {
-            background: rgba(0, 188, 212, 0.2);
-            color: #00bcd4;
+            color: var(--vscode-foreground);
+            border: 1px solid;
+            white-space: nowrap;
         }
 
         /* Card Footer */
@@ -2589,13 +2653,15 @@ export class BoardPanel {
         <div class="board-title">
             <div class="board-selector">
                 <button class="board-selector-btn" onclick="toggleBoardDropdown()">
-                    ${this._escapeHtml(this.boardName)}
+                    <span class="board-icon">${this._getBoardIcon(this.boardName)}</span>
+                    <span class="board-name">${this._escapeHtml(this.boardName)}</span>
                 </button>
                 <div class="board-dropdown" id="boardDropdown">
                     ${this.availableBoards.map(board => `
                         <div class="board-dropdown-item ${board.id === this.boardId ? 'active' : ''}"
                              onclick="switchBoard('${board.id}', '${this._escapeHtml(board.name)}')">
-                            ${this._escapeHtml(board.name)}
+                            <span class="board-icon">${this._getBoardIcon(board.name)}</span>
+                            <span class="board-name">${this._escapeHtml(board.name)}</span>
                         </div>
                     `).join('')}
                 </div>
@@ -2674,6 +2740,38 @@ export class BoardPanel {
                         <label class="filter-checkbox-item">
                             <input type="checkbox" name="priority" value="${priority}" onchange="handleFilterChange('priority', this)">
                             ${priorityLabels[priority] || priority}
+                        </label>
+                    `).join('')}
+                </div>
+            </div>
+        </div>
+
+        <div class="filter-group">
+            <span class="filter-label">State</span>
+            <div class="filter-dropdown" id="stateDropdown">
+                <button class="filter-dropdown-btn" id="stateDropdownBtn" onclick="toggleDropdown('stateDropdownContent')">All States</button>
+                <div class="filter-dropdown-content" id="stateDropdownContent">
+                    <label class="filter-checkbox-item"><input type="checkbox" name="state" value="all" checked onchange="handleFilterChange('state', this)"> All States</label>
+                    ${boardStates.map(state => `
+                        <label class="filter-checkbox-item">
+                            <input type="checkbox" name="state" value="${this._escapeHtml(state)}" onchange="handleFilterChange('state', this)">
+                            ${this._escapeHtml(state)}
+                        </label>
+                    `).join('')}
+                </div>
+            </div>
+        </div>
+
+        <div class="filter-group">
+            <span class="filter-label">Area</span>
+            <div class="filter-dropdown" id="areaDropdown">
+                <button class="filter-dropdown-btn" id="areaDropdownBtn" onclick="toggleDropdown('areaDropdownContent')">All Areas</button>
+                <div class="filter-dropdown-content" id="areaDropdownContent">
+                    <label class="filter-checkbox-item"><input type="checkbox" name="area" value="all" checked onchange="handleFilterChange('area', this)"> All Areas</label>
+                    ${boardAreas.map(area => `
+                        <label class="filter-checkbox-item">
+                            <input type="checkbox" name="area" value="${this._escapeHtml(area)}" onchange="handleFilterChange('area', this)">
+                            ${this._escapeHtml(area)}
                         </label>
                     `).join('')}
                 </div>
@@ -3707,10 +3805,14 @@ export class BoardPanel {
             const assigneeValues = getSelectedValues('assignee');
             const typeValues = getSelectedValues('type');
             const priorityValues = getSelectedValues('priority');
-            
+            const stateValues = getSelectedValues('state');
+            const areaValues = getSelectedValues('area');
+
             const assigneeAll = assigneeValues.includes('all');
             const typeAll = typeValues.includes('all');
             const priorityAll = priorityValues.includes('all');
+            const stateAll = stateValues.includes('all');
+            const areaAll = areaValues.includes('all');
 
             const cards = document.querySelectorAll('.card');
             let visibleCount = 0;
@@ -3767,10 +3869,26 @@ export class BoardPanel {
                     }
                 }
 
+                // State filter
+                if (visible && !stateAll) {
+                    const cardState = card.dataset.state;
+                    if (!stateValues.includes(cardState)) {
+                        visible = false;
+                    }
+                }
+
+                // Area filter
+                if (visible && !areaAll) {
+                    const cardArea = card.dataset.areapath;
+                    if (!areaValues.includes(cardArea)) {
+                        visible = false;
+                    }
+                }
+
                 // Hide Done toggle
                 if (visible && hideDoneActive) {
                     const state = card.dataset.state.toLowerCase();
-                    if (state === 'done' || state === 'closed' || state === 'completed' || state === 'resolved') {
+                    if (state === 'done' || state === 'closed' || state === 'completed') {
                         visible = false;
                     }
                 }
@@ -3835,11 +3953,15 @@ export class BoardPanel {
             const assigneeAll = document.querySelector('#assigneeDropdownContent input[value="all"]')?.checked;
             const typeAll = document.querySelector('#typeDropdownContent input[value="all"]')?.checked;
             const priorityAll = document.querySelector('#priorityDropdownContent input[value="all"]')?.checked;
+            const stateAll = document.querySelector('#stateDropdownContent input[value="all"]')?.checked;
+            const areaAll = document.querySelector('#areaDropdownContent input[value="all"]')?.checked;
 
             return document.getElementById('searchInput').value.trim() !== '' ||
                    !assigneeAll ||
                    !typeAll ||
                    !priorityAll ||
+                   !stateAll ||
+                   !areaAll ||
                    hideDoneActive ||
                    myItemsActive;
         }
@@ -3852,7 +3974,7 @@ export class BoardPanel {
         function clearAllFilters() {
             document.getElementById('searchInput').value = '';
             
-            ['assignee', 'type', 'priority'].forEach(type => {
+            ['assignee', 'type', 'priority', 'state', 'area'].forEach(type => {
                 const container = document.getElementById(type + 'DropdownContent');
                 if (container) {
                     const checkboxes = container.querySelectorAll('input[type="checkbox"]');
@@ -3948,10 +4070,10 @@ export class BoardPanel {
         const effort = (item as any).effort || (item as any).storyPoints || '';
 
         const tags = item.tags
-            ? item.tags.split(';').slice(0, 3).map((tag, index) => {
-                const tagColors = ['blue', 'green', 'purple', 'pink', 'yellow', 'cyan'];
-                const color = tagColors[index % tagColors.length];
-                return `<span class="tag ${color}">${this._escapeHtml(tag.trim())}</span>`;
+            ? item.tags.split(';').map((tag) => {
+                const tagName = tag.trim();
+                const tagColor = this._getTagColor(tagName);
+                return `<span class="tag" style="background-color: ${tagColor}; border-color: ${tagColor};">${this._escapeHtml(tagName)}</span>`;
               }).join('')
             : '';
 
@@ -4037,6 +4159,8 @@ export class BoardPanel {
         // Use SVG icons with Azure DevOps standard colors
         switch(type) {
             case 'User Story':
+            case 'Product Backlog Item':
+            case 'Requirement':
                 return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 448" width="16" height="16"><path fill="#4396C2" d="M320 352c-22.846 0-60.713 5.861-80 16.588V55.635C257.752 40.563 296.084 32 320 32h64v320h-64zm-192 32H32V64H0v352h208s-16-32-80-32zM64 32v320h64c22.848 0 60.707 5.865 80 16.594V55.635C190.244 40.561 151.902 32 128 32H64zm352 32v320h-96c-64 0-80 32-80 32h208V64h-32z" /></svg>`;
 
             case 'Feature':
@@ -4075,6 +4199,54 @@ export class BoardPanel {
 
         // Default to User Story if no match
         return 'User Story';
+    }
+
+    private _getBoardIcon(boardName: string): string {
+        // Map board name to work item type and return its icon
+        const boardNameLower = boardName.toLowerCase();
+
+        // Common board name patterns
+        if (boardNameLower.includes('issue')) return this._getTypeIcon('Issue');
+        if (boardNameLower.includes('bug')) return this._getTypeIcon('Bug');
+        if (boardNameLower.includes('task')) return this._getTypeIcon('Task');
+        if (boardNameLower.includes('epic')) return this._getTypeIcon('Epic');
+        if (boardNameLower.includes('feature')) return this._getTypeIcon('Feature');
+        if (boardNameLower.includes('story') || boardNameLower.includes('stories')) return this._getTypeIcon('User Story');
+        if (boardNameLower.includes('backlog') || boardNameLower.includes('pbi')) return this._getTypeIcon('Product Backlog Item');
+        if (boardNameLower.includes('requirement')) return this._getTypeIcon('Requirement');
+
+        // Default to User Story icon if no match
+        return this._getTypeIcon('User Story');
+    }
+
+    private _getTagColor(tagName: string): string {
+        // Check if we have a color for this tag from Azure DevOps
+        const azureColor = this._tagColors.get(tagName.toLowerCase());
+        if (azureColor) {
+            return azureColor;
+        }
+
+        // Fall back to consistent colors based on tag name (not index)
+        // This ensures the same tag always gets the same color across all cards
+        const fallbackColors = [
+            'rgba(0, 120, 212, 0.15)',   // blue
+            'rgba(16, 124, 16, 0.15)',   // green
+            'rgba(136, 23, 152, 0.15)',  // purple
+            'rgba(232, 17, 35, 0.15)',   // pink/red
+            'rgba(255, 185, 0, 0.15)',   // yellow
+            'rgba(0, 183, 195, 0.15)'    // cyan
+        ];
+
+        // Generate consistent hash from tag name
+        let hash = 0;
+        for (let i = 0; i < tagName.length; i++) {
+            hash = ((hash << 5) - hash) + tagName.charCodeAt(i);
+            hash = hash & hash; // Convert to 32-bit integer
+        }
+
+        // Use absolute value to ensure positive index
+        const colorIndex = Math.abs(hash) % fallbackColors.length;
+        return fallbackColors[colorIndex];
     }
 
     private _escapeHtml(text: string): string {
