@@ -100,17 +100,20 @@ export class BacklogProvider implements vscode.TreeDataProvider<BacklogTreeItem>
     private getIconForWorkItemType(type: string): vscode.ThemeIcon | { light: vscode.Uri; dark: vscode.Uri } {
         switch (type) {
             case WorkItemTypeEnum.UserStory:
-                return new vscode.ThemeIcon('book', new vscode.ThemeColor('charts.blue'));
+                const userStoryIconPath = vscode.Uri.joinPath(this.context.extensionUri, 'media', 'icon_user_story.svg');
+                return { light: userStoryIconPath, dark: userStoryIconPath };
             case WorkItemTypeEnum.Task:
                 const taskIconPath = vscode.Uri.joinPath(this.context.extensionUri, 'media', 'task-clipboard-yellow.svg');
                 return { light: taskIconPath, dark: taskIconPath };
             case WorkItemTypeEnum.Bug:
-                return new vscode.ThemeIcon('bug', new vscode.ThemeColor('charts.red'));
+                const bugIconPath = vscode.Uri.joinPath(this.context.extensionUri, 'media', 'icon_bug.svg');
+                return { light: bugIconPath, dark: bugIconPath };
             case WorkItemTypeEnum.Epic:
                 const epicIconPath = vscode.Uri.joinPath(this.context.extensionUri, 'media', 'epic-crown-orange.svg');
                 return { light: epicIconPath, dark: epicIconPath };
             case WorkItemTypeEnum.Feature:
-                return new vscode.ThemeIcon('star', new vscode.ThemeColor('charts.orange'));
+                const featureIconPath = vscode.Uri.joinPath(this.context.extensionUri, 'media', 'icon_feature.svg');
+                return { light: featureIconPath, dark: featureIconPath };
             case WorkItemTypeEnum.Issue:
                 const issueIconPath = vscode.Uri.joinPath(this.context.extensionUri, 'media', 'issue-clipboard-green.svg');
                 return { light: issueIconPath, dark: issueIconPath };

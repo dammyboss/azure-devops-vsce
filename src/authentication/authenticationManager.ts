@@ -241,6 +241,7 @@ export class AuthenticationManager {
     }
 
     public async disconnect(): Promise<void> {
+        console.log('[AuthManager] Disconnecting...');
         if (this.session) {
             await this.context.secrets.delete('ado-session-id');
             await this.context.secrets.delete('ado-tenant-id');
@@ -257,6 +258,8 @@ export class AuthenticationManager {
         await vscode.workspace.getConfiguration('azureDevOps').update('defaultTeam', '', true);
 
         vscode.commands.executeCommand('setContext', 'azureDevOps.signedIn', false);
+        vscode.commands.executeCommand('setContext', 'azureDevOps.connected', false);
+        console.log('[AuthManager] Disconnected - azureDevOps.signedIn = false');
         vscode.window.showInformationMessage('Successfully signed out from Azure DevOps');
     }
 
@@ -284,7 +287,6 @@ export class AuthenticationManager {
                 if (session) {
                     this.session = session;
                     this.onDidChangeSessionEmitter.fire(this.session);
-                    vscode.commands.executeCommand('setContext', 'azureDevOps.signedIn', true);
                     return this.session;
                 }
             }
@@ -298,10 +300,13 @@ export class AuthenticationManager {
     public async initialize(): Promise<void> {
         try {
             const session = await this.getSession();
+            console.log('[AuthManager] Initialize - Session exists:', !!session);
             if (session) {
                 vscode.commands.executeCommand('setContext', 'azureDevOps.signedIn', true);
+                console.log('[AuthManager] Set azureDevOps.signedIn = true');
             } else {
                 vscode.commands.executeCommand('setContext', 'azureDevOps.signedIn', false);
+                console.log('[AuthManager] Set azureDevOps.signedIn = false');
             }
         } catch (error) {
             console.error('Failed to initialize authentication:', error);
