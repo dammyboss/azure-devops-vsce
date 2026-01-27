@@ -1932,6 +1932,12 @@ export class WorkItemPanel {
             const display = document.getElementById('descriptionDisplay');
             const container = document.getElementById('descriptionEditorContainer');
             
+            // Get current description from display and set it in the editor
+            const currentDescription = display.innerHTML;
+            if (currentDescription && !currentDescription.includes('Click to add description')) {
+                descriptionQuill.root.innerHTML = currentDescription;
+            }
+            
             display.style.display = 'none';
             container.classList.add('show');
             setTimeout(() => descriptionQuill.focus(), 100);
