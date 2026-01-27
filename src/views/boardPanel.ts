@@ -2095,7 +2095,6 @@ export class BoardPanel {
             border-radius: 12px;
             font-size: 11px;
             font-weight: 500;
-            color: #ffffff;
             border: 1px solid;
             white-space: nowrap;
         }
@@ -4086,7 +4085,8 @@ export class BoardPanel {
             ? item.tags.split(';').map((tag) => {
                 const tagName = tag.trim();
                 const tagColor = this._getTagColor(tagName);
-                return `<span class="tag" style="background-color: ${tagColor}; border-color: ${tagColor};">${this._escapeHtml(tagName)}</span>`;
+                const textColor = this._getContrastTextColor(tagColor);
+                return `<span class="tag" style="background-color: ${tagColor}; border-color: ${tagColor}; color: ${textColor};">${this._escapeHtml(tagName)}</span>`;
               }).join('')
             : '';
 
@@ -4352,6 +4352,50 @@ export class BoardPanel {
         }
         
         return false;
+    }
+
+    private _getContrastTextColor(backgroundColor: string): string {
+        // Calculate relative luminance and return black or white text for optimal contrast
+        // Based on WCAG guidelines: https://www.w3.org/TR/WCAG20/#relativeluminancedef
+        
+        // Parse color (supports hex, rgb, rgba)
+        let r = 0, g = 0, b = 0;
+        
+        if (backgroundColor.startsWith('#')) {
+            // Hex color
+            const hex = backgroundColor.replace('#', '');
+            if (hex.length === 3) {
+                r = parseInt(hex[0] + hex[0], 16);
+                g = parseInt(hex[1] + hex[1], 16);
+                b = parseInt(hex[2] + hex[2], 16);
+            } else {
+                r = parseInt(hex.substring(0, 2), 16);
+                g = parseInt(hex.substring(2, 4), 16);
+                b = parseInt(hex.substring(4, 6), 16);
+            }
+        } else if (backgroundColor.startsWith('rgb')) {
+            // RGB/RGBA color
+            const match = backgroundColor.match(/\d+/g);
+            if (match && match.length >= 3) {
+                r = parseInt(match[0]);
+                g = parseInt(match[1]);
+                b = parseInt(match[2]);
+            }
+        }
+        
+        // Calculate relative luminance
+        const rsRGB = r / 255;
+        const gsRGB = g / 255;
+        const bsRGB = b / 255;
+        
+        const rLinear = rsRGB <= 0.03928 ? rsRGB / 12.92 : Math.pow((rsRGB + 0.055) / 1.055, 2.4);
+        const gLinear = gsRGB <= 0.03928 ? gsRGB / 12.92 : Math.pow((gsRGB + 0.055) / 1.055, 2.4);
+        const bLinear = bsRGB <= 0.03928 ? bsRGB / 12.92 : Math.pow((bsRGB + 0.055) / 1.055, 2.4);
+        
+        const luminance = 0.2126 * rLinear + 0.7152 * gLinear + 0.0722 * bLinear;
+        
+        // Use black text for light backgrounds (luminance > 0.5), white for dark
+        return luminance > 0.5 ? '#000000' : '#ffffff';
     }
 
     private _getTagColor(tagName: string): string {
