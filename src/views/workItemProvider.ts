@@ -507,7 +507,7 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
             case 'resolved':
             case 'ready for review':
             case 'approved':
-                return new vscode.ThemeIcon('check-circle', new vscode.ThemeColor('charts.yellow'));
+                return new vscode.ThemeIcon('check-circle', new vscode.ThemeColor('charts.orange'));
             case 'closed':
             case 'done':
                 return new vscode.ThemeIcon('pass-filled', new vscode.ThemeColor('charts.green'));
