@@ -1554,7 +1554,7 @@ export class BoardPanel {
             flex: 0 0 320px;
             min-width: 320px;
             background: var(--vscode-editor-background);
-            border-right: 2px solid var(--vscode-panel-border);
+            border-right: 3px solid var(--vscode-panel-border);
             display: flex;
             flex-direction: column;
             transition: all 0.3s ease;
@@ -1592,7 +1592,7 @@ export class BoardPanel {
 
         .column-header {
             padding: 12px 14px;
-            border-bottom: 2px solid var(--vscode-panel-border);
+            border-bottom: 3px solid var(--vscode-panel-border);
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -1862,13 +1862,14 @@ export class BoardPanel {
         /* Work Item Cards - MODERN DESIGN */
         .card {
             background: var(--vscode-editor-background);
-            border: 2px solid var(--vscode-panel-border);
+            border: 1px solid rgba(128, 128, 128, 0.35);
             border-left: 4px solid var(--card-type-color, #4396C2);
             border-radius: 6px;
             padding: 12px;
             cursor: pointer;
             transition: all 0.2s ease;
             position: relative;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
         }
 
         .card:hover {
