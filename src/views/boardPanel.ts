@@ -62,6 +62,7 @@ export class BoardPanel {
     private eventManager = WorkItemEventManager.getInstance();
     private eventSubscription: vscode.Disposable | null = null;
     private _tagColors: Map<string, string> = new Map();
+    private _cardStyleRules: Array<{name: string, filter: string, settings: any}> = [];
 
     public static createOrShow(
         extensionUri: vscode.Uri,
@@ -1147,10 +1148,11 @@ export class BoardPanel {
                 return;
             }
 
-            // Clear existing colors
+            // Clear existing colors and rules
             this._tagColors.clear();
+            this._cardStyleRules = [];
 
-            // Fetch tag colors from card rule settings API
+            // Fetch tag colors and card styling rules from card rule settings API
             try {
                 const ruleResponse = await axiosInstance.get(
                     `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/boards/${encodeURIComponent(this.boardId)}/cardrulesettings`,
@@ -1161,7 +1163,7 @@ export class BoardPanel {
                     }
                 );
 
-                // Check for tag colors in rules
+                // Check for tag colors and card styling rules
                 if (ruleResponse.data && ruleResponse.data.rules) {
                     const rules = ruleResponse.data.rules;
 
@@ -1176,9 +1178,24 @@ export class BoardPanel {
                             }
                         });
                     }
+
+                    // Look for fill (card background) styling rules
+                    if (rules.fill && Array.isArray(rules.fill)) {
+                        rules.fill.forEach((fillRule: any) => {
+                            // Each fillRule has: name, isEnabled, filter, settings { "background-color": "#HEX" }
+                            if (fillRule.isEnabled && fillRule.filter && fillRule.settings && fillRule.settings['background-color']) {
+                                this._cardStyleRules.push({
+                                    name: fillRule.name,
+                                    filter: fillRule.filter,
+                                    settings: fillRule.settings
+                                });
+                            }
+                        });
+                    }
                 }
             } catch (error) {
                 // Silently fail if card rule settings are not available
+                console.error('Failed to fetch card rule settings:', error);
             }
         } catch (error) {
             console.error('Failed to fetch tag colors:', error);
@@ -1870,6 +1887,7 @@ export class BoardPanel {
             transition: all 0.2s ease;
             position: relative;
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+            color: #ffffff;
         }
 
         .card:hover {
@@ -1959,7 +1977,7 @@ export class BoardPanel {
         .card-id {
             font-size: 13px;
             font-weight: 600;
-            color: var(--vscode-foreground);
+            color: #ffffff;
             cursor: pointer;
         }
 
@@ -1969,7 +1987,7 @@ export class BoardPanel {
 
         .card-title {
             font-size: 13px;
-            color: var(--vscode-foreground);
+            color: #ffffff;
             line-height: 1.4;
             word-wrap: break-word;
         }
@@ -2017,7 +2035,7 @@ export class BoardPanel {
 
         .status-label {
             font-size: 12px;
-            color: var(--vscode-descriptionForeground);
+            color: #ffffff;
         }
 
         /* Assignee */
@@ -2056,11 +2074,11 @@ export class BoardPanel {
 
         .card-assignee-name {
             font-size: 12px;
-            color: var(--vscode-descriptionForeground);
+            color: #ffffff;
         }
 
         .card-assignee-name.unassigned-text {
-            color: var(--vscode-descriptionForeground);
+            color: #ffffff;
             opacity: 0.6;
             font-style: italic;
         }
@@ -2077,7 +2095,7 @@ export class BoardPanel {
             border-radius: 12px;
             font-size: 11px;
             font-weight: 500;
-            color: var(--vscode-foreground);
+            color: #ffffff;
             border: 1px solid;
             white-space: nowrap;
         }
@@ -2095,7 +2113,7 @@ export class BoardPanel {
             align-items: center;
             gap: 4px;
             font-size: 11px;
-            color: var(--vscode-descriptionForeground);
+            color: #ffffff;
             font-weight: 500;
             margin-top: 8px;
             padding: 4px 8px;
@@ -2120,7 +2138,7 @@ export class BoardPanel {
         .card-effort-toggle {
             background: transparent;
             border: 1px solid var(--vscode-input-border);
-            color: var(--vscode-foreground);
+            color: #ffffff;
             cursor: pointer;
             padding: 4px 8px;
             border-radius: 4px;
@@ -2443,13 +2461,16 @@ export class BoardPanel {
             color: var(--vscode-descriptionForeground);
             font-size: 12px;
             cursor: pointer;
-            text-align: center;
+            text-align: right;
             transition: all 0.15s;
+        }
+
+        .filter-clear-btn:not(:disabled) {
+            color: var(--vscode-foreground);
         }
 
         .filter-clear-btn:not(:disabled):hover {
             background: var(--vscode-list-hoverBackground);
-            color: var(--vscode-foreground);
         }
 
         .filter-clear-btn:disabled {
@@ -2554,14 +2575,14 @@ export class BoardPanel {
         }
 
         .filter-dropdown-btn {
-            padding: 5px 24px 5px 8px;
+            padding: 5px 16px 5px 8px;
             background: var(--vscode-dropdown-background);
             color: var(--vscode-dropdown-foreground);
             border: 1px solid var(--vscode-dropdown-border);
             border-radius: 4px;
             font-size: 12px;
             cursor: pointer;
-            min-width: 120px;
+            min-width: 100px;
             text-align: left;
             position: relative;
             white-space: nowrap;
@@ -2580,22 +2601,20 @@ export class BoardPanel {
         }
 
         .filter-dropdown-btn::after {
-            content: '';
+            content: '\u276F';
             position: absolute;
-            right: 8px;
+            right: 4px;
             top: 50%;
-            transform: translateY(-50%);
-            border-left: 4px solid transparent;
-            border-right: 4px solid transparent;
-            border-top: 4px solid var(--vscode-dropdown-foreground);
-            opacity: 0.8;
+            transform: translateY(-50%) rotate(90deg);
+            font-size: 10px;
+            opacity: 0.7;
         }
 
         .filter-dropdown-content {
             display: none;
             position: absolute;
             top: 100%;
-            left: 0;
+            right: 0;
             min-width: 200px;
             max-height: 300px;
             overflow-y: auto;
@@ -2706,9 +2725,8 @@ export class BoardPanel {
         <div class="filter-divider"></div>
 
         <div class="filter-dropdown" id="assigneeDropdown">
-            <button class="filter-dropdown-btn" id="assigneeDropdownBtn" onclick="toggleDropdown('assigneeDropdownContent')">Assigned ▼</button>
+            <button class="filter-dropdown-btn" id="assigneeDropdownBtn" onclick="toggleDropdown('assigneeDropdownContent')">Assigned to</button>
             <div class="filter-dropdown-content" id="assigneeDropdownContent">
-                <label class="filter-checkbox-item"><input type="checkbox" name="assignee" value="all" checked onchange="handleFilterChange('assignee', this)"> All</label>
                 <label class="filter-checkbox-item"><input type="checkbox" name="assignee" value="me" onchange="handleFilterChange('assignee', this)"> @Me</label>
                 <label class="filter-checkbox-item"><input type="checkbox" name="assignee" value="unassigned" onchange="handleFilterChange('assignee', this)"> Unassigned</label>
                 <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
@@ -2719,14 +2737,13 @@ export class BoardPanel {
                     </label>
                 `).join('')}
                 <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
-                <button class="filter-clear-btn" id="assigneeClearBtn" onclick="clearFilter('assignee')" disabled>Clear</button>
+                <button class="filter-clear-btn" id="assigneeClearBtn" onclick="clearFilter('assignee')" disabled>✕ Clear</button>
             </div>
         </div>
 
         <div class="filter-dropdown" id="typeDropdown">
-            <button class="filter-dropdown-btn" id="typeDropdownBtn" onclick="toggleDropdown('typeDropdownContent')">Type ▼</button>
+            <button class="filter-dropdown-btn" id="typeDropdownBtn" onclick="toggleDropdown('typeDropdownContent')">Type</button>
             <div class="filter-dropdown-content" id="typeDropdownContent">
-                <label class="filter-checkbox-item"><input type="checkbox" name="type" value="all" checked onchange="handleFilterChange('type', this)"> All</label>
                 ${boardTypes.map(type => `
                     <label class="filter-checkbox-item">
                         <input type="checkbox" name="type" value="${this._escapeHtml(type)}" onchange="handleFilterChange('type', this)">
@@ -2734,14 +2751,13 @@ export class BoardPanel {
                     </label>
                 `).join('')}
                 <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
-                <button class="filter-clear-btn" id="typeClearBtn" onclick="clearFilter('type')" disabled>Clear</button>
+                <button class="filter-clear-btn" id="typeClearBtn" onclick="clearFilter('type')" disabled>✕ Clear</button>
             </div>
         </div>
 
         <div class="filter-dropdown" id="priorityDropdown">
-            <button class="filter-dropdown-btn" id="priorityDropdownBtn" onclick="toggleDropdown('priorityDropdownContent')">Priority ▼</button>
+            <button class="filter-dropdown-btn" id="priorityDropdownBtn" onclick="toggleDropdown('priorityDropdownContent')">Priority</button>
             <div class="filter-dropdown-content" id="priorityDropdownContent">
-                <label class="filter-checkbox-item"><input type="checkbox" name="priority" value="all" checked onchange="handleFilterChange('priority', this)"> All</label>
                 ${boardPriorities.map(priority => `
                     <label class="filter-checkbox-item">
                         <input type="checkbox" name="priority" value="${priority}" onchange="handleFilterChange('priority', this)">
@@ -2749,14 +2765,13 @@ export class BoardPanel {
                     </label>
                 `).join('')}
                 <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
-                <button class="filter-clear-btn" id="priorityClearBtn" onclick="clearFilter('priority')" disabled>Clear</button>
+                <button class="filter-clear-btn" id="priorityClearBtn" onclick="clearFilter('priority')" disabled>✕ Clear</button>
             </div>
         </div>
 
         <div class="filter-dropdown" id="stateDropdown">
-            <button class="filter-dropdown-btn" id="stateDropdownBtn" onclick="toggleDropdown('stateDropdownContent')">State ▼</button>
+            <button class="filter-dropdown-btn" id="stateDropdownBtn" onclick="toggleDropdown('stateDropdownContent')">States</button>
             <div class="filter-dropdown-content" id="stateDropdownContent">
-                <label class="filter-checkbox-item"><input type="checkbox" name="state" value="all" checked onchange="handleFilterChange('state', this)"> All</label>
                 ${boardStates.map(state => `
                     <label class="filter-checkbox-item">
                         <input type="checkbox" name="state" value="${this._escapeHtml(state)}" onchange="handleFilterChange('state', this)">
@@ -2764,14 +2779,13 @@ export class BoardPanel {
                     </label>
                 `).join('')}
                 <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
-                <button class="filter-clear-btn" id="stateClearBtn" onclick="clearFilter('state')" disabled>Clear</button>
+                <button class="filter-clear-btn" id="stateClearBtn" onclick="clearFilter('state')" disabled>✕ Clear</button>
             </div>
         </div>
 
         <div class="filter-dropdown" id="areaDropdown">
-            <button class="filter-dropdown-btn" id="areaDropdownBtn" onclick="toggleDropdown('areaDropdownContent')">Area ▼</button>
+            <button class="filter-dropdown-btn" id="areaDropdownBtn" onclick="toggleDropdown('areaDropdownContent')">Area</button>
             <div class="filter-dropdown-content" id="areaDropdownContent">
-                <label class="filter-checkbox-item"><input type="checkbox" name="area" value="all" checked onchange="handleFilterChange('area', this)"> All</label>
                 ${boardAreas.map(area => `
                     <label class="filter-checkbox-item">
                         <input type="checkbox" name="area" value="${this._escapeHtml(area)}" onchange="handleFilterChange('area', this)">
@@ -2779,7 +2793,7 @@ export class BoardPanel {
                     </label>
                 `).join('')}
                 <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
-                <button class="filter-clear-btn" id="areaClearBtn" onclick="clearFilter('area')" disabled>Clear</button>
+                <button class="filter-clear-btn" id="areaClearBtn" onclick="clearFilter('area')" disabled>✕ Clear</button>
             </div>
         </div>
 
@@ -3734,28 +3748,6 @@ export class BoardPanel {
             const container = checkbox.closest('.filter-dropdown-content');
             const checkboxes = container.querySelectorAll('input[type="checkbox"]');
             
-            if (checkbox.value === 'all') {
-                // If "All" is checked, uncheck everything else
-                if (checkbox.checked) {
-                    checkboxes.forEach(cb => {
-                        if (cb !== checkbox) cb.checked = false;
-                    });
-                }
-            } else {
-                // If specific item is checked, uncheck "All"
-                if (checkbox.checked) {
-                    const allCheckbox = container.querySelector('input[value="all"]');
-                    if (allCheckbox) allCheckbox.checked = false;
-                }
-            }
-
-            // If nothing is checked, check "All"
-            const anyChecked = Array.from(checkboxes).some(cb => cb.checked);
-            if (!anyChecked) {
-                const allCheckbox = container.querySelector('input[value="all"]');
-                if (allCheckbox) allCheckbox.checked = true;
-            }
-
             updateDropdownButton(type);
             applyFilters();
         }
@@ -3768,31 +3760,25 @@ export class BoardPanel {
             const btn = document.getElementById(btnId);
             const clearBtn = document.getElementById(clearBtnId);
             const checkboxes = container.querySelectorAll('input[type="checkbox"]:checked');
-            const allCheckbox = container.querySelector('input[value="all"]');
-            const isAllSelected = allCheckbox && allCheckbox.checked;
             
             const labels = {
-                assignee: 'Assigned',
+                assignee: 'Assigned to',
                 type: 'Type',
                 priority: 'Priority',
-                state: 'State',
+                state: 'States',
                 area: 'Area'
             };
             
-            if (isAllSelected) {
-                btn.textContent = labels[type] + ' ▼';
+            if (checkboxes.length === 0) {
+                btn.textContent = labels[type];
                 if (clearBtn) clearBtn.disabled = true;
+            } else if (checkboxes.length === 1) {
+                const label = checkboxes[0].parentElement.textContent.trim();
+                btn.textContent = label;
+                if (clearBtn) clearBtn.disabled = false;
             } else {
-                const selectedCheckboxes = Array.from(checkboxes).filter(cb => cb.value !== 'all');
-                if (selectedCheckboxes.length === 1) {
-                    const label = selectedCheckboxes[0].parentElement.textContent.trim();
-                    btn.textContent = label + ' ▼';
-                } else if (selectedCheckboxes.length > 1) {
-                    const firstLabel = selectedCheckboxes[0].parentElement.textContent.trim();
-                    btn.textContent = firstLabel + ' (+' + (selectedCheckboxes.length - 1) + ') ▼';
-                } else {
-                    btn.textContent = labels[type] + ' ▼';
-                }
+                const firstLabel = checkboxes[0].parentElement.textContent.trim();
+                btn.textContent = firstLabel + ' (+' + (checkboxes.length - 1) + ')';
                 if (clearBtn) clearBtn.disabled = false;
             }
         }
@@ -3801,9 +3787,7 @@ export class BoardPanel {
             const dropdownId = type + 'DropdownContent';
             const container = document.getElementById(dropdownId);
             const checkboxes = container.querySelectorAll('input[type="checkbox"]');
-            checkboxes.forEach(cb => {
-                cb.checked = cb.value === 'all';
-            });
+            checkboxes.forEach(cb => cb.checked = false);
             updateDropdownButton(type);
             applyFilters();
         }
@@ -3842,11 +3826,11 @@ export class BoardPanel {
             const stateValues = getSelectedValues('state');
             const areaValues = getSelectedValues('area');
 
-            const assigneeAll = assigneeValues.includes('all');
-            const typeAll = typeValues.includes('all');
-            const priorityAll = priorityValues.includes('all');
-            const stateAll = stateValues.includes('all');
-            const areaAll = areaValues.includes('all');
+            const assigneeAll = assigneeValues.length === 0;
+            const typeAll = typeValues.length === 0;
+            const priorityAll = priorityValues.length === 0;
+            const stateAll = stateValues.length === 0;
+            const areaAll = areaValues.length === 0;
 
             const cards = document.querySelectorAll('.card');
             let visibleCount = 0;
@@ -3984,18 +3968,18 @@ export class BoardPanel {
         }
 
         function isAnyFilterActive() {
-            const assigneeAll = document.querySelector('#assigneeDropdownContent input[value="all"]')?.checked;
-            const typeAll = document.querySelector('#typeDropdownContent input[value="all"]')?.checked;
-            const priorityAll = document.querySelector('#priorityDropdownContent input[value="all"]')?.checked;
-            const stateAll = document.querySelector('#stateDropdownContent input[value="all"]')?.checked;
-            const areaAll = document.querySelector('#areaDropdownContent input[value="all"]')?.checked;
+            const assigneeChecked = document.querySelectorAll('#assigneeDropdownContent input[type="checkbox"]:checked').length > 0;
+            const typeChecked = document.querySelectorAll('#typeDropdownContent input[type="checkbox"]:checked').length > 0;
+            const priorityChecked = document.querySelectorAll('#priorityDropdownContent input[type="checkbox"]:checked').length > 0;
+            const stateChecked = document.querySelectorAll('#stateDropdownContent input[type="checkbox"]:checked').length > 0;
+            const areaChecked = document.querySelectorAll('#areaDropdownContent input[type="checkbox"]:checked').length > 0;
 
             return document.getElementById('searchInput').value.trim() !== '' ||
-                   !assigneeAll ||
-                   !typeAll ||
-                   !priorityAll ||
-                   !stateAll ||
-                   !areaAll ||
+                   assigneeChecked ||
+                   typeChecked ||
+                   priorityChecked ||
+                   stateChecked ||
+                   areaChecked ||
                    hideDoneActive ||
                    myItemsActive;
         }
@@ -4012,9 +3996,7 @@ export class BoardPanel {
                 const container = document.getElementById(type + 'DropdownContent');
                 if (container) {
                     const checkboxes = container.querySelectorAll('input[type="checkbox"]');
-                    checkboxes.forEach(cb => {
-                        cb.checked = cb.value === 'all';
-                    });
+                    checkboxes.forEach(cb => cb.checked = false);
                     updateDropdownButton(type);
                 }
             });
@@ -4039,14 +4021,11 @@ export class BoardPanel {
             const toggle = document.getElementById('myItemsToggle');
             toggle.classList.toggle('active', myItemsActive);
 
-            // If my items is active, reset the assignee dropdown
             if (myItemsActive) {
                 const container = document.getElementById('assigneeDropdownContent');
-                 const checkboxes = container.querySelectorAll('input[type="checkbox"]');
-                 checkboxes.forEach(cb => {
-                    cb.checked = cb.value === 'all';
-                 });
-                 updateDropdownButton('assignee');
+                const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+                checkboxes.forEach(cb => cb.checked = false);
+                updateDropdownButton('assignee');
             }
 
             applyFilters();
@@ -4111,6 +4090,10 @@ export class BoardPanel {
               }).join('')
             : '';
 
+        // Check if any card styling rules apply to this work item
+        const cardBackgroundColor = this._getCardBackgroundColor(item);
+        const cardStyle = cardBackgroundColor ? `style="background-color: ${cardBackgroundColor} !important;"` : '';
+
         return `
         <div class="card"
              draggable="true"
@@ -4124,7 +4107,9 @@ export class BoardPanel {
              data-assignee-name="${item.assignedTo?.displayName || ''}"
              data-state="${this._escapeHtml(item.state)}"
              data-tags="${item.tags || ''}"
+             data-areapath="${this._escapeHtml(item.areaPath || '')}"
              data-effort="${effort}"
+             ${cardStyle}
              tabindex="0"
              ondragstart="handleDragStart(event, ${item.id})"
              ondragend="handleDragEnd(event)"
@@ -4251,6 +4236,122 @@ export class BoardPanel {
 
         // Default to User Story icon if no match
         return this._getTypeIcon('User Story');
+    }
+
+    private _getCardBackgroundColor(item: BoardWorkItem): string | null {
+        // Check each card styling rule to see if it applies to this work item
+        for (const rule of this._cardStyleRules) {
+            if (this._evaluateCardStyleRule(rule.filter, item)) {
+                return rule.settings['background-color'];
+            }
+        }
+        return null;
+    }
+
+    private _evaluateCardStyleRule(filter: string, item: BoardWorkItem): boolean {
+        try {
+            // Generic pattern to match field comparisons: [FieldName] operator value
+            const fieldPattern = /\[([^\]]+)\]\s*(=|!=|>|>=|<|<=|Contains|Under)\s*(?:'([^']+)'|(\d+(?:\.\d+)?))/gi;
+            const matches = [...filter.matchAll(fieldPattern)];
+            
+            if (matches.length === 0) return false;
+            
+            // Evaluate all conditions (AND logic)
+            for (const match of matches) {
+                const fieldName = match[1];
+                const operator = match[2].toLowerCase();
+                const stringValue = match[3];
+                const numericValue = match[4] ? parseFloat(match[4]) : null;
+                
+                if (!this._evaluateFieldCondition(fieldName, operator, stringValue, numericValue, item)) {
+                    return false;
+                }
+            }
+            
+            return matches.length > 0;
+        } catch (error) {
+            console.error('Error evaluating card style rule:', error);
+            return false;
+        }
+    }
+
+    private _evaluateFieldCondition(fieldName: string, operator: string, stringValue: string | undefined, numericValue: number | null, item: BoardWorkItem): boolean {
+        const fieldLower = fieldName.toLowerCase();
+        
+        // Tags
+        if (fieldLower.includes('tags')) {
+            const itemTags = (item.tags || '').toLowerCase();
+            const filterValue = (stringValue || '').toLowerCase();
+            if (operator === 'contains') return itemTags.includes(filterValue);
+            if (operator === '=') return itemTags.split(';').map(t => t.trim()).includes(filterValue);
+        }
+        
+        // State
+        if (fieldLower.includes('state')) {
+            const itemState = item.state.toLowerCase();
+            const filterValue = (stringValue || '').toLowerCase();
+            if (operator === '=') return itemState === filterValue;
+            if (operator === '!=') return itemState !== filterValue;
+        }
+        
+        // Work Item Type
+        if (fieldLower.includes('workitemtype')) {
+            const itemType = item.type.toLowerCase();
+            const filterValue = (stringValue || '').toLowerCase();
+            if (operator === '=') return itemType === filterValue;
+            if (operator === '!=') return itemType !== filterValue;
+        }
+        
+        // Priority
+        if (fieldLower.includes('priority') && item.priority !== undefined) {
+            if (numericValue !== null) {
+                if (operator === '=') return item.priority === numericValue;
+                if (operator === '!=') return item.priority !== numericValue;
+                if (operator === '>') return item.priority > numericValue;
+                if (operator === '>=') return item.priority >= numericValue;
+                if (operator === '<') return item.priority < numericValue;
+                if (operator === '<=') return item.priority <= numericValue;
+            }
+        }
+        
+        // Area Path
+        if (fieldLower.includes('areapath')) {
+            const itemArea = (item.areaPath || '').toLowerCase();
+            const filterValue = (stringValue || '').toLowerCase();
+            if (operator === '=') return itemArea === filterValue;
+            if (operator === 'under') return itemArea.startsWith(filterValue);
+        }
+        
+        // Title
+        if (fieldLower.includes('title')) {
+            const itemTitle = item.title.toLowerCase();
+            const filterValue = (stringValue || '').toLowerCase();
+            if (operator === 'contains') return itemTitle.includes(filterValue);
+            if (operator === '=') return itemTitle === filterValue;
+        }
+        
+        // Assigned To
+        if (fieldLower.includes('assignedto')) {
+            const itemAssignee = (item.assignedTo?.displayName || item.assignedTo?.uniqueName || '').toLowerCase();
+            const filterValue = (stringValue || '').toLowerCase();
+            if (operator === '=') return itemAssignee === filterValue;
+            if (operator === 'contains') return itemAssignee.includes(filterValue);
+        }
+        
+        // Numeric fields (Story Points, Remaining Work, Business Value, etc.)
+        // These would need to be added to BoardWorkItem interface and fetched from API
+        const numericFields = ['storypoints', 'remainingwork', 'businessvalue', 'effort', 'severity'];
+        if (numericFields.some(f => fieldLower.includes(f)) && numericValue !== null) {
+            const itemValue = (item as any)[fieldLower.replace(/[^a-z]/g, '')] || 0;
+            if (operator === '=') return itemValue === numericValue;
+            if (operator === '!=') return itemValue !== numericValue;
+            if (operator === '>') return itemValue > numericValue;
+            if (operator === '>=') return itemValue >= numericValue;
+            if (operator === '<') return itemValue < numericValue;
+            if (operator === '<=') return itemValue <= numericValue;
+        }
+        
+        return false;
     }
 
     private _getTagColor(tagName: string): string {
