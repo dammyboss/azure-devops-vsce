@@ -374,21 +374,29 @@ export class BoardPanel {
                     const detailsResponse = await axiosInstance.get('/_apis/wit/workitems', {
                         params: {
                             'ids': workItemIds,
-                            'fields': 'System.Id,System.Title,System.State,System.WorkItemType,System.AssignedTo,Microsoft.VSTS.Common.Priority,System.Tags,System.BoardColumn,System.AreaPath'
+                            'fields': 'System.Id,System.Title,System.State,System.WorkItemType,System.AssignedTo,Microsoft.VSTS.Common.Priority,System.Tags,System.BoardColumn,System.AreaPath',
+                            '$expand': 'relations'
                         }
                     });
 
-                    const workItems: BoardWorkItem[] = (detailsResponse.data.value || []).map((item: any) => ({
-                        id: item.id,
-                        title: item.fields['System.Title'],
-                        state: item.fields['System.State'],
-                        type: item.fields['System.WorkItemType'],
-                        assignedTo: item.fields['System.AssignedTo'],
-                        priority: item.fields['Microsoft.VSTS.Common.Priority'],
-                        tags: item.fields['System.Tags'],
-                        areaPath: item.fields['System.AreaPath'],
-                        boardColumn: item.fields['System.BoardColumn'] || column.name
-                    }));
+                    const workItems: BoardWorkItem[] = (detailsResponse.data.value || []).map((item: any) => {
+                        const workItem: any = {
+                            id: item.id,
+                            title: item.fields['System.Title'],
+                            state: item.fields['System.State'],
+                            type: item.fields['System.WorkItemType'],
+                            assignedTo: item.fields['System.AssignedTo'],
+                            priority: item.fields['Microsoft.VSTS.Common.Priority'],
+                            tags: item.fields['System.Tags'],
+                            areaPath: item.fields['System.AreaPath'],
+                            boardColumn: item.fields['System.BoardColumn'] || column.name
+                        };
+                        // Store relations temporarily for child work items loading
+                        if (item.relations) {
+                            workItem._tempRelations = item.relations;
+                        }
+                        return workItem;
+                    });
 
                     workItemsMap.set(column.name, workItems);
                 }
@@ -397,9 +405,8 @@ export class BoardPanel {
             }
         }
 
-        // TODO: Re-enable child work items feature once we figure out the proper API parameters
         // Fetch all child work items in a single batch
-        // await this._loadChildWorkItems(workItemsMap, axiosInstance);
+        await this._loadChildWorkItems(workItemsMap, axiosInstance);
 
         this.currentBoard = {
             id: this.boardId,
