@@ -64,6 +64,7 @@ export class BoardPanel {
     private _tagColors: Map<string, string> = new Map();
     private _cardStyleRules: Array<{name: string, filter: string, settings: any}> = [];
     private _projectWorkItemTypes: string[] = [];
+    private _pendingMoves: Set<number> = new Set();
 
     public static createOrShow(
         extensionUri: vscode.Uri,
@@ -114,8 +115,10 @@ export class BoardPanel {
 
         // Subscribe to work item updates from other views
         this.eventSubscription = this.eventManager.onWorkItemUpdated(() => {
-            // Refresh board when any work item is updated
-            this._loadAndRender();
+            // Don't refresh if we have pending moves (to avoid race conditions)
+            if (this._pendingMoves.size === 0) {
+                this._loadAndRender();
+            }
         });
 
         // Load board data and update
@@ -512,6 +515,9 @@ export class BoardPanel {
     }
 
     private async _moveWorkItem(workItemId: number, targetColumn: string, targetState: string): Promise<void> {
+        // Track this move as pending to prevent race conditions with refresh
+        this._pendingMoves.add(workItemId);
+
         try {
             const axiosInstance = this.authenticationManager.getAxiosInstance();
             if (!axiosInstance) {
@@ -543,7 +549,15 @@ export class BoardPanel {
 
             vscode.window.showInformationMessage(`Moved #${workItemId} to ${targetColumn}`);
 
+            // Remove from pending moves after a short delay to ensure backend has propagated
+            setTimeout(() => {
+                this._pendingMoves.delete(workItemId);
+            }, 1000);
+
         } catch (error: any) {
+            // Remove from pending moves immediately on error
+            this._pendingMoves.delete(workItemId);
+
             // Send failure message to webview for rollback
             this._panel.webview.postMessage({
                 command: 'moveFailed',
