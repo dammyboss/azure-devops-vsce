@@ -1926,8 +1926,8 @@ export class BoardPanel {
         /* Work Item Cards - MODERN DESIGN */
         .card {
             background: var(--vscode-editor-background);
-            border: 1px solid rgba(128, 128, 128, 0.35);
-            border-left: 4px solid var(--card-type-color, #4396C2);
+            border: 2px solid rgba(128, 128, 128, 0.45);
+            border-left: 6px solid var(--card-type-color, #4396C2);
             border-radius: 6px;
             padding: 12px;
             cursor: pointer;
