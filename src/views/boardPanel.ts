@@ -374,7 +374,6 @@ export class BoardPanel {
                     const detailsResponse = await axiosInstance.get('/_apis/wit/workitems', {
                         params: {
                             'ids': workItemIds,
-                            'fields': 'System.Id,System.Title,System.State,System.WorkItemType,System.AssignedTo,Microsoft.VSTS.Common.Priority,System.Tags,System.BoardColumn,System.AreaPath',
                             '$expand': 'relations',
                             'api-version': '7.1'
                         }
