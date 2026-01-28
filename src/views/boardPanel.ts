@@ -1890,6 +1890,10 @@ export class BoardPanel {
             color: #ffffff;
         }
 
+        .card.has-children {
+            padding-bottom: 36px;
+        }
+
         .card:hover {
             background: var(--vscode-list-hoverBackground);
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
@@ -2108,13 +2112,15 @@ export class BoardPanel {
 
         /* Child work items indicator */
         .child-indicator {
+            position: absolute;
+            bottom: 8px;
+            left: 8px;
             display: flex;
             align-items: center;
             gap: 4px;
             font-size: 11px;
             color: #ffffff;
             font-weight: 500;
-            margin-top: 8px;
             padding: 4px 8px;
             background: var(--vscode-sideBar-background);
             border-radius: 4px;
@@ -4093,9 +4099,10 @@ export class BoardPanel {
         // Check if any card styling rules apply to this work item
         const cardBackgroundColor = this._getCardBackgroundColor(item);
         const cardStyle = cardBackgroundColor ? `style="background-color: ${cardBackgroundColor} !important;"` : '';
+        const hasChildren = item.children && item.children.length > 0;
 
         return `
-        <div class="card"
+        <div class="card ${hasChildren ? 'has-children' : ''}"
              draggable="true"
              data-id="${item.id}"
              data-col="${colIndex}"
@@ -4145,9 +4152,10 @@ export class BoardPanel {
         }
 
         const totalChildren = item.children.length;
-        const closedChildren = item.children.filter(child =>
-            child.state === 'Closed' || child.state === 'Done' || child.state === 'Resolved'
-        ).length;
+        const closedChildren = item.children.filter(child => {
+            const state = child.state?.toLowerCase() || '';
+            return state === 'closed' || state === 'done' || state === 'completed';
+        }).length;
         const allClosed = closedChildren === totalChildren;
         const childType = item.children[0].type;
         const childIcon = this._getChildTypeIcon(childType);
