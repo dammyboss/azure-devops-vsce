@@ -3418,6 +3418,34 @@ export class BoardPanel {
                 emptyMessage.remove();
             }
 
+            // IMMEDIATELY update the card's state indicator for instant visual feedback
+            if (targetState && draggedCard) {
+                // Update the data-state attribute
+                draggedCard.dataset.state = targetState;
+
+                // Update the status label text
+                const statusLabel = draggedCard.querySelector('.status-label');
+                if (statusLabel) {
+                    statusLabel.textContent = targetState;
+                }
+
+                // Update the status dot class based on the new state
+                const statusDot = draggedCard.querySelector('.status-dot');
+                if (statusDot) {
+                    const stateLower = targetState.toLowerCase();
+                    let newStateClass = 'todo';
+                    if (stateLower.includes('done') || stateLower.includes('closed')) {
+                        newStateClass = 'done';
+                    } else if (stateLower.includes('active') || stateLower.includes('doing') || stateLower.includes('progress')) {
+                        newStateClass = 'doing';
+                    }
+
+                    // Remove all state classes and add the new one
+                    statusDot.classList.remove('done', 'doing', 'todo');
+                    statusDot.classList.add(newStateClass);
+                }
+            }
+
             updateColumnCounts();
 
             vscode.postMessage({
