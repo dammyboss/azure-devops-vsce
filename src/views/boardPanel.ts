@@ -1217,6 +1217,22 @@ export class BoardPanel {
         }
     }
 
+    private _hasIconForWorkItemType(type: string): boolean {
+        // List of work item types we have icons for
+        const supportedTypes = [
+            'User Story',
+            'Product Backlog Item',
+            'Requirement',
+            'Feature',
+            'Epic',
+            'Task',
+            'Issue',
+            'Bug',
+            'Test Case'
+        ];
+        return supportedTypes.includes(type);
+    }
+
     private async _fetchProjectWorkItemTypes(): Promise<void> {
         try {
             const axiosInstance = this.authenticationManager.getAxiosInstance();
@@ -1237,11 +1253,16 @@ export class BoardPanel {
             );
 
             if (response.data && response.data.value) {
-                // Extract work item type names and sort them
+                // Extract work item type names, filter to only supported types with icons, and sort
                 this._projectWorkItemTypes = response.data.value
                     .map((wit: any) => wit.name)
-                    .filter((name: string) => name) // Filter out any null/undefined
+                    .filter((name: string) => name && this._hasIconForWorkItemType(name))
                     .sort();
+            }
+
+            // If no supported types found, use fallback
+            if (this._projectWorkItemTypes.length === 0) {
+                this._projectWorkItemTypes = ['User Story', 'Bug', 'Task', 'Issue', 'Feature', 'Epic'];
             }
         } catch (error) {
             console.error('Failed to fetch project work item types:', error);
@@ -4314,8 +4335,12 @@ export class BoardPanel {
             case 'Bug':
                 return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 448" width="16" height="16"><path fill="#CC293D" d="M352 224c0-17.672 14.328-32 32-32h32v-32h-32c-8.828 0-16.938 2.797-23.656 7.516C350.391 140.234 324.078 120 293 120.781 287.016 108.297 275.547 99.828 262 96.781V64h32V32h-96v32h32v32.781c-13.547 3.047-25.016 11.516-31 24-31.078.781-57.391 21.016-67.344 48.297C125.938 163.797 117.828 161 109 161H77v32h32c17.672 0 32 14.328 32 32v32c0 17.672-14.328 32-32 32H77v32h32c8.828 0 16.938-2.797 23.656-7.516C142.609 340.766 168.922 361 200 360.219c5.984 12.484 17.453 20.953 31 24V417h-32v32h96v-32h-32v-32.781c13.547-3.047 25.016-11.516 31-24 31.078-.781 57.391-21.016 67.344-48.297C366.062 317.203 374.172 320 383 320h32v-32h-32c-17.672 0-32-14.328-32-32v-32zm-80 48c-26.469 0-48-21.531-48-48s21.531-48 48-48 48 21.531 48 48-21.531 48-48 48z" /></svg>`;
 
+            case 'Test Case':
+                return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 448" width="16" height="16"><path fill="#9B59B6" d="M320 64h-32c0-35.297-28.703-64-64-64s-64 28.703-64 64H64v384h320V64h-64zM128 96h64V64c0-17.641 14.359-32 32-32s32 14.359 32 32v32h64v32H128V96zm192 320H128V192h192v224z" /></svg>`;
+
             default:
-                return '📄';
+                // Generic work item icon for unknown types
+                return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 448" width="16" height="16"><path fill="#666666" d="M384 0H64C28.65 0 0 28.65 0 64v320c0 35.35 28.65 64 64 64h320c35.35 0 64-28.65 64-64V64c0-35.35-28.65-64-64-64zm32 384c0 17.64-14.36 32-32 32H64c-17.64 0-32-14.36-32-32V64c0-17.64 14.36-32 32-32h320c17.64 0 32 14.36 32 32v320z"/><rect x="96" y="96" width="256" height="32" fill="#666666"/><rect x="96" y="160" width="192" height="32" fill="#666666"/><rect x="96" y="224" width="224" height="32" fill="#666666"/></svg>`;
         }
     }
 
