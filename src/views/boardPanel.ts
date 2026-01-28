@@ -2158,10 +2158,17 @@ export class BoardPanel {
         }
 
         /* Child work items indicator */
-        .child-indicator {
+        .child-indicators-container {
             position: absolute;
             bottom: 8px;
             left: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .child-indicator-item {
             display: flex;
             align-items: center;
             gap: 4px;
@@ -2170,11 +2177,11 @@ export class BoardPanel {
             font-weight: 500;
         }
 
-        .child-indicator svg {
+        .child-indicator-item svg {
             flex-shrink: 0;
         }
 
-        .child-indicator.completed {
+        .child-indicator-item.completed {
             text-decoration: line-through;
         }
 
@@ -4193,21 +4200,36 @@ export class BoardPanel {
             return '';
         }
 
-        const totalChildren = item.children.length;
-        const closedChildren = item.children.filter(child => {
-            const state = child.state?.toLowerCase() || '';
-            return state === 'closed' || state === 'done' || state === 'completed';
-        }).length;
-        const allClosed = closedChildren === totalChildren;
-        const childType = item.children[0].type;
-        const childIcon = this._getChildTypeIcon(childType);
+        // Group children by work item type
+        const childrenByType = new Map<string, {id: number, title: string, state: string, type: string}[]>();
+        item.children.forEach(child => {
+            const type = child.type || 'Unknown';
+            if (!childrenByType.has(type)) {
+                childrenByType.set(type, []);
+            }
+            childrenByType.get(type)!.push(child);
+        });
 
-        return `
-            <div class="child-indicator ${allClosed ? 'completed' : ''}" title="${closedChildren} of ${totalChildren} child work items completed">
-                ${childIcon}
-                <span class="child-count">${closedChildren}/${totalChildren}</span>
-            </div>
-        `;
+        // Render indicator for each work item type
+        const indicators: string[] = [];
+        childrenByType.forEach((children, type) => {
+            const totalChildren = children.length;
+            const closedChildren = children.filter(child => {
+                const state = child.state?.toLowerCase() || '';
+                return state === 'closed' || state === 'done' || state === 'completed';
+            }).length;
+            const allClosed = closedChildren === totalChildren;
+            const childIcon = this._getChildTypeIcon(type);
+
+            indicators.push(`
+                <div class="child-indicator-item ${allClosed ? 'completed' : ''}" title="${closedChildren} of ${totalChildren} ${this._escapeHtml(type)} child work items completed">
+                    ${childIcon}
+                    <span class="child-count">${closedChildren}/${totalChildren}</span>
+                </div>
+            `);
+        });
+
+        return `<div class="child-indicators-container">${indicators.join('')}</div>`;
     }
 
     private _getChildTypeIcon(type: string): string {
