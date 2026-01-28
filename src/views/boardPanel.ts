@@ -375,7 +375,8 @@ export class BoardPanel {
                         params: {
                             'ids': workItemIds,
                             'fields': 'System.Id,System.Title,System.State,System.WorkItemType,System.AssignedTo,Microsoft.VSTS.Common.Priority,System.Tags,System.BoardColumn,System.AreaPath',
-                            '$expand': 'relations'
+                            '$expand': 'relations',
+                            'api-version': '7.1'
                         }
                     });
 
@@ -406,7 +407,11 @@ export class BoardPanel {
         }
 
         // Fetch all child work items in a single batch
-        await this._loadChildWorkItems(workItemsMap, axiosInstance);
+        try {
+            await this._loadChildWorkItems(workItemsMap, axiosInstance);
+        } catch (error) {
+            console.error('Failed to load child work items:', error);
+        }
 
         this.currentBoard = {
             id: this.boardId,
@@ -454,7 +459,8 @@ export class BoardPanel {
                 const childrenResponse = await axiosInstance.get('/_apis/wit/workitems', {
                     params: {
                         'ids': childIdsString,
-                        'fields': 'System.Id,System.Title,System.State,System.WorkItemType'
+                        'fields': 'System.Id,System.Title,System.State,System.WorkItemType',
+                        'api-version': '7.1'
                     }
                 });
 
