@@ -63,6 +63,7 @@ export class BoardPanel {
     private eventSubscription: vscode.Disposable | null = null;
     private _tagColors: Map<string, string> = new Map();
     private _cardStyleRules: Array<{name: string, filter: string, settings: any}> = [];
+    private _projectWorkItemTypes: string[] = [];
 
     public static createOrShow(
         extensionUri: vscode.Uri,
@@ -225,6 +226,8 @@ export class BoardPanel {
             this.availableBoards = await this._getAvailableBoards();
             // Load tag colors from Azure DevOps
             await this._getTagColors();
+            // Fetch all work item types from the project
+            await this._fetchProjectWorkItemTypes();
             // Load team members for filter
             this._teamMembers = await this._getTeamMembers();
             await this._loadBoardData();
@@ -1214,6 +1217,39 @@ export class BoardPanel {
         }
     }
 
+    private async _fetchProjectWorkItemTypes(): Promise<void> {
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+
+            if (!axiosInstance || !config?.defaultProject) {
+                return;
+            }
+
+            // Fetch all work item types from the project
+            const response = await axiosInstance.get(
+                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workitemtypes`,
+                {
+                    params: {
+                        'api-version': '7.1'
+                    }
+                }
+            );
+
+            if (response.data && response.data.value) {
+                // Extract work item type names and sort them
+                this._projectWorkItemTypes = response.data.value
+                    .map((wit: any) => wit.name)
+                    .filter((name: string) => name) // Filter out any null/undefined
+                    .sort();
+            }
+        } catch (error) {
+            console.error('Failed to fetch project work item types:', error);
+            // Fallback to common types if API fails
+            this._projectWorkItemTypes = ['User Story', 'Bug', 'Task', 'Issue', 'Feature', 'Epic'];
+        }
+    }
+
     private _getLoadingHtml(): string {
         return `<!DOCTYPE html>
 <html lang="en">
@@ -1372,10 +1408,9 @@ export class BoardPanel {
         // Derive default work item type from board name
         const defaultWorkItemType = this._getDefaultWorkItemType();
 
-        // Common work item types for the dropdown
-        const commonWorkItemTypes = ['User Story', 'Bug', 'Task', 'Issue', 'Feature', 'Epic'];
-        // Combine board types with common types, removing duplicates
-        const allWorkItemTypes = Array.from(new Set([...boardTypes, ...commonWorkItemTypes])).sort();
+        // Use project work item types fetched from Azure DevOps API
+        // Combine with board types to ensure all types on current board are included
+        const allWorkItemTypes = Array.from(new Set([...boardTypes, ...this._projectWorkItemTypes])).sort();
 
         // Get the codicon font URI from VSCode
         const codiconFontUri = this._panel.webview.asWebviewUri(
