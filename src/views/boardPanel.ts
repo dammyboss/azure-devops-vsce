@@ -121,8 +121,8 @@ export class BoardPanel {
             }
         });
 
-        // Load board data and update
-        this._loadAndRender();
+        // Load board data and update (full refresh on initial load)
+        this._loadAndRender(true);
 
         // Start auto-refresh (every 30 seconds)
         this._startAutoRefresh();
@@ -141,7 +141,7 @@ export class BoardPanel {
                         vscode.commands.executeCommand('azureDevOps.viewWorkItemDetails', message.workItemId);
                         break;
                     case 'refresh':
-                        await this._loadAndRender();
+                        await this._loadAndRender(true); // Full refresh when user clicks refresh button
                         break;
                     case 'openInBrowser':
                         this._openBoardInBrowser();
@@ -220,19 +220,26 @@ export class BoardPanel {
 
     private _teamMembers: Array<{displayName: string, uniqueName: string}> = [];
 
-    private async _loadAndRender() {
+    private async _loadAndRender(fullRefresh: boolean = false) {
         try {
             // Update last refresh time
             this._lastRefreshTime = Date.now();
 
-            // Load available boards for the dropdown
-            this.availableBoards = await this._getAvailableBoards();
-            // Load tag colors from Azure DevOps
-            await this._getTagColors();
-            // Fetch all work item types from the project
-            await this._fetchProjectWorkItemTypes();
-            // Load team members for filter
-            this._teamMembers = await this._getTeamMembers();
+            // Only reload metadata on full refresh or if not loaded yet
+            if (fullRefresh || this.availableBoards.length === 0) {
+                this.availableBoards = await this._getAvailableBoards();
+            }
+            if (fullRefresh || this._tagColors.size === 0) {
+                await this._getTagColors();
+            }
+            if (fullRefresh || this._projectWorkItemTypes.length === 0) {
+                await this._fetchProjectWorkItemTypes();
+            }
+            if (fullRefresh || this._teamMembers.length === 0) {
+                this._teamMembers = await this._getTeamMembers();
+            }
+
+            // Always reload board data (this is what changes frequently)
             await this._loadBoardData();
 
             // Add any assignees from work items that aren't in team members
@@ -1143,7 +1150,7 @@ export class BoardPanel {
         this.boardId = boardId;
         this.boardName = boardName;
         this._panel.title = `Board: ${boardName}`;
-        await this._loadAndRender();
+        await this._loadAndRender(true); // Full refresh when switching boards
     }
 
     private async _getAvailableBoards(): Promise<Array<{id: string, name: string}>> {
