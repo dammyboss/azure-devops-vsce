@@ -2133,19 +2133,10 @@ export class BoardPanel {
             font-size: 11px;
             color: #ffffff;
             font-weight: 500;
-            padding: 4px 8px;
-            background: var(--vscode-sideBar-background);
-            border-radius: 4px;
-            border: 1px solid var(--vscode-panel-border);
         }
 
         .child-indicator svg {
             flex-shrink: 0;
-        }
-
-        .child-indicator.completed {
-            text-decoration: line-through;
-            opacity: 0.7;
         }
 
         .child-count {
