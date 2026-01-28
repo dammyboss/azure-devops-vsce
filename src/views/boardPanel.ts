@@ -2139,6 +2139,10 @@ export class BoardPanel {
             flex-shrink: 0;
         }
 
+        .child-indicator.completed {
+            text-decoration: line-through;
+        }
+
         .child-count {
             line-height: 1;
         }
