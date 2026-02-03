@@ -3770,6 +3770,16 @@ export class BoardPanel {
             input.focus();
             input.select();
 
+            // Prevent clicks on the input (including spinner arrows) from bubbling to card
+            input.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+
+            // Prevent mousedown on spinner arrows from bubbling
+            input.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+            });
+
             function saveEffort() {
                 const newEffort = input.value.trim();
                 const card = input.closest('.card');
