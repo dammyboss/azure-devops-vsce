@@ -11,9 +11,9 @@ Manage your Azure DevOps Boards, work items, sprints, and backlogs directly from
 
 ## Demo
 
-https://github.com/user-attachments/assets/your-video-id-here
-
-> **Note:** Watch the video above to see the extension in action! You can also find the demo video in the [media folder](./media/demo.mov).
+<video src="./media/demo.mov" controls autoplay loop muted width="100%">
+  Your browser does not support the video tag.
+</video>
 
 ## Features
 

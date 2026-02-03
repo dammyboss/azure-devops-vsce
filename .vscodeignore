@@ -17,4 +17,4 @@ webpack.config.js
 tsconfig.json
 package-lock.json
 *.vsix
-media/**
+media/profile.png
