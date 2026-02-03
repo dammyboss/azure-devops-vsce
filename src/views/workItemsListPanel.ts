@@ -543,6 +543,9 @@ export class WorkItemsListPanel {
         const types = [...new Set(this.workItems.map(wi => wi.fields['System.WorkItemType']))];
         const states = [...new Set(this.workItems.map(wi => wi.fields['System.State']))];
         const assignees = [...new Set(this.workItems.map(wi => wi.fields['System.AssignedTo']?.displayName || 'Unassigned'))];
+        const areas = [...new Set(this.workItems.map(wi => wi.fields['System.AreaPath'] || '').filter(a => a))];
+        const allTags = this.workItems.flatMap(wi => (wi.fields['System.Tags'] || '').split(';').map((t: string) => t.trim()).filter((t: string) => t));
+        const tags = [...new Set(allTags)];
 
         return `<!DOCTYPE html>
 <html lang="en">
@@ -825,6 +828,47 @@ export class WorkItemsListPanel {
             width: 40px;
             text-align: center;
         }
+        .checkbox-cell input[type="checkbox"],
+        .row-checkbox {
+            margin: 0;
+            cursor: pointer;
+            width: 16px;
+            height: 16px;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            border: 1.5px solid var(--vscode-foreground, #cccccc);
+            border-radius: 3px;
+            background: var(--vscode-checkbox-background, transparent);
+            position: relative;
+            vertical-align: middle;
+        }
+        .checkbox-cell input[type="checkbox"]:hover,
+        .row-checkbox:hover {
+            border-color: var(--vscode-focusBorder, #007acc);
+        }
+        .checkbox-cell input[type="checkbox"]:checked,
+        .row-checkbox:checked {
+            background: var(--vscode-button-background, #0e639c);
+            border-color: var(--vscode-button-background, #0e639c);
+        }
+        .checkbox-cell input[type="checkbox"]:checked::after,
+        .row-checkbox:checked::after {
+            content: '';
+            position: absolute;
+            left: 4px;
+            top: 1px;
+            width: 5px;
+            height: 9px;
+            border: solid var(--vscode-button-foreground, #ffffff);
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
+        }
+        .checkbox-cell input[type="checkbox"]:focus,
+        .row-checkbox:focus {
+            outline: 1px solid var(--vscode-focusBorder, #007acc);
+            outline-offset: 1px;
+        }
         .work-item-id {
             font-family: 'Consolas', monospace;
             color: var(--vscode-textLink-foreground);
@@ -980,6 +1024,34 @@ export class WorkItemsListPanel {
                 <button class="filter-clear-btn" id="assigneeClearBtn" type="button" disabled>✕ Clear</button>
             </div>
         </div>
+
+        <div class="filter-dropdown" id="areaDropdown">
+            <button class="filter-dropdown-btn" id="areaDropdownBtn" type="button">Area</button>
+            <div class="filter-dropdown-content" id="areaDropdownContent">
+                ${areas.map(a => `
+                    <label class="filter-checkbox-item">
+                        <input type="checkbox" name="area" value="${this.escapeHtml(a)}">
+                        ${this.escapeHtml(a)}
+                    </label>
+                `).join('')}
+                <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
+                <button class="filter-clear-btn" id="areaClearBtn" type="button" disabled>✕ Clear</button>
+            </div>
+        </div>
+
+        <div class="filter-dropdown" id="tagsDropdown">
+            <button class="filter-dropdown-btn" id="tagsDropdownBtn" type="button">Tags</button>
+            <div class="filter-dropdown-content" id="tagsDropdownContent">
+                ${tags.map(t => `
+                    <label class="filter-checkbox-item">
+                        <input type="checkbox" name="tags" value="${this.escapeHtml(t)}">
+                        ${this.escapeHtml(t)}
+                    </label>
+                `).join('')}
+                <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
+                <button class="filter-clear-btn" id="tagsClearBtn" type="button" disabled>✕ Clear</button>
+            </div>
+        </div>
     </div>
 
     <div class="table-wrapper">
@@ -1015,7 +1087,7 @@ export class WorkItemsListPanel {
                         const initials = displayName !== 'Unassigned' ? displayName.split(' ').map((n: string) => n[0]).join('').substring(0, 2) : '?';
 
                         return `
-                            <tr data-id="${id}" data-type="${this.escapeHtml(type)}" data-state="${this.escapeHtml(state)}" data-assignee="${this.escapeHtml(assignedTo?.displayName || 'Unassigned')}" class="work-item-row">
+                            <tr data-id="${id}" data-type="${this.escapeHtml(type)}" data-state="${this.escapeHtml(state)}" data-assignee="${this.escapeHtml(assignedTo?.displayName || 'Unassigned')}" data-area="${this.escapeHtml(areaPath)}" data-tags="${this.escapeHtml(tags)}" class="work-item-row">
                                 <td class="checkbox-cell"><input type="checkbox" class="row-checkbox" data-id="${id}"></td>
                                 <td class="clickable-cell"><span class="work-item-id">#${id}</span></td>
                                 <td class="clickable-cell" style="text-align: center;">${icon}</td>
@@ -1171,7 +1243,9 @@ export class WorkItemsListPanel {
                 const labels = {
                     type: 'Type',
                     state: 'State',
-                    assignee: 'Assignee'
+                    assignee: 'Assignee',
+                    area: 'Area',
+                    tags: 'Tags'
                 };
 
                 if (checkboxes.length === 0) {
@@ -1211,6 +1285,8 @@ export class WorkItemsListPanel {
                 const selectedTypes = getSelectedFilters('type');
                 const selectedStates = getSelectedFilters('state');
                 const selectedAssignees = getSelectedFilters('assignee');
+                const selectedAreas = getSelectedFilters('area');
+                const selectedTags = getSelectedFilters('tags');
 
                 const rows = document.querySelectorAll('#workItemsTable tbody tr');
 
@@ -1219,13 +1295,17 @@ export class WorkItemsListPanel {
                     const type = row.dataset.type || '';
                     const state = row.dataset.state || '';
                     const assignee = row.dataset.assignee || '';
+                    const area = row.dataset.area || '';
+                    const rowTags = (row.dataset.tags || '').split(';').map(t => t.trim()).filter(t => t);
 
                     const matchesKeyword = !keyword || text.includes(keyword);
                     const matchesType = selectedTypes.length === 0 || selectedTypes.includes(type);
                     const matchesState = selectedStates.length === 0 || selectedStates.includes(state);
                     const matchesAssignee = selectedAssignees.length === 0 || selectedAssignees.includes(assignee);
+                    const matchesArea = selectedAreas.length === 0 || selectedAreas.includes(area);
+                    const matchesTags = selectedTags.length === 0 || selectedTags.some(t => rowTags.includes(t));
 
-                    row.style.display = (matchesKeyword && matchesType && matchesState && matchesAssignee) ? '' : 'none';
+                    row.style.display = (matchesKeyword && matchesType && matchesState && matchesAssignee && matchesArea && matchesTags) ? '' : 'none';
                 });
 
                 updateSelectAllCheckbox();
@@ -1352,6 +1432,16 @@ export class WorkItemsListPanel {
                     assigneeDropdownBtn.addEventListener('click', () => toggleDropdown('assigneeDropdownContent'));
                 }
 
+                const areaDropdownBtn = document.getElementById('areaDropdownBtn');
+                if (areaDropdownBtn) {
+                    areaDropdownBtn.addEventListener('click', () => toggleDropdown('areaDropdownContent'));
+                }
+
+                const tagsDropdownBtn = document.getElementById('tagsDropdownBtn');
+                if (tagsDropdownBtn) {
+                    tagsDropdownBtn.addEventListener('click', () => toggleDropdown('tagsDropdownContent'));
+                }
+
                 // Filter checkboxes
                 document.querySelectorAll('.filter-dropdown-content input[type="checkbox"]').forEach(cb => {
                     cb.addEventListener('change', function() {
@@ -1374,6 +1464,16 @@ export class WorkItemsListPanel {
                 const assigneeClearBtn = document.getElementById('assigneeClearBtn');
                 if (assigneeClearBtn) {
                     assigneeClearBtn.addEventListener('click', () => clearFilter('assignee'));
+                }
+
+                const areaClearBtn = document.getElementById('areaClearBtn');
+                if (areaClearBtn) {
+                    areaClearBtn.addEventListener('click', () => clearFilter('area'));
+                }
+
+                const tagsClearBtn = document.getElementById('tagsClearBtn');
+                if (tagsClearBtn) {
+                    tagsClearBtn.addEventListener('click', () => clearFilter('tags'));
                 }
 
                 // Close dropdowns when clicking outside
