@@ -539,24 +539,15 @@ export class WorkItemsListPanel {
     private _formatDate(dateString: string): string {
         try {
             const date = new Date(dateString);
-            const now = new Date();
-            const diffInMs = now.getTime() - date.getTime();
-            const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
-
-            if (diffInDays === 0) {
-                const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
-                if (diffInHours === 0) {
-                    const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
-                    return diffInMinutes <= 1 ? 'Just now' : `${diffInMinutes}m ago`;
-                }
-                return `${diffInHours}h ago`;
-            } else if (diffInDays === 1) {
-                return 'Yesterday';
-            } else if (diffInDays < 7) {
-                return `${diffInDays}d ago`;
-            } else {
-                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
-            }
+            return date.toLocaleString('en-US', {
+                month: 'numeric',
+                day: 'numeric',
+                year: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: true
+            });
         } catch (error) {
             return '-';
         }
