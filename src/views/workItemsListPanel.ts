@@ -553,6 +553,16 @@ export class WorkItemsListPanel {
         }
     }
 
+    private _getAvatarHtml(displayName: string, initials: string): string {
+        if (displayName === 'Unassigned') {
+            const profileIconUri = this._panel.webview.asWebviewUri(
+                vscode.Uri.joinPath(this._extensionUri, 'media', 'profile.png')
+            );
+            return `<img src="${profileIconUri}" alt="Unassigned" style="width: 24px; height: 24px; border-radius: 50%;">`;
+        }
+        return initials;
+    }
+
     private _getHtmlForWebview(): string {
         const nonce = getNonce();
 
@@ -1181,6 +1191,7 @@ export class WorkItemsListPanel {
                         const icon = this._getWorkItemTypeIcon(type);
                         const displayName = assignedTo?.displayName || 'Unassigned';
                         const initials = displayName !== 'Unassigned' ? displayName.split(' ').map((n: string) => n[0]).join('').substring(0, 2) : '?';
+                        const avatarContent = this._getAvatarHtml(displayName, initials);
 
                         // Format the changed date
                         const formattedDate = changedDate ? this._formatDate(changedDate) : '-';
@@ -1199,7 +1210,7 @@ export class WorkItemsListPanel {
                                 </td>
                                 <td class="clickable-cell">
                                     <div class="assignee-cell">
-                                        <div class="avatar">${initials}</div>
+                                        <div class="avatar">${avatarContent}</div>
                                         <span>${this.escapeHtml(displayName)}</span>
                                         <button class="action-btn cell-actions change-assignee-btn" data-id="${id}">⋯</button>
                                     </div>
