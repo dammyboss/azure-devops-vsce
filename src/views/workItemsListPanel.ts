@@ -1,9 +1,11 @@
 import * as vscode from 'vscode';
 import { AuthenticationManager } from '../authentication/authenticationManager';
 import { WorkItem } from '../models/workItem';
+import { CacheManager } from '../utils/cacheManager';
 
 export class WorkItemsListPanel {
     public static currentPanel: WorkItemsListPanel | undefined;
+    private static cacheManager: CacheManager = new CacheManager();
 
     private readonly _panel: vscode.WebviewPanel;
     private readonly _extensionUri: vscode.Uri;
@@ -159,7 +161,13 @@ export class WorkItemsListPanel {
                 }
             );
 
-            await this._loadAndRender();
+            // Update local state instead of full reload
+            const updatedItem = this.workItems.find(wi => wi.id === workItemId);
+            if (updatedItem) {
+                updatedItem.fields['System.State'] = selected.label;
+            }
+
+            this._panel.webview.html = this._getHtmlForWebview();
             vscode.window.showInformationMessage(`Updated state for #${workItemId}`);
         } catch (error: any) {
             vscode.window.showErrorMessage(`Failed to update state: ${error?.message || error}`);
@@ -168,10 +176,18 @@ export class WorkItemsListPanel {
 
     private async _getAvailableStates(workItemType: string): Promise<string[]> {
         try {
-            const axiosInstance = this.authenticationManager.getAxiosInstance();
             const config = this.authenticationManager.getConfig();
+            if (!config?.defaultProject) return [];
 
-            if (!axiosInstance || !config?.defaultProject) return [];
+            // Check cache first (60 minute TTL - states rarely change)
+            const cacheKey = `states:${config.defaultProject}:${workItemType}`;
+            const cached = WorkItemsListPanel.cacheManager.get<string[]>(cacheKey);
+            if (cached) {
+                return cached;
+            }
+
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            if (!axiosInstance) return [];
 
             // Fetch work item type definition to get allowed states
             const response = await axiosInstance.get(
@@ -189,7 +205,12 @@ export class WorkItemsListPanel {
                 });
             }
 
-            return states.length > 0 ? states : ['New', 'Active', 'Resolved', 'Closed'];
+            const result = states.length > 0 ? states : ['New', 'Active', 'Resolved', 'Closed'];
+
+            // Cache for 60 minutes
+            WorkItemsListPanel.cacheManager.set(cacheKey, result, 60 * 60 * 1000);
+
+            return result;
         } catch (error) {
             console.error('Failed to load available states:', error);
             // Fallback to common states if API call fails
@@ -236,7 +257,20 @@ export class WorkItemsListPanel {
                 }
             );
 
-            await this._loadAndRender();
+            // Update local state instead of full reload
+            const assignedItem = this.workItems.find(wi => wi.id === workItemId);
+            if (assignedItem) {
+                if (selected.uniqueName) {
+                    assignedItem.fields['System.AssignedTo'] = {
+                        displayName: selected.label,
+                        uniqueName: selected.uniqueName
+                    };
+                } else {
+                    delete assignedItem.fields['System.AssignedTo'];
+                }
+            }
+
+            this._panel.webview.html = this._getHtmlForWebview();
             vscode.window.showInformationMessage(`Updated assignee for #${workItemId}`);
         } catch (error: any) {
             vscode.window.showErrorMessage(`Failed to update assignee: ${error?.message || error}`);
@@ -261,9 +295,9 @@ export class WorkItemsListPanel {
                 throw new Error('Not connected');
             }
 
-            // Update all work items
-            for (const id of workItemIds) {
-                await axiosInstance.patch(
+            // Update all work items in parallel
+            await Promise.all(workItemIds.map(id =>
+                axiosInstance.patch(
                     `/_apis/wit/workitems/${id}`,
                     [{
                         op: 'replace',
@@ -274,10 +308,18 @@ export class WorkItemsListPanel {
                         params: { 'api-version': '7.1' },
                         headers: { 'Content-Type': 'application/json-patch+json' }
                     }
-                );
-            }
+                )
+            ));
 
-            await this._loadAndRender();
+            // Update local state instead of full reload
+            workItemIds.forEach(id => {
+                const item = this.workItems.find(wi => wi.id === id);
+                if (item) {
+                    item.fields['System.State'] = selected.label;
+                }
+            });
+
+            this._panel.webview.html = this._getHtmlForWebview();
             vscode.window.showInformationMessage(`Updated state for ${workItemIds.length} work items`);
         } catch (error: any) {
             vscode.window.showErrorMessage(`Failed to bulk update state: ${error?.message || error}`);
@@ -313,19 +355,34 @@ export class WorkItemsListPanel {
                 ? { op: 'replace', path: '/fields/System.AssignedTo', value: selected.uniqueName }
                 : { op: 'remove', path: '/fields/System.AssignedTo' };
 
-            // Update all work items
-            for (const id of workItemIds) {
-                await axiosInstance.patch(
+            // Update all work items in parallel
+            await Promise.all(workItemIds.map(id =>
+                axiosInstance.patch(
                     `/_apis/wit/workitems/${id}`,
                     [patchOp],
                     {
                         params: { 'api-version': '7.1' },
                         headers: { 'Content-Type': 'application/json-patch+json' }
                     }
-                );
-            }
+                )
+            ));
 
-            await this._loadAndRender();
+            // Update local state instead of full reload
+            workItemIds.forEach(id => {
+                const item = this.workItems.find(wi => wi.id === id);
+                if (item) {
+                    if (selected.uniqueName) {
+                        item.fields['System.AssignedTo'] = {
+                            displayName: selected.label,
+                            uniqueName: selected.uniqueName
+                        };
+                    } else {
+                        delete item.fields['System.AssignedTo'];
+                    }
+                }
+            });
+
+            this._panel.webview.html = this._getHtmlForWebview();
             vscode.window.showInformationMessage(`Updated assignee for ${workItemIds.length} work items`);
         } catch (error: any) {
             vscode.window.showErrorMessage(`Failed to bulk update assignee: ${error?.message || error}`);
@@ -349,15 +406,17 @@ export class WorkItemsListPanel {
                 throw new Error('Not connected');
             }
 
-            // Delete all work items
-            for (const id of workItemIds) {
-                await axiosInstance.delete(
+            // Delete all work items in parallel
+            await Promise.all(workItemIds.map(id =>
+                axiosInstance.delete(
                     `/_apis/wit/workitems/${id}`,
                     { params: { 'api-version': '7.1' } }
-                );
-            }
+                )
+            ));
 
-            await this._loadAndRender();
+            // Remove from local state instead of full reload
+            this.workItems = this.workItems.filter(wi => !workItemIds.includes(wi.id));
+            this._panel.webview.html = this._getHtmlForWebview();
             vscode.window.showInformationMessage(`Deleted ${workItemIds.length} work items`);
         } catch (error: any) {
             vscode.window.showErrorMessage(`Failed to delete work items: ${error?.message || error}`);
@@ -386,7 +445,13 @@ export class WorkItemsListPanel {
                 }
             );
 
-            await this._loadAndRender();
+            // Update local state instead of full reload
+            const titleItem = this.workItems.find(wi => wi.id === workItemId);
+            if (titleItem) {
+                titleItem.fields['System.Title'] = newTitle;
+            }
+
+            this._panel.webview.html = this._getHtmlForWebview();
             vscode.window.showInformationMessage(`Updated title for #${workItemId}`);
         } catch (error: any) {
             vscode.window.showErrorMessage(`Failed to update title: ${error?.message || error}`);
@@ -395,15 +460,24 @@ export class WorkItemsListPanel {
 
     private async _getTeamMembers(): Promise<Array<{displayName: string, uniqueName: string}>> {
         try {
-            const axiosInstance = this.authenticationManager.getAxiosInstance();
             const config = this.authenticationManager.getConfig();
-
-            if (!axiosInstance || !config?.defaultProject) {
-                console.log('Team members: Missing config', { project: config?.defaultProject });
+            if (!config?.defaultProject) {
                 return [];
             }
 
-            const members: Array<{displayName: string, uniqueName: string}> = [];
+            // Check cache first (5 minute TTL)
+            const cacheKey = `team-members:${config.defaultProject}`;
+            const cached = WorkItemsListPanel.cacheManager.get<Array<{displayName: string, uniqueName: string}>>(cacheKey);
+            if (cached) {
+                return cached;
+            }
+
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            if (!axiosInstance) {
+                return [];
+            }
+
+            const memberSet = new Map<string, {displayName: string, uniqueName: string}>();
 
             // Try to get team members if team is configured
             if (config.defaultTeam) {
@@ -416,10 +490,9 @@ export class WorkItemsListPanel {
                     const teamMembers = (teamResponse.data.value || []).map((member: any) => ({
                         displayName: member.identity?.displayName || '',
                         uniqueName: member.identity?.uniqueName || ''
-                    })).filter((m: any) => m.displayName && m.uniqueName);
+                    })).filter((m: {displayName: string, uniqueName: string}) => m.displayName && m.uniqueName);
 
-                    members.push(...teamMembers);
-                    console.log(`Loaded ${teamMembers.length} team members from default team`);
+                    teamMembers.forEach((m: {displayName: string, uniqueName: string}) => memberSet.set(m.uniqueName, m));
                 } catch (teamError) {
                     console.error('Failed to load team members:', teamError);
                 }
@@ -427,41 +500,41 @@ export class WorkItemsListPanel {
 
             // Also get all project users as a fallback/supplement
             try {
+                const projectName = config.defaultProject!; // Already checked above
                 const identitiesResponse = await axiosInstance.get(
-                    `/_apis/projects/${encodeURIComponent(config.defaultProject)}/teams`,
+                    `/_apis/projects/${encodeURIComponent(projectName)}/teams`,
                     { params: { 'api-version': '7.0' } }
                 );
 
-                // Get members from all teams in the project
-                const teams = identitiesResponse.data.value || [];
-                for (const team of teams.slice(0, 5)) { // Limit to first 5 teams to avoid too many requests
-                    try {
-                        const teamMembersResponse = await axiosInstance.get(
-                            `/_apis/projects/${encodeURIComponent(config.defaultProject)}/teams/${encodeURIComponent(team.id)}/members`,
-                            { params: { 'api-version': '7.0' } }
-                        );
+                // Get members from all teams in parallel
+                const teams = (identitiesResponse.data.value || []).slice(0, 5);
+                const teamMemberPromises = teams.map((team: any) =>
+                    axiosInstance.get(
+                        `/_apis/projects/${encodeURIComponent(projectName)}/teams/${encodeURIComponent(team.id)}/members`,
+                        { params: { 'api-version': '7.0' } }
+                    ).catch(() => ({ data: { value: [] } }))
+                );
 
-                        const additionalMembers = (teamMembersResponse.data.value || []).map((member: any) => ({
-                            displayName: member.identity?.displayName || '',
-                            uniqueName: member.identity?.uniqueName || ''
-                        })).filter((m: any) => m.displayName && m.uniqueName);
+                const teamMemberResponses = await Promise.all(teamMemberPromises);
 
-                        // Add unique members
-                        additionalMembers.forEach((newMember: {displayName: string, uniqueName: string}) => {
-                            if (!members.find(m => m.uniqueName === newMember.uniqueName)) {
-                                members.push(newMember);
-                            }
-                        });
-                    } catch (e) {
-                        // Skip this team if error
-                    }
-                }
+                teamMemberResponses.forEach(response => {
+                    const additionalMembers = (response.data.value || []).map((member: any) => ({
+                        displayName: member.identity?.displayName || '',
+                        uniqueName: member.identity?.uniqueName || ''
+                    })).filter((m: {displayName: string, uniqueName: string}) => m.displayName && m.uniqueName);
+
+                    additionalMembers.forEach((m: {displayName: string, uniqueName: string}) => memberSet.set(m.uniqueName, m));
+                });
             } catch (projectError) {
                 console.error('Failed to load project users:', projectError);
             }
 
-            console.log(`Total unique members: ${members.length}`);
-            return members.sort((a, b) => a.displayName.localeCompare(b.displayName));
+            const members = Array.from(memberSet.values()).sort((a, b) => a.displayName.localeCompare(b.displayName));
+
+            // Cache for 5 minutes
+            WorkItemsListPanel.cacheManager.set(cacheKey, members, 5 * 60 * 1000);
+
+            return members;
         } catch (error) {
             console.error('Failed to get team members:', error);
             return [];
@@ -1486,6 +1559,19 @@ export class WorkItemsListPanel {
                 });
             }
 
+            // Debounce function for performance
+            function debounce(func, wait) {
+                let timeout;
+                return function executedFunction(...args) {
+                    const later = () => {
+                        clearTimeout(timeout);
+                        func(...args);
+                    };
+                    clearTimeout(timeout);
+                    timeout = setTimeout(later, wait);
+                };
+            }
+
             // Wait for DOM to be ready
             document.addEventListener('DOMContentLoaded', init);
             if (document.readyState !== 'loading') {
@@ -1539,10 +1625,10 @@ export class WorkItemsListPanel {
                     });
                 }
 
-                // Filter inputs
+                // Filter inputs with debouncing for better performance
                 const keywordFilter = document.getElementById('keywordFilter');
                 if (keywordFilter) {
-                    keywordFilter.addEventListener('input', applyFilters);
+                    keywordFilter.addEventListener('input', debounce(applyFilters, 250));
                 }
 
                 // Filter dropdown buttons
