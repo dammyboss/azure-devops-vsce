@@ -2181,8 +2181,8 @@ export class BoardPanel {
         /* Effort */
         .card-effort {
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            gap: 8px;
             margin-bottom: 8px;
             font-size: 12px;
             color: #ffffff;
@@ -2190,10 +2190,37 @@ export class BoardPanel {
 
         .card-effort-label {
             color: rgba(255, 255, 255, 0.7);
+            flex-shrink: 0;
         }
 
         .card-effort-value {
             font-weight: 500;
+            cursor: pointer;
+            padding: 2px 8px;
+            border-radius: 4px;
+            transition: background 0.2s;
+            flex: 1;
+            text-align: center;
+        }
+
+        .card-effort-value:hover {
+            background: var(--vscode-list-hoverBackground);
+        }
+
+        .card-effort-input {
+            flex: 1;
+            text-align: center;
+            background: var(--vscode-input-background);
+            border: 1px solid var(--vscode-focusBorder);
+            border-radius: 4px;
+            padding: 2px 4px;
+            font-size: 12px;
+            color: var(--vscode-input-foreground);
+            font-family: inherit;
+        }
+
+        .card-effort-input:focus {
+            outline: none;
         }
 
         /* Tags */
@@ -3730,6 +3757,55 @@ export class BoardPanel {
             });
         }
 
+        // Card Effort Editor (for effort display in card)
+        function editCardEffort(valueSpan, workItemId, currentEffort) {
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.className = 'card-effort-input';
+            input.value = currentEffort || '';
+            input.min = '0';
+            input.step = '0.5';
+
+            valueSpan.replaceWith(input);
+            input.focus();
+            input.select();
+
+            function saveEffort() {
+                const newEffort = input.value.trim();
+                const card = input.closest('.card');
+
+                vscode.postMessage({
+                    command: 'updateWorkItemEffort',
+                    workItemId: workItemId,
+                    effort: newEffort ? parseFloat(newEffort) : null
+                });
+
+                const newSpan = document.createElement('span');
+                newSpan.className = 'card-effort-value';
+                newSpan.onclick = (e) => { e.stopPropagation(); editCardEffort(newSpan, workItemId, parseFloat(newEffort)); };
+                newSpan.textContent = newEffort || currentEffort;
+                input.replaceWith(newSpan);
+
+                if (card) {
+                    card.dataset.effort = newEffort;
+                }
+            }
+
+            input.addEventListener('blur', saveEffort);
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    saveEffort();
+                } else if (e.key === 'Escape') {
+                    const newSpan = document.createElement('span');
+                    newSpan.className = 'card-effort-value';
+                    newSpan.onclick = (ev) => { ev.stopPropagation(); editCardEffort(newSpan, workItemId, currentEffort); };
+                    newSpan.textContent = currentEffort;
+                    input.replaceWith(newSpan);
+                }
+            });
+        }
+
         function assignToMe(workItemId, event) {
             event.stopPropagation();
             vscode.postMessage({ command: 'assignToMe', workItemId: workItemId });
@@ -4268,7 +4344,7 @@ export class BoardPanel {
             </div>
             ${item.effort ? `<div class="card-effort">
                 <span class="card-effort-label">Effort</span>
-                <span class="card-effort-value">${item.effort}</span>
+                <span class="card-effort-value" onclick="event.stopPropagation(); editCardEffort(this, ${item.id}, ${item.effort})">${item.effort}</span>
             </div>` : ''}
             ${tags ? `<div class="card-tags">${tags}</div>` : ''}
             ${this._renderChildIndicator(item)}
