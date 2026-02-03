@@ -625,14 +625,154 @@ export class WorkItemsListPanel {
             outline: none;
             border-color: var(--vscode-focusBorder);
         }
+        /* Filter Dropdown Styles */
         .filter-dropdown {
-            padding: 6px 10px;
-            background: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            border: 1px solid var(--vscode-input-border);
+            position: relative;
+        }
+
+        .filter-dropdown-btn {
+            padding: 5px 16px 5px 8px;
+            background: var(--vscode-dropdown-background);
+            color: var(--vscode-dropdown-foreground);
+            border: 1px solid var(--vscode-dropdown-border);
             border-radius: 4px;
-            font-size: 13px;
+            font-size: 12px;
             cursor: pointer;
+            min-width: 100px;
+            text-align: left;
+            position: relative;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            transition: all 0.15s ease;
+        }
+
+        .filter-dropdown-btn:hover {
+            background: var(--vscode-list-hoverBackground);
+            border-color: var(--vscode-focusBorder);
+        }
+
+        .filter-dropdown-btn:active {
+            transform: scale(0.97);
+        }
+
+        .filter-dropdown-btn::after {
+            content: '\u276F';
+            position: absolute;
+            right: 4px;
+            top: 50%;
+            transform: translateY(-50%) rotate(90deg);
+            font-size: 10px;
+            opacity: 0.7;
+        }
+
+        .filter-dropdown-content {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            min-width: 200px;
+            max-height: 300px;
+            overflow-y: auto;
+            background: var(--vscode-dropdown-background);
+            border: 1px solid var(--vscode-dropdown-border);
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+            z-index: 1000;
+            margin-top: 4px;
+            padding: 4px 0;
+        }
+
+        .filter-dropdown-content.show {
+            display: block;
+        }
+
+        .filter-checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            cursor: pointer;
+            font-size: 12px;
+            color: var(--vscode-dropdown-foreground);
+            user-select: none;
+        }
+
+        .filter-checkbox-item:hover {
+            background: var(--vscode-list-hoverBackground);
+        }
+
+        .filter-checkbox-item input[type="checkbox"] {
+            margin: 0;
+            cursor: pointer;
+            width: 16px;
+            height: 16px;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            border: 1.5px solid var(--vscode-foreground, #cccccc);
+            border-radius: 3px;
+            background: var(--vscode-checkbox-background, transparent);
+            position: relative;
+            vertical-align: middle;
+            flex-shrink: 0;
+        }
+
+        .filter-checkbox-item input[type="checkbox"]:hover {
+            border-color: var(--vscode-focusBorder, #007acc);
+        }
+
+        .filter-checkbox-item input[type="checkbox"]:checked {
+            background: var(--vscode-button-background, #0e639c);
+            border-color: var(--vscode-button-background, #0e639c);
+        }
+
+        .filter-checkbox-item input[type="checkbox"]:checked::after {
+            content: '';
+            position: absolute;
+            left: 4px;
+            top: 1px;
+            width: 5px;
+            height: 9px;
+            border: solid var(--vscode-button-foreground, #ffffff);
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
+        }
+
+        .filter-checkbox-item input[type="checkbox"]:focus {
+            outline: 1px solid var(--vscode-focusBorder, #007acc);
+            outline-offset: 1px;
+        }
+
+        .filter-divider {
+            width: 1px;
+            height: 24px;
+            background: var(--vscode-panel-border);
+        }
+
+        .filter-clear-btn {
+            width: 100%;
+            padding: 6px 12px;
+            background: transparent;
+            border: none;
+            color: var(--vscode-descriptionForeground);
+            font-size: 12px;
+            cursor: pointer;
+            text-align: right;
+            transition: all 0.15s;
+        }
+
+        .filter-clear-btn:not(:disabled) {
+            color: var(--vscode-foreground);
+        }
+
+        .filter-clear-btn:not(:disabled):hover {
+            background: var(--vscode-list-hoverBackground);
+        }
+
+        .filter-clear-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
         }
 
         /* Table Container */
@@ -796,18 +936,50 @@ export class WorkItemsListPanel {
             class="filter-input"
             placeholder="Filter by keyword"
         >
-        <select id="typeFilter" class="filter-dropdown">
-            <option value="">All Types</option>
-            ${types.map(t => `<option value="${this.escapeHtml(t)}">${this.escapeHtml(t)}</option>`).join('')}
-        </select>
-        <select id="stateFilter" class="filter-dropdown">
-            <option value="">All States</option>
-            ${states.map(s => `<option value="${this.escapeHtml(s)}">${this.escapeHtml(s)}</option>`).join('')}
-        </select>
-        <select id="assigneeFilter" class="filter-dropdown">
-            <option value="">All Assignees</option>
-            ${assignees.map(a => `<option value="${this.escapeHtml(a)}">${this.escapeHtml(a)}</option>`).join('')}
-        </select>
+
+        <div class="filter-divider"></div>
+
+        <div class="filter-dropdown" id="typeDropdown">
+            <button class="filter-dropdown-btn" id="typeDropdownBtn" type="button">Type</button>
+            <div class="filter-dropdown-content" id="typeDropdownContent">
+                ${types.map(t => `
+                    <label class="filter-checkbox-item">
+                        <input type="checkbox" name="type" value="${this.escapeHtml(t)}">
+                        ${this.escapeHtml(t)}
+                    </label>
+                `).join('')}
+                <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
+                <button class="filter-clear-btn" id="typeClearBtn" type="button" disabled>✕ Clear</button>
+            </div>
+        </div>
+
+        <div class="filter-dropdown" id="stateDropdown">
+            <button class="filter-dropdown-btn" id="stateDropdownBtn" type="button">State</button>
+            <div class="filter-dropdown-content" id="stateDropdownContent">
+                ${states.map(s => `
+                    <label class="filter-checkbox-item">
+                        <input type="checkbox" name="state" value="${this.escapeHtml(s)}">
+                        ${this.escapeHtml(s)}
+                    </label>
+                `).join('')}
+                <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
+                <button class="filter-clear-btn" id="stateClearBtn" type="button" disabled>✕ Clear</button>
+            </div>
+        </div>
+
+        <div class="filter-dropdown" id="assigneeDropdown">
+            <button class="filter-dropdown-btn" id="assigneeDropdownBtn" type="button">Assignee</button>
+            <div class="filter-dropdown-content" id="assigneeDropdownContent">
+                ${assignees.map(a => `
+                    <label class="filter-checkbox-item">
+                        <input type="checkbox" name="assignee" value="${this.escapeHtml(a)}">
+                        ${this.escapeHtml(a)}
+                    </label>
+                `).join('')}
+                <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
+                <button class="filter-clear-btn" id="assigneeClearBtn" type="button" disabled>✕ Clear</button>
+            </div>
+        </div>
     </div>
 
     <div class="table-wrapper">
@@ -973,16 +1145,72 @@ export class WorkItemsListPanel {
                 }
             }
 
+            // Filter dropdown functions
+            function toggleDropdown(id) {
+                // Close all other dropdowns
+                document.querySelectorAll('.filter-dropdown-content').forEach(d => {
+                    if (d.id !== id) d.classList.remove('show');
+                });
+                document.getElementById(id).classList.toggle('show');
+            }
+
+            function handleFilterChange(type, checkbox) {
+                updateDropdownButton(type);
+                applyFilters();
+            }
+
+            function updateDropdownButton(type) {
+                const dropdownId = type + 'DropdownContent';
+                const btnId = type + 'DropdownBtn';
+                const clearBtnId = type + 'ClearBtn';
+                const container = document.getElementById(dropdownId);
+                const btn = document.getElementById(btnId);
+                const clearBtn = document.getElementById(clearBtnId);
+                const checkboxes = container.querySelectorAll('input[type="checkbox"]:checked');
+
+                const labels = {
+                    type: 'Type',
+                    state: 'State',
+                    assignee: 'Assignee'
+                };
+
+                if (checkboxes.length === 0) {
+                    btn.textContent = labels[type];
+                    if (clearBtn) clearBtn.disabled = true;
+                } else if (checkboxes.length === 1) {
+                    const label = checkboxes[0].parentElement.textContent.trim();
+                    btn.textContent = label;
+                    if (clearBtn) clearBtn.disabled = false;
+                } else {
+                    const firstLabel = checkboxes[0].parentElement.textContent.trim();
+                    btn.textContent = firstLabel + ' (+' + (checkboxes.length - 1) + ')';
+                    if (clearBtn) clearBtn.disabled = false;
+                }
+            }
+
+            function clearFilter(type) {
+                const dropdownId = type + 'DropdownContent';
+                const container = document.getElementById(dropdownId);
+                const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+                checkboxes.forEach(cb => cb.checked = false);
+                updateDropdownButton(type);
+                applyFilters();
+            }
+
+            function getSelectedFilters(filterName) {
+                const container = document.getElementById(filterName + 'DropdownContent');
+                if (!container) return [];
+                const checkboxes = container.querySelectorAll('input[type="checkbox"]:checked');
+                return Array.from(checkboxes).map(cb => cb.value);
+            }
+
             function applyFilters() {
                 const keywordEl = document.getElementById('keywordFilter');
-                const typeEl = document.getElementById('typeFilter');
-                const stateEl = document.getElementById('stateFilter');
-                const assigneeEl = document.getElementById('assigneeFilter');
-
                 const keyword = keywordEl ? keywordEl.value.toLowerCase() : '';
-                const typeFilter = typeEl ? typeEl.value : '';
-                const stateFilter = stateEl ? stateEl.value : '';
-                const assigneeFilter = assigneeEl ? assigneeEl.value : '';
+
+                const selectedTypes = getSelectedFilters('type');
+                const selectedStates = getSelectedFilters('state');
+                const selectedAssignees = getSelectedFilters('assignee');
 
                 const rows = document.querySelectorAll('#workItemsTable tbody tr');
 
@@ -993,9 +1221,9 @@ export class WorkItemsListPanel {
                     const assignee = row.dataset.assignee || '';
 
                     const matchesKeyword = !keyword || text.includes(keyword);
-                    const matchesType = !typeFilter || type === typeFilter;
-                    const matchesState = !stateFilter || state === stateFilter;
-                    const matchesAssignee = !assigneeFilter || assignee === assigneeFilter;
+                    const matchesType = selectedTypes.length === 0 || selectedTypes.includes(type);
+                    const matchesState = selectedStates.length === 0 || selectedStates.includes(state);
+                    const matchesAssignee = selectedAssignees.length === 0 || selectedAssignees.includes(assignee);
 
                     row.style.display = (matchesKeyword && matchesType && matchesState && matchesAssignee) ? '' : 'none';
                 });
@@ -1108,20 +1336,52 @@ export class WorkItemsListPanel {
                     keywordFilter.addEventListener('input', applyFilters);
                 }
 
-                const typeFilter = document.getElementById('typeFilter');
-                if (typeFilter) {
-                    typeFilter.addEventListener('change', applyFilters);
+                // Filter dropdown buttons
+                const typeDropdownBtn = document.getElementById('typeDropdownBtn');
+                if (typeDropdownBtn) {
+                    typeDropdownBtn.addEventListener('click', () => toggleDropdown('typeDropdownContent'));
                 }
 
-                const stateFilter = document.getElementById('stateFilter');
-                if (stateFilter) {
-                    stateFilter.addEventListener('change', applyFilters);
+                const stateDropdownBtn = document.getElementById('stateDropdownBtn');
+                if (stateDropdownBtn) {
+                    stateDropdownBtn.addEventListener('click', () => toggleDropdown('stateDropdownContent'));
                 }
 
-                const assigneeFilter = document.getElementById('assigneeFilter');
-                if (assigneeFilter) {
-                    assigneeFilter.addEventListener('change', applyFilters);
+                const assigneeDropdownBtn = document.getElementById('assigneeDropdownBtn');
+                if (assigneeDropdownBtn) {
+                    assigneeDropdownBtn.addEventListener('click', () => toggleDropdown('assigneeDropdownContent'));
                 }
+
+                // Filter checkboxes
+                document.querySelectorAll('.filter-dropdown-content input[type="checkbox"]').forEach(cb => {
+                    cb.addEventListener('change', function() {
+                        const filterType = this.name;
+                        handleFilterChange(filterType, this);
+                    });
+                });
+
+                // Filter clear buttons
+                const typeClearBtn = document.getElementById('typeClearBtn');
+                if (typeClearBtn) {
+                    typeClearBtn.addEventListener('click', () => clearFilter('type'));
+                }
+
+                const stateClearBtn = document.getElementById('stateClearBtn');
+                if (stateClearBtn) {
+                    stateClearBtn.addEventListener('click', () => clearFilter('state'));
+                }
+
+                const assigneeClearBtn = document.getElementById('assigneeClearBtn');
+                if (assigneeClearBtn) {
+                    assigneeClearBtn.addEventListener('click', () => clearFilter('assignee'));
+                }
+
+                // Close dropdowns when clicking outside
+                document.addEventListener('click', function(event) {
+                    if (!event.target.closest('.filter-dropdown')) {
+                        document.querySelectorAll('.filter-dropdown-content').forEach(d => d.classList.remove('show'));
+                    }
+                });
 
                 // Select all checkbox
                 const selectAllCheckbox = document.getElementById('selectAllCheckbox');
