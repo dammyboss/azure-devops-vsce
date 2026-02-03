@@ -26,6 +26,7 @@ interface BoardWorkItem {
     tags?: string;
     areaPath?: string;
     boardColumn?: string;
+    effort?: number;
     children?: {
         id: number;
         title: string;
@@ -402,7 +403,8 @@ export class BoardPanel {
                             priority: item.fields['Microsoft.VSTS.Common.Priority'],
                             tags: item.fields['System.Tags'],
                             areaPath: item.fields['System.AreaPath'],
-                            boardColumn: item.fields['System.BoardColumn'] || column.name
+                            boardColumn: item.fields['System.BoardColumn'] || column.name,
+                            effort: item.fields['Microsoft.VSTS.Scheduling.Effort']
                         };
                         // Store relations temporarily for child work items loading
                         if (item.relations) {
@@ -2174,6 +2176,24 @@ export class BoardPanel {
             color: #ffffff;
             opacity: 0.6;
             font-style: italic;
+        }
+
+        /* Effort */
+        .card-effort {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 12px;
+            color: #ffffff;
+        }
+
+        .card-effort-label {
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .card-effort-value {
+            font-weight: 500;
         }
 
         /* Tags */
@@ -4191,7 +4211,7 @@ export class BoardPanel {
                          : 'todo';
 
         const typeIcon = this._getTypeIcon(item.type);
-        const effort = (item as any).effort || (item as any).storyPoints || '';
+        const effort = item.effort || '';
 
         const tags = item.tags
             ? item.tags.split(';').map((tag) => {
@@ -4246,6 +4266,10 @@ export class BoardPanel {
                 <div class="card-avatar ${!item.assignedTo ? 'unassigned' : ''}">${initials}</div>
                 <span class="card-assignee-name ${!item.assignedTo ? 'unassigned-text' : ''}">${item.assignedTo ? this._escapeHtml(item.assignedTo.displayName) : ''}</span>
             </div>
+            ${item.effort ? `<div class="card-effort">
+                <span class="card-effort-label">Effort</span>
+                <span class="card-effort-value">${item.effort}</span>
+            </div>` : ''}
             ${tags ? `<div class="card-tags">${tags}</div>` : ''}
             ${this._renderChildIndicator(item)}
         </div>`;
