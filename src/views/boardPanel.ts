@@ -2745,12 +2745,44 @@ export class BoardPanel {
         .filter-checkbox-item input[type="checkbox"] {
             margin: 0;
             cursor: pointer;
-            width: 14px;
-            height: 14px;
-            /* Ensure it uses VS Code colors */
-            accent-color: var(--vscode-button-background);
-            border: 1px solid var(--vscode-checkbox-border);
-            background: var(--vscode-checkbox-background);
+            width: 16px;
+            height: 16px;
+            /* Custom checkbox styling for proper dark theme support */
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            border: 1.5px solid var(--vscode-foreground, #cccccc);
+            border-radius: 3px;
+            background: var(--vscode-checkbox-background, transparent);
+            position: relative;
+            vertical-align: middle;
+            flex-shrink: 0;
+        }
+
+        .filter-checkbox-item input[type="checkbox"]:hover {
+            border-color: var(--vscode-focusBorder, #007acc);
+        }
+
+        .filter-checkbox-item input[type="checkbox"]:checked {
+            background: var(--vscode-button-background, #0e639c);
+            border-color: var(--vscode-button-background, #0e639c);
+        }
+
+        .filter-checkbox-item input[type="checkbox"]:checked::after {
+            content: '';
+            position: absolute;
+            left: 4px;
+            top: 1px;
+            width: 5px;
+            height: 9px;
+            border: solid var(--vscode-button-foreground, #ffffff);
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
+        }
+
+        .filter-checkbox-item input[type="checkbox"]:focus {
+            outline: 1px solid var(--vscode-focusBorder, #007acc);
+            outline-offset: 1px;
         }
 
         /* Scrollbar Styling */
