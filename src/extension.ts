@@ -10,7 +10,7 @@ import { registerCommands } from './commands/commandManager';
 import { GitIntegration } from './gitIntegration/gitIntegration';
 import { StatusBarManager } from './utils/statusBarManager';
 import { WorkItemLinksManager } from './utils/workItemLinksManager';
-import { WhatsNewManager } from './utils/whatsNewManager';
+import { WhatsNewPanel } from './views/whatsNewPanel';
 // DISABLED: AI Chat features - uncomment to re-enable in future
 // import { AIChatProvider } from './ai/chat-provider';
 // import { ChatEditorProvider, openChatEditor } from './ai/chat-editor';
@@ -26,7 +26,6 @@ export let gitIntegration: GitIntegration;
 export let statusBarManager: StatusBarManager;
 export let workItemLinksManager: WorkItemLinksManager;
 export let connectionStatusProvider: ConnectionStatusProvider;
-export let whatsNewManager: WhatsNewManager;
 // DISABLED: AI Chat features - uncomment to re-enable in future
 // export let aiChatProvider: AIChatProvider;
 
@@ -42,7 +41,6 @@ export async function activate(context: vscode.ExtensionContext) {
     gitIntegration = new GitIntegration();
     workItemLinksManager = new WorkItemLinksManager(authenticationManager);
     connectionStatusProvider = new ConnectionStatusProvider(authenticationManager, context);
-    whatsNewManager = new WhatsNewManager(context);
 
     // DISABLED: AI Chat features - uncomment to re-enable in future
     // // Initialize AI output channel
@@ -125,7 +123,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // Register What's New command
     context.subscriptions.push(
         vscode.commands.registerCommand('azureDevOps.showWhatsNew', async () => {
-            await whatsNewManager.forceShow();
+            await WhatsNewPanel.forceShow(context);
         })
     );
 
@@ -202,7 +200,7 @@ export async function activate(context: vscode.ExtensionContext) {
             connectionStatusProvider.refresh();
 
             // Check and show what's new
-            await whatsNewManager.checkAndShowWhatsNew();
+            await WhatsNewPanel.show(context);
         } else {
             vscode.commands.executeCommand('setContext', 'azureDevOps.connected', false);
             statusBarManager.updateStatus('disconnected');
