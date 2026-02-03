@@ -2710,7 +2710,7 @@ export class BoardPanel {
             display: none;
             position: absolute;
             top: 100%;
-            right: 0;
+            left: 0;
             min-width: 200px;
             max-height: 300px;
             overflow-y: auto;
