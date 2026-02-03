@@ -817,8 +817,7 @@ export class WorkItemsListPanel {
             background: var(--vscode-list-hoverBackground);
         }
         tbody tr.selected {
-            background: var(--vscode-list-activeSelectionBackground);
-            color: var(--vscode-list-activeSelectionForeground);
+            background: rgba(0, 120, 212, 0.25);
         }
         td {
             padding: 10px 16px;
@@ -828,36 +827,48 @@ export class WorkItemsListPanel {
             width: 40px;
             text-align: center;
         }
+        /* Circle checkbox - hidden until hover or checked */
         .checkbox-cell input[type="checkbox"],
         .row-checkbox {
             margin: 0;
             cursor: pointer;
-            width: 16px;
-            height: 16px;
+            width: 20px;
+            height: 20px;
             -webkit-appearance: none;
             -moz-appearance: none;
             appearance: none;
-            border: 1.5px solid var(--vscode-foreground, #cccccc);
-            border-radius: 3px;
-            background: var(--vscode-checkbox-background, transparent);
+            border: 2px solid transparent;
+            border-radius: 50%;
+            background: transparent;
             position: relative;
             vertical-align: middle;
+            opacity: 0;
+            transition: all 0.15s ease;
+        }
+        /* Show checkbox on row hover - grey circle */
+        tbody tr:hover .checkbox-cell input[type="checkbox"],
+        tbody tr:hover .row-checkbox {
+            opacity: 1;
+            border-color: #6b6b6b;
+            background: transparent;
+        }
+        /* Keep checked checkboxes visible */
+        .checkbox-cell input[type="checkbox"]:checked,
+        .row-checkbox:checked {
+            opacity: 1;
+            background: var(--vscode-button-background, #0e639c);
+            border-color: var(--vscode-button-background, #0e639c);
         }
         .checkbox-cell input[type="checkbox"]:hover,
         .row-checkbox:hover {
-            border-color: var(--vscode-focusBorder, #007acc);
-        }
-        .checkbox-cell input[type="checkbox"]:checked,
-        .row-checkbox:checked {
-            background: var(--vscode-button-background, #0e639c);
             border-color: var(--vscode-button-background, #0e639c);
         }
         .checkbox-cell input[type="checkbox"]:checked::after,
         .row-checkbox:checked::after {
             content: '';
             position: absolute;
-            left: 4px;
-            top: 1px;
+            left: 6px;
+            top: 3px;
             width: 5px;
             height: 9px;
             border: solid var(--vscode-button-foreground, #ffffff);
@@ -866,8 +877,17 @@ export class WorkItemsListPanel {
         }
         .checkbox-cell input[type="checkbox"]:focus,
         .row-checkbox:focus {
-            outline: 1px solid var(--vscode-focusBorder, #007acc);
-            outline-offset: 1px;
+            outline: none;
+            opacity: 1;
+        }
+        /* Header checkbox always visible */
+        thead .checkbox-cell input[type="checkbox"] {
+            opacity: 0.6;
+            border-color: #6b6b6b;
+        }
+        thead .checkbox-cell input[type="checkbox"]:hover {
+            opacity: 1;
+            border-color: var(--vscode-button-background, #0e639c);
         }
         .work-item-id {
             font-family: 'Consolas', monospace;
@@ -1496,8 +1516,10 @@ export class WorkItemsListPanel {
                                 const id = parseInt(cb.dataset.id);
                                 if (checked) {
                                     selectedIds.add(id);
+                                    row.classList.add('selected');
                                 } else {
                                     selectedIds.delete(id);
+                                    row.classList.remove('selected');
                                 }
                             }
                         });
@@ -1512,10 +1534,13 @@ export class WorkItemsListPanel {
                     });
                     cb.addEventListener('change', function() {
                         const id = parseInt(this.dataset.id);
+                        const row = this.closest('tr');
                         if (this.checked) {
                             selectedIds.add(id);
+                            if (row) row.classList.add('selected');
                         } else {
                             selectedIds.delete(id);
+                            if (row) row.classList.remove('selected');
                         }
                         updateBulkActionsVisibility();
                         updateSelectAllCheckbox();
