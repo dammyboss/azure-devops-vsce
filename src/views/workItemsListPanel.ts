@@ -558,9 +558,9 @@ export class WorkItemsListPanel {
             const profileIconUri = this._panel.webview.asWebviewUri(
                 vscode.Uri.joinPath(this._extensionUri, 'media', 'profile.png')
             );
-            return `<img src="${profileIconUri}" alt="Unassigned" style="width: 24px; height: 24px; border-radius: 50%;">`;
+            return `<img src="${profileIconUri}" alt="Unassigned" class="unassigned-avatar">`;
         }
-        return initials;
+        return initials.toUpperCase();
     }
 
     private _getHtmlForWebview(): string {
@@ -1007,6 +1007,15 @@ export class WorkItemsListPanel {
             /* Colors set dynamically via JavaScript based on user */
             font-size: 10px;
             font-weight: 600;
+        }
+        .unassigned-avatar {
+            width: 16px;
+            height: 16px;
+            filter: brightness(0) invert(1);
+            padding: 4px;
+        }
+        .avatar:has(.unassigned-avatar) {
+            background: rgba(139, 139, 139, 0.3);
         }
         .tags {
             display: flex;
