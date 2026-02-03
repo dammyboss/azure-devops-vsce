@@ -1009,10 +1009,10 @@ export class WorkItemsListPanel {
             font-weight: 600;
         }
         .unassigned-avatar {
-            width: 16px;
-            height: 16px;
+            width: 18px;
+            height: 18px;
             filter: brightness(0) invert(1);
-            padding: 4px;
+            padding: 3px;
         }
         .avatar:has(.unassigned-avatar) {
             background: rgba(139, 139, 139, 0.3);
