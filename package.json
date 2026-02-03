@@ -288,6 +288,12 @@
         "title": "Configure MCP Servers",
         "category": "Azure DevOps",
         "icon": "$(server)"
+      },
+      {
+        "command": "azureDevOps.showWhatsNew",
+        "title": "Show What's New",
+        "category": "Azure DevOps",
+        "icon": "$(gift)"
       }
     ],
     "viewsContainers": {
