@@ -486,7 +486,7 @@ export class WorkItemsListPanel {
             const maxItems = vscode.workspace.getConfiguration('azureDevOps').get<number>('maxWorkItemsToLoad', 200);
 
             // Build WIQL query
-            let wiql = `SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo], [System.AreaPath], [System.Tags], [Microsoft.VSTS.Common.Priority] FROM WorkItems WHERE [System.TeamProject] = @project ORDER BY [System.ChangedDate] DESC`;
+            let wiql = `SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo], [System.AreaPath], [System.Tags], [Microsoft.VSTS.Common.Priority], [System.ChangedDate] FROM WorkItems WHERE [System.TeamProject] = @project ORDER BY [System.ChangedDate] DESC`;
 
             const response = await axiosInstance.post(
                 `/${encodeURIComponent(config.defaultProject)}/_apis/wit/wiql`,
@@ -504,7 +504,7 @@ export class WorkItemsListPanel {
             const detailsResponse = await axiosInstance.get('/_apis/wit/workitems', {
                 params: {
                     'ids': workItemIds,
-                    'fields': 'System.Id,System.Title,System.State,System.WorkItemType,System.AssignedTo,System.AreaPath,System.Tags,Microsoft.VSTS.Common.Priority'
+                    'fields': 'System.Id,System.Title,System.State,System.WorkItemType,System.AssignedTo,System.AreaPath,System.Tags,Microsoft.VSTS.Common.Priority,System.ChangedDate,System.CommentCount'
                 }
             });
 
@@ -534,6 +534,32 @@ export class WorkItemsListPanel {
         }
 
         return `<span style="font-size: 16px;">📄</span>`;
+    }
+
+    private _formatDate(dateString: string): string {
+        try {
+            const date = new Date(dateString);
+            const now = new Date();
+            const diffInMs = now.getTime() - date.getTime();
+            const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
+
+            if (diffInDays === 0) {
+                const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
+                if (diffInHours === 0) {
+                    const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
+                    return diffInMinutes <= 1 ? 'Just now' : `${diffInMinutes}m ago`;
+                }
+                return `${diffInHours}h ago`;
+            } else if (diffInDays === 1) {
+                return 'Yesterday';
+            } else if (diffInDays < 7) {
+                return `${diffInDays}d ago`;
+            } else {
+                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
+            }
+        } catch (error) {
+            return '-';
+        }
     }
 
     private _getHtmlForWebview(): string {
@@ -781,14 +807,16 @@ export class WorkItemsListPanel {
         /* Table Container */
         .table-wrapper {
             flex: 1;
-            overflow: auto;
+            overflow-x: auto;
+            overflow-y: auto;
         }
         .table-container {
-            min-width: 100%;
+            min-width: max-content;
             display: table;
         }
         table {
-            width: 100%;
+            min-width: 100%;
+            width: max-content;
             border-collapse: collapse;
             background: var(--vscode-editor-background);
         }
@@ -803,10 +831,41 @@ export class WorkItemsListPanel {
             text-align: left;
             font-weight: 600;
             font-size: 11px;
-            text-transform: uppercase;
-            color: var(--vscode-descriptionForeground);
+            color: var(--vscode-foreground);
             border-bottom: 1px solid var(--vscode-panel-border);
             white-space: nowrap;
+            background: var(--vscode-sideBar-background);
+        }
+        /* Sticky first two columns */
+        th:nth-child(1), td:nth-child(1) {
+            position: sticky;
+            left: 0;
+            z-index: 5;
+            background: var(--vscode-sideBar-background);
+        }
+        td:nth-child(1) {
+            background: var(--vscode-editor-background);
+        }
+        tbody tr:hover td:nth-child(1) {
+            background: var(--vscode-list-hoverBackground);
+        }
+        tbody tr.selected td:nth-child(1) {
+            background: rgba(0, 120, 212, 0.25);
+        }
+        th:nth-child(2), td:nth-child(2) {
+            position: sticky;
+            left: 36px;
+            z-index: 5;
+            background: var(--vscode-sideBar-background);
+        }
+        td:nth-child(2) {
+            background: var(--vscode-editor-background);
+        }
+        tbody tr:hover td:nth-child(2) {
+            background: var(--vscode-list-hoverBackground);
+        }
+        tbody tr.selected td:nth-child(2) {
+            background: rgba(0, 120, 212, 0.25);
         }
         tbody tr {
             border-bottom: 1px solid var(--vscode-panel-border);
@@ -824,7 +883,7 @@ export class WorkItemsListPanel {
             font-size: 13px;
         }
         .checkbox-cell {
-            width: 40px;
+            width: 36px;
             text-align: center;
         }
         /* Circle checkbox - hidden until hover or checked */
@@ -832,12 +891,12 @@ export class WorkItemsListPanel {
         .row-checkbox {
             margin: 0;
             cursor: pointer;
-            width: 20px;
-            height: 20px;
+            width: 16px;
+            height: 16px;
             -webkit-appearance: none;
             -moz-appearance: none;
             appearance: none;
-            border: 2px solid transparent;
+            border: 1.5px solid transparent;
             border-radius: 50%;
             background: transparent;
             position: relative;
@@ -847,7 +906,8 @@ export class WorkItemsListPanel {
         }
         /* Show checkbox on row hover - grey circle */
         tbody tr:hover .checkbox-cell input[type="checkbox"],
-        tbody tr:hover .row-checkbox {
+        tbody tr:hover .row-checkbox,
+        thead tr:hover .checkbox-cell input[type="checkbox"] {
             opacity: 1;
             border-color: #6b6b6b;
             background: transparent;
@@ -867,10 +927,10 @@ export class WorkItemsListPanel {
         .row-checkbox:checked::after {
             content: '';
             position: absolute;
-            left: 6px;
-            top: 3px;
-            width: 5px;
-            height: 9px;
+            left: 4px;
+            top: 1px;
+            width: 4px;
+            height: 8px;
             border: solid var(--vscode-button-foreground, #ffffff);
             border-width: 0 2px 2px 0;
             transform: rotate(45deg);
@@ -880,19 +940,40 @@ export class WorkItemsListPanel {
             outline: none;
             opacity: 1;
         }
-        /* Header checkbox always visible */
+        /* Header checkbox - also hidden until hover */
         thead .checkbox-cell input[type="checkbox"] {
-            opacity: 0.6;
-            border-color: #6b6b6b;
+            opacity: 0;
+            border-color: transparent;
         }
-        thead .checkbox-cell input[type="checkbox"]:hover {
+        thead .checkbox-cell input[type="checkbox"]:hover,
+        thead .checkbox-cell input[type="checkbox"]:checked {
             opacity: 1;
-            border-color: var(--vscode-button-background, #0e639c);
         }
         .work-item-id {
             font-family: 'Consolas', monospace;
-            color: var(--vscode-textLink-foreground);
-            font-weight: 600;
+            color: var(--vscode-foreground);
+            font-weight: 500;
+        }
+        /* Comments column */
+        .comments-cell {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            color: var(--vscode-foreground);
+            font-size: 12px;
+        }
+        .comments-icon {
+            width: 16px;
+            height: 16px;
+            opacity: 1;
+        }
+        .comments-count {
+            font-size: 12px;
+        }
+        /* Activity date */
+        .activity-date {
+            font-size: 12px;
+            color: var(--vscode-foreground);
         }
         .type-icon {
             display: inline-flex;
@@ -1081,13 +1162,15 @@ export class WorkItemsListPanel {
                 <thead>
                     <tr>
                         <th class="checkbox-cell"><input type="checkbox" id="selectAllCheckbox"></th>
-                        <th style="width: 80px;">ID</th>
+                        <th style="width: 80px;">Id</th>
                         <th style="width: 50px;"></th>
                         <th style="min-width: 300px;">Title</th>
                         <th style="width: 120px;">State</th>
-                        <th style="width: 180px;">Assigned To</th>
-                        <th style="width: 200px;">Area Path</th>
+                        <th style="width: 180px;">Assigned to</th>
+                        <th style="width: 200px;">Area path</th>
                         <th style="width: 200px;">Tags</th>
+                        <th style="width: 100px;">Comments</th>
+                        <th style="width: 150px;">Activity date</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1100,16 +1183,21 @@ export class WorkItemsListPanel {
                         const assignedTo = fields['System.AssignedTo'];
                         const areaPath = fields['System.AreaPath'] || '';
                         const tags = fields['System.Tags'] || '';
+                        const commentCount = fields['System.CommentCount'] || 0;
+                        const changedDate = fields['System.ChangedDate'] || '';
 
                         const stateClass = state.toLowerCase().replace(/\s+/g, '-');
                         const icon = this._getWorkItemTypeIcon(type);
                         const displayName = assignedTo?.displayName || 'Unassigned';
                         const initials = displayName !== 'Unassigned' ? displayName.split(' ').map((n: string) => n[0]).join('').substring(0, 2) : '?';
 
+                        // Format the changed date
+                        const formattedDate = changedDate ? this._formatDate(changedDate) : '-';
+
                         return `
                             <tr data-id="${id}" data-type="${this.escapeHtml(type)}" data-state="${this.escapeHtml(state)}" data-assignee="${this.escapeHtml(assignedTo?.displayName || 'Unassigned')}" data-area="${this.escapeHtml(areaPath)}" data-tags="${this.escapeHtml(tags)}" class="work-item-row">
                                 <td class="checkbox-cell"><input type="checkbox" class="row-checkbox" data-id="${id}"></td>
-                                <td class="clickable-cell"><span class="work-item-id">#${id}</span></td>
+                                <td class="clickable-cell"><span class="work-item-id">${id}</span></td>
                                 <td class="clickable-cell" style="text-align: center;">${icon}</td>
                                 <td class="title-cell">
                                     <strong>${this.escapeHtml(title)}</strong>
@@ -1130,6 +1218,17 @@ export class WorkItemsListPanel {
                                     <div class="tags">
                                         ${tags ? tags.split(';').map(tag => `<span class="tag">${this.escapeHtml(tag.trim())}</span>`).join('') : ''}
                                     </div>
+                                </td>
+                                <td class="clickable-cell">
+                                    <div class="comments-cell">
+                                        <svg class="comments-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                                        </svg>
+                                        <span class="comments-count">${commentCount}</span>
+                                    </div>
+                                </td>
+                                <td class="clickable-cell">
+                                    <span class="activity-date">${formattedDate}</span>
                                 </td>
                             </tr>
                         `;

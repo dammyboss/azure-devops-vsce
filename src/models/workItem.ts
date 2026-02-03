@@ -18,6 +18,7 @@ export interface WorkItemFields {
     };
     'System.CreatedDate': string;
     'System.ChangedDate': string;
+    'System.CommentCount'?: number;
     'System.Tags'?: string;
     'System.IterationPath': string;
     'System.AreaPath': string;
