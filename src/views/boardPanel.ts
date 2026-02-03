@@ -2627,20 +2627,6 @@ export class BoardPanel {
             background: var(--vscode-panel-border);
         }
 
-        .filter-clear-all {
-            padding: 5px 10px;
-            background: transparent;
-            border: none;
-            color: var(--vscode-textLink-foreground);
-            font-size: 12px;
-            cursor: pointer;
-            text-decoration: underline;
-        }
-
-        .filter-clear-all:hover {
-            color: var(--vscode-textLink-activeForeground);
-        }
-
         .filter-count {
             font-size: 11px;
             color: var(--vscode-descriptionForeground);
@@ -2710,7 +2696,7 @@ export class BoardPanel {
             display: none;
             position: absolute;
             top: 100%;
-            left: 0;
+            right: 0;
             min-width: 200px;
             max-height: 300px;
             overflow-y: auto;
@@ -2935,10 +2921,6 @@ export class BoardPanel {
         <button class="filter-toggle" id="myItemsToggle" onclick="toggleMyItems()">
             <span class="filter-toggle-icon">👤</span>
             My Items
-        </button>
-
-        <button class="filter-clear-all" onclick="clearAllFilters()" id="clearFiltersBtn" style="display:none;">
-            Clear all filters
         </button>
 
         <div class="filter-count" id="filterCount">
@@ -4084,7 +4066,6 @@ export class BoardPanel {
             });
 
             updateFilterCounts();
-            updateClearFiltersButton();
             updateColumnVisibleCounts();
         }
 
@@ -4117,12 +4098,6 @@ export class BoardPanel {
             });
         }
 
-        function updateClearFiltersButton() {
-            const hasFilters = isAnyFilterActive();
-            const clearBtn = document.getElementById('clearFiltersBtn');
-            clearBtn.style.display = hasFilters ? 'block' : 'none';
-        }
-
         function isAnyFilterActive() {
             const assigneeChecked = document.querySelectorAll('#assigneeDropdownContent input[type="checkbox"]:checked').length > 0;
             const typeChecked = document.querySelectorAll('#typeDropdownContent input[type="checkbox"]:checked').length > 0;
@@ -4142,26 +4117,6 @@ export class BoardPanel {
 
         function clearSearch() {
             document.getElementById('searchInput').value = '';
-            applyFilters();
-        }
-
-        function clearAllFilters() {
-            document.getElementById('searchInput').value = '';
-            
-            ['assignee', 'type', 'priority', 'state', 'area'].forEach(type => {
-                const container = document.getElementById(type + 'DropdownContent');
-                if (container) {
-                    const checkboxes = container.querySelectorAll('input[type="checkbox"]');
-                    checkboxes.forEach(cb => cb.checked = false);
-                    updateDropdownButton(type);
-                }
-            });
-
-            hideDoneActive = false;
-            myItemsActive = false;
-            document.getElementById('hideDoneToggle').classList.remove('active');
-            document.getElementById('myItemsToggle').classList.remove('active');
-
             applyFilters();
         }
 
