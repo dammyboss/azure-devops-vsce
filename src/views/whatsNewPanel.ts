@@ -10,7 +10,7 @@ export class WhatsNewPanel {
     private disposables: vscode.Disposable[] = [];
 
     // Current announcement ID - UPDATE THIS FOR EACH NEW RELEASE
-    public static readonly LATEST_ANNOUNCEMENT_ID = 'feb-2026-v0.2.0-ui-enhancements';
+    public static readonly LATEST_ANNOUNCEMENT_ID = 'feb-2026-v0.2.1-ui-enhancements';
 
     private constructor(
         panel: vscode.WebviewPanel,
@@ -784,7 +784,7 @@ export class WhatsNewPanel {
                             <div class="header-text">
                                 <h1>
                                     Azure DevOps Boards
-                                    <span class="version-badge">v0.2.0</span>
+                                    <span class="version-badge">v0.2.1</span>
                                 </h1>
                                 <p>What's new in this release</p>
                             </div>
