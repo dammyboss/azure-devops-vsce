@@ -9,6 +9,12 @@
 
 Manage your Azure DevOps Boards, work items, sprints, and backlogs directly from Visual Studio Code. Plan, track, and collaborate on your projects without leaving your editor.
 
+## Demo
+
+https://github.com/user-attachments/assets/your-video-id-here
+
+> **Note:** Watch the video above to see the extension in action! You can also find the demo video in the [media folder](./media/demo.mov).
+
 ## Features
 
 ### Secure Authentication
