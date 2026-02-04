@@ -2,7 +2,7 @@
 
 All notable changes to the Azure DevOps Boards extension will be documented in this file.
 
-## [0.2.2] - 2026-02-04
+## [0.2.3] - 2026-02-04
 
 ### Fixed
 - **CRITICAL**: Fixed extension activation failure that caused "command 'azureDevOps.connect' not found" error after marketplace installation
