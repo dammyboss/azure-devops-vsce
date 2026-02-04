@@ -68,10 +68,8 @@ export class ConnectionSetupWizard {
      * Step 1: Authenticate user
      */
     private async authenticate(): Promise<vscode.AuthenticationSession | null> {
-        // Get existing session (should already be authenticated from connect command)
-        const session = await vscode.authentication.getSession('microsoft', [
-            '499b84ac-1321-427f-aa17-267ca6975798/.default'
-        ], { createIfNone: false, silent: true });
+        // Get existing session from AuthenticationManager (includes tenant scope if set)
+        const session = await this.authManager.getSession();
 
         if (!session) {
             vscode.window.showErrorMessage('Not authenticated. Please sign in first.');
