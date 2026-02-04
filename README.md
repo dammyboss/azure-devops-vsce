@@ -11,7 +11,9 @@ Manage your Azure DevOps Boards, work items, sprints, and backlogs directly from
 
 ## Demo
 
-<video src="./media/demo.mov" controls autoplay loop muted width="100%">
+https://github.com/user-attachments/assets/demo.mov
+
+<video src="./media/demo.mov" controls width="100%">
   Your browser does not support the video tag.
 </video>
 
