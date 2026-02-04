@@ -2,6 +2,23 @@
 
 All notable changes to the Azure DevOps Boards extension will be documented in this file.
 
+## [0.2.2] - 2026-02-04
+
+### Fixed
+- **CRITICAL**: Fixed extension activation failure that caused "command 'azureDevOps.connect' not found" error after marketplace installation
+- **CRITICAL**: Fixed organization discovery when switching tenants - VSCODE_TENANT scope now properly included
+- Resolved missing production dependencies (axios, etc.) by including node_modules in extension package
+
+### Improved
+- Optimized package size to 8.8MB (down from 41MB) by excluding media files from VSIX
+- Enhanced error handling and session management for multi-tenant scenarios
+- Improved reliability of authentication flow across different Azure DevOps tenants
+
+### Technical Changes
+- Updated .vscodeignore to include production dependencies while excluding dev artifacts
+- Modified ConnectionSetupWizard to use AuthenticationManager.getSession() for proper tenant scope handling
+- Added What's New panel updates for version tracking
+
 ## [0.2.1] - 2026-02-03
 
 ### Added

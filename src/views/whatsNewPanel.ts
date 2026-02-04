@@ -793,69 +793,7 @@ export class WhatsNewPanel {
 
                     <!-- Content -->
                     <div class="modal-content">
-                        <!-- New Features -->
-                        <div class="section s1">
-                            <div class="section-header">
-                                <div class="section-icon features">
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z" />
-                                    </svg>
-                                </div>
-                                <span class="section-title">New Features</span>
-                            </div>
-                            <div class="section-content">
-                                <div class="feature-item fi-0">
-                                    <div class="feature-icon">
-                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0020.25 18V6A2.25 2.25 0 0018 3.75H6A2.25 2.25 0 003.75 6v12A2.25 2.25 0 006 20.25z" />
-                                        </svg>
-                                    </div>
-                                    <div class="feature-text">
-                                        <h4>Effort Field on Board Cards</h4>
-                                        <p>Board cards now display effort values with clickable inline editing using up/down spinner controls</p>
-                                    </div>
-                                    <div class="hover-dot"><div class="hover-dot-inner"></div></div>
-                                </div>
-                                <div class="feature-item fi-1">
-                                    <div class="feature-icon">
-                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12H12m-8.25 5.25h16.5" />
-                                        </svg>
-                                    </div>
-                                    <div class="feature-text">
-                                        <h4>Improved Board Filter UI</h4>
-                                        <p>Removed "Clear all filters" button and fixed filter dropdown positioning for a cleaner, more stable interface</p>
-                                    </div>
-                                    <div class="hover-dot"><div class="hover-dot-inner"></div></div>
-                                </div>
-                                <div class="feature-item fi-2">
-                                    <div class="feature-icon">
-                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-                                        </svg>
-                                    </div>
-                                    <div class="feature-text">
-                                        <h4>Enhanced Profile Icons</h4>
-                                        <p>Improved unassigned user profile icon display with better visual consistency</p>
-                                    </div>
-                                    <div class="hover-dot"><div class="hover-dot-inner"></div></div>
-                                </div>
-                                <div class="feature-item fi-3">
-                                    <div class="feature-icon">
-                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
-                                        </svg>
-                                    </div>
-                                    <div class="feature-text">
-                                        <h4>Comments & Activity Date Columns</h4>
-                                        <p>Added support for displaying comments count and activity date columns in work item lists</p>
-                                    </div>
-                                    <div class="hover-dot"><div class="hover-dot-inner"></div></div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Bug Fixes -->
+                        <!-- Critical Fixes -->
                         <div class="section s2">
                             <div class="section-header">
                                 <div class="section-icon fixes">
@@ -863,30 +801,30 @@ export class WhatsNewPanel {
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 12.75c1.148 0 2.278.08 3.383.237 1.037.146 1.866.966 1.866 2.013 0 3.728-2.35 6.75-5.25 6.75S6.75 18.728 6.75 15c0-1.046.83-1.867 1.866-2.013A24.204 24.204 0 0112 12.75zm0 0c2.883 0 5.647.508 8.207 1.44a23.91 23.91 0 01-1.152 6.06M12 12.75c-2.883 0-5.647.508-8.208 1.44.125 2.104.52 4.136 1.153 6.06M12 12.75a2.25 2.25 0 002.248-2.354M12 12.75a2.25 2.25 0 01-2.248-2.354M12 8.25c.995 0 1.971-.08 2.922-.236.403-.066.74-.358.795-.762a3.778 3.778 0 00-.399-2.25M12 8.25c-.995 0-1.97-.08-2.922-.236-.402-.066-.74-.358-.795-.762a3.734 3.734 0 01.4-2.253M12 8.25a2.25 2.25 0 00-2.248 2.146M12 8.25a2.25 2.25 0 012.248 2.146M8.683 5a6.032 6.032 0 01-1.155-1.002c.07-.63.27-1.222.574-1.747m.581 2.749A3.75 3.75 0 0115.318 5m0 0c.427-.283.815-.62 1.155-.999a4.471 4.471 0 00-.575-1.752M4.921 6a24.048 24.048 0 00-.392 3.314c1.668.546 3.416.914 5.223 1.082M19.08 6c.205 1.08.337 2.187.392 3.314a23.882 23.882 0 01-5.223 1.082" />
                                     </svg>
                                 </div>
-                                <span class="section-title">Bug Fixes</span>
+                                <span class="section-title">Critical Fixes</span>
                             </div>
                             <div class="section-content">
-                                <div class="feature-item fi-4">
+                                <div class="feature-item fi-0">
                                     <div class="feature-icon">
                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                                         </svg>
                                     </div>
                                     <div class="feature-text">
-                                        <h4>Event Bubbling Prevention</h4>
-                                        <p>Fixed issue where clicking effort spinner arrows would open work item details panel</p>
+                                        <h4>Extension Activation Fixed</h4>
+                                        <p>Resolved "command not found" error that prevented extension from loading after marketplace install. Production dependencies now properly bundled.</p>
                                     </div>
                                     <div class="hover-dot"><div class="hover-dot-inner"></div></div>
                                 </div>
-                                <div class="feature-item fi-5">
+                                <div class="feature-item fi-1">
                                     <div class="feature-icon">
                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008z" />
                                         </svg>
                                     </div>
                                     <div class="feature-text">
-                                        <h4>Improved Board Interactions</h4>
-                                        <p>Enhanced click handling and interaction patterns for better user experience on board cards</p>
+                                        <h4>Multi-Tenant Authentication</h4>
+                                        <p>Fixed organization discovery when switching tenants. VSCODE_TENANT scope now properly included for cross-tenant access.</p>
                                     </div>
                                     <div class="hover-dot"><div class="hover-dot-inner"></div></div>
                                 </div>
@@ -904,27 +842,27 @@ export class WhatsNewPanel {
                                 <span class="section-title">Improvements</span>
                             </div>
                             <div class="section-content">
-                                <div class="feature-item fi-6">
+                                <div class="feature-item fi-2">
+                                    <div class="feature-icon">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                                        </svg>
+                                    </div>
+                                    <div class="feature-text">
+                                        <h4>Optimized Package Size</h4>
+                                        <p>Extension package optimized to 8.8MB (down from 41MB) by excluding media files while maintaining full functionality.</p>
+                                    </div>
+                                    <div class="hover-dot"><div class="hover-dot-inner"></div></div>
+                                </div>
+                                <div class="feature-item fi-3">
                                     <div class="feature-icon">
                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
                                         </svg>
                                     </div>
                                     <div class="feature-text">
-                                        <h4>API Performance Improvements</h4>
-                                        <p>Parallel API calls, intelligent caching, and incremental updates for faster board loading</p>
-                                    </div>
-                                    <div class="hover-dot"><div class="hover-dot-inner"></div></div>
-                                </div>
-                                <div class="feature-item fi-7">
-                                    <div class="feature-icon">
-                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 00-5.78 1.128 2.25 2.25 0 01-2.4 2.245 4.5 4.5 0 008.4-2.245c0-.399-.078-.78-.22-1.128zm0 0a15.998 15.998 0 003.388-1.62m-5.043-.025a15.994 15.994 0 011.622-3.395m3.42 3.42a15.995 15.995 0 004.764-4.648l3.876-5.814a1.151 1.151 0 00-1.597-1.597L14.146 6.32a15.996 15.996 0 00-4.649 4.763m3.42 3.42a6.776 6.776 0 00-3.42-3.42" />
-                                        </svg>
-                                    </div>
-                                    <div class="feature-text">
-                                        <h4>Enhanced UI Polish</h4>
-                                        <p>Refined styling, smoother animations, and improved visual feedback across the board interface</p>
+                                        <h4>Enhanced Reliability</h4>
+                                        <p>Improved error handling and session management for more stable connections across different Azure DevOps tenants.</p>
                                     </div>
                                     <div class="hover-dot"><div class="hover-dot-inner"></div></div>
                                 </div>
