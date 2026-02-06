@@ -37,9 +37,15 @@ export class AuthenticationManager {
         try {
             const storedSessionId = await this.context.secrets.get('ado-session-id');
             if (storedSessionId) {
+                // Include tenant scope if user previously switched tenants
+                const storedTenantId = await this.context.secrets.get('ado-tenant-id');
+                const scopes = storedTenantId
+                    ? [...AuthenticationManager.SCOPES, `VSCODE_TENANT:${storedTenantId}`]
+                    : AuthenticationManager.SCOPES;
+
                 const session = await vscode.authentication.getSession(
                     'microsoft',
-                    AuthenticationManager.SCOPES,
+                    scopes,
                     { silent: true }
                 );
 
@@ -278,9 +284,15 @@ export class AuthenticationManager {
         try {
             const storedSessionId = await this.context.secrets.get('ado-session-id');
             if (storedSessionId) {
+                // Include tenant scope if user previously switched tenants
+                const storedTenantId = await this.context.secrets.get('ado-tenant-id');
+                const scopes = storedTenantId
+                    ? [...AuthenticationManager.SCOPES, `VSCODE_TENANT:${storedTenantId}`]
+                    : AuthenticationManager.SCOPES;
+
                 const session = await vscode.authentication.getSession(
                     'microsoft',
-                    AuthenticationManager.SCOPES,
+                    scopes,
                     { silent: true }
                 );
 
