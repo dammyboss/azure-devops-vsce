@@ -148,7 +148,7 @@ export class WorkItemPanel {
         this._update();
     }
 
-    private async saveWorkItem(data: { title: string; description: string }) {
+    private async saveWorkItem(data: { title: string; description: string; acceptanceCriteria?: string }) {
         if (!this._workItem) return;
 
         try {
@@ -170,6 +170,14 @@ export class WorkItemPanel {
                     op: data.description ? 'replace' : 'remove',
                     path: '/fields/System.Description',
                     value: data.description
+                });
+            }
+
+            if (data.acceptanceCriteria !== undefined && data.acceptanceCriteria !== (this._workItem.fields as any)['Microsoft.VSTS.Common.AcceptanceCriteria']) {
+                patchDocument.push({
+                    op: data.acceptanceCriteria ? 'replace' : 'remove',
+                    path: '/fields/Microsoft.VSTS.Common.AcceptanceCriteria',
+                    value: data.acceptanceCriteria
                 });
             }
 
@@ -598,14 +606,15 @@ export class WorkItemPanel {
             this.getTeamMembers(),
             this.getExistingTags(),
             this.getAttachments(),
-            this.getAvailableStates()
-        ]).then(([comments, linkedItems, iterations, areas, teamMembers, existingTags, attachments, availableStates]) => {
+            this.getAvailableStates(),
+            this.authenticationManager.getCurrentUser()
+        ]).then(([comments, linkedItems, iterations, areas, teamMembers, existingTags, attachments, availableStates, currentUser]) => {
             this._iterations = iterations;
             this._areas = areas;
             this._teamMembers = teamMembers;
             this._existingTags = existingTags;
             this._availableStates = availableStates;
-            this._panel.webview.html = this._getHtmlForWebview(comments, linkedItems, attachments);
+            this._panel.webview.html = this._getHtmlForWebview(comments, linkedItems, attachments, currentUser);
         });
     }
 
@@ -928,12 +937,13 @@ export class WorkItemPanel {
         }
     }
 
-    private _getHtmlForWebview(comments: any[] = [], linkedItems: any[] = [], attachments: any[] = []): string {
+    private _getHtmlForWebview(comments: any[] = [], linkedItems: any[] = [], attachments: any[] = [], currentUser: any = null): string {
         if (!this._workItem) return '<html><body><p>No work item loaded</p></body></html>';
 
         const fields = this._workItem.fields;
         const title = this.escapeHtml(fields['System.Title'] || '');
         const description = fields['System.Description'] || '';
+        const acceptanceCriteria = (fields as any)['Microsoft.VSTS.Common.AcceptanceCriteria'] || '';
         const state = fields['System.State'] || '';
         const type = fields['System.WorkItemType'] || '';
         const assignedTo = fields['System.AssignedTo']?.displayName || 'Unassigned';
@@ -943,9 +953,13 @@ export class WorkItemPanel {
         const priority = fields['Microsoft.VSTS.Common.Priority'] || 0;
         const effort = fields['Microsoft.VSTS.Scheduling.Effort'] || (fields as any)['Microsoft.VSTS.Scheduling.StoryPoints'] || '';
         const iterationPath = fields['System.IterationPath'] || '';
-        const iterationPathDisplay = iterationPath.split('\\').pop() || 'None';
         const areaPath = fields['System.AreaPath'] || '';
         const tags = fields['System.Tags'] || '';
+
+        // Get current user info for comment section
+        const currentUserDisplayName = currentUser?.displayName || 'You';
+        const currentUserInitials = this.getInitials(currentUserDisplayName);
+        const currentUserColor = this.getAvatarColor(currentUserDisplayName);
 
         // Use dynamically fetched available states for this work item type
         const stateOptions = this._availableStates.length > 0
@@ -1109,13 +1123,13 @@ export class WorkItemPanel {
             border-radius: 6px;
             padding: 12px;
         }
-        #descriptionEditorContainer {
+        #descriptionEditorContainer, #acceptanceCriteriaEditorContainer {
             transition: all 0.3s ease;
             opacity: 0;
             max-height: 0;
             overflow: hidden;
         }
-        #descriptionEditorContainer.show {
+        #descriptionEditorContainer.show, #acceptanceCriteriaEditorContainer.show {
             opacity: 1;
             max-height: 500px;
         }
@@ -1745,6 +1759,13 @@ export class WorkItemPanel {
                     <div id="descriptionEditor" style="background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); border-radius: 6px;"></div>
                 </div>
             </div>
+            <div class="form-group">
+                <label>Acceptance Criteria</label>
+                <div id="acceptanceCriteriaDisplay" class="description-display" onclick="showAcceptanceCriteriaEditor()" style="min-height: 40px; cursor: text; padding: 12px;">${acceptanceCriteria || '<span style="color: var(--vscode-input-placeholderForeground);">Click to add acceptance criteria...</span>'}</div>
+                <div id="acceptanceCriteriaEditorContainer">
+                    <div id="acceptanceCriteriaEditor" style="background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); border-radius: 6px;"></div>
+                </div>
+            </div>
             <div class="action-bar" style="display: none;">
                 <button class="btn-primary" onclick="saveWorkItem()">
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="margin-right: 6px;">
@@ -1881,7 +1902,7 @@ export class WorkItemPanel {
 
         <div class="card">
             <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
-                <div style="width: 32px; height: 32px; border-radius: 50%; background: ${this.getAvatarColor(assignedTo)}; color: white; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 12px;">${this.getInitials(assignedTo)}</div>
+                <div style="width: 32px; height: 32px; border-radius: 50%; background: ${currentUserColor}; color: white; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 12px;">${currentUserInitials}</div>
                 <div class="card-title" style="margin-bottom: 0;">Add a comment</div>
             </div>
             <div class="comment-input-area">
@@ -1931,13 +1952,16 @@ export class WorkItemPanel {
         function showDescriptionEditor() {
             const display = document.getElementById('descriptionDisplay');
             const container = document.getElementById('descriptionEditorContainer');
-            
-            // Get current description from display and set it in the editor
-            const currentDescription = display.innerHTML;
-            if (currentDescription && !currentDescription.includes('Click to add description')) {
-                descriptionQuill.root.innerHTML = currentDescription;
+
+            // Load current content from display into editor
+            // This ensures we have the latest content after refreshes
+            const currentHtml = display.innerHTML;
+            if (currentHtml && !currentHtml.includes('Click to add description')) {
+                // Use Quill's API to set content - direct innerHTML assignment crashes Quill's Delta model
+                descriptionQuill.setContents([]);
+                descriptionQuill.clipboard.dangerouslyPasteHTML(0, currentHtml);
             }
-            
+
             display.style.display = 'none';
             container.classList.add('show');
             setTimeout(() => descriptionQuill.focus(), 100);
@@ -1945,17 +1969,72 @@ export class WorkItemPanel {
 
         function hideDescriptionEditor() {
             const html = descriptionQuill.root.innerHTML;
+            const text = descriptionQuill.getText().trim();
             const display = document.getElementById('descriptionDisplay');
             const container = document.getElementById('descriptionEditorContainer');
-            
+
             container.classList.remove('show');
             setTimeout(() => {
-                display.innerHTML = html || '<span style="color: var(--vscode-input-placeholderForeground);">Click to add description...</span>';
+                // Check if editor is actually empty by checking text content
+                if (!text || text.length === 0) {
+                    display.innerHTML = '<span style="color: var(--vscode-input-placeholderForeground);">Click to add description...</span>';
+                } else {
+                    display.innerHTML = html;
+                }
                 display.style.display = 'block';
             }, 300);
-            
-            const title = document.getElementById('title').value;
-            vscode.postMessage({ command: 'save', data: { title, description: html } });
+
+            // Only save if user actually edited the description
+            if (descriptionDirty) {
+                const title = document.getElementById('title').value;
+                const acceptanceCriteria = acceptanceCriteriaQuill ? acceptanceCriteriaQuill.root.innerHTML : '';
+                vscode.postMessage({ command: 'save', data: { title, description: html, acceptanceCriteria } });
+                descriptionDirty = false;
+            }
+        }
+
+        function showAcceptanceCriteriaEditor() {
+            const display = document.getElementById('acceptanceCriteriaDisplay');
+            const container = document.getElementById('acceptanceCriteriaEditorContainer');
+
+            // Load current content from display into editor
+            // This ensures we have the latest content after refreshes
+            const currentHtml = display.innerHTML;
+            if (currentHtml && !currentHtml.includes('Click to add acceptance criteria')) {
+                // Use Quill's API to set content - direct innerHTML assignment crashes Quill's Delta model
+                acceptanceCriteriaQuill.setContents([]);
+                acceptanceCriteriaQuill.clipboard.dangerouslyPasteHTML(0, currentHtml);
+            }
+
+            display.style.display = 'none';
+            container.classList.add('show');
+            setTimeout(() => acceptanceCriteriaQuill.focus(), 100);
+        }
+
+        function hideAcceptanceCriteriaEditor() {
+            const html = acceptanceCriteriaQuill.root.innerHTML;
+            const text = acceptanceCriteriaQuill.getText().trim();
+            const display = document.getElementById('acceptanceCriteriaDisplay');
+            const container = document.getElementById('acceptanceCriteriaEditorContainer');
+
+            container.classList.remove('show');
+            setTimeout(() => {
+                // Check if editor is actually empty by checking text content
+                if (!text || text.length === 0) {
+                    display.innerHTML = '<span style="color: var(--vscode-input-placeholderForeground);">Click to add acceptance criteria...</span>';
+                } else {
+                    display.innerHTML = html;
+                }
+                display.style.display = 'block';
+            }, 300);
+
+            // Only save if user actually edited the acceptance criteria
+            if (acceptanceCriteriaDirty) {
+                const title = document.getElementById('title').value;
+                const description = descriptionQuill ? descriptionQuill.root.innerHTML : '';
+                vscode.postMessage({ command: 'save', data: { title, description, acceptanceCriteria: html } });
+                acceptanceCriteriaDirty = false;
+            }
         }
 
         function toggleMenu(event) {
@@ -1975,13 +2054,15 @@ export class WorkItemPanel {
         function saveTitleOnBlur() {
             const title = document.getElementById('title').value;
             const description = descriptionQuill ? descriptionQuill.root.innerHTML : '';
-            vscode.postMessage({ command: 'save', data: { title, description } });
+            const acceptanceCriteria = acceptanceCriteriaQuill ? acceptanceCriteriaQuill.root.innerHTML : '';
+            vscode.postMessage({ command: 'save', data: { title, description, acceptanceCriteria } });
         }
 
         function saveWorkItem() {
             const title = document.getElementById('title').value;
             const description = descriptionQuill ? descriptionQuill.root.innerHTML : '';
-            vscode.postMessage({ command: 'save', data: { title, description } });
+            const acceptanceCriteria = acceptanceCriteriaQuill ? acceptanceCriteriaQuill.root.innerHTML : '';
+            vscode.postMessage({ command: 'save', data: { title, description, acceptanceCriteria } });
         }
 
         function changeState(state) {
@@ -1990,8 +2071,11 @@ export class WorkItemPanel {
 
         let quill;
         let descriptionQuill;
+        let acceptanceCriteriaQuill;
         let editQuills = {};
-        
+        let descriptionDirty = false;
+        let acceptanceCriteriaDirty = false;
+
         function initQuill() {
             try {
                 console.log('Starting Quill initialization...');
@@ -1999,7 +2083,7 @@ export class WorkItemPanel {
                 console.log('Initializing description editor...');
                 descriptionQuill = new Quill('#descriptionEditor', {
                 theme: 'snow',
-                placeholder: 'Add a clear description, acceptance criteria, or notes...',
+                placeholder: 'Add a clear description...',
                 modules: {
                     toolbar: [
                         [{ header: [1, 2, 3, false] }],
@@ -2015,11 +2099,18 @@ export class WorkItemPanel {
             });
             console.log('Description editor created');
 
-            // Set initial content
+            // Set initial content using Quill's API to avoid Delta model crash
             const descriptionContent = ${JSON.stringify(description || '')};
             if (descriptionContent) {
-                descriptionQuill.root.innerHTML = descriptionContent;
+                descriptionQuill.clipboard.dangerouslyPasteHTML(0, descriptionContent);
             }
+
+            // Track user edits to description (only 'user' source means the user typed)
+            descriptionQuill.on('text-change', function(delta, oldDelta, source) {
+                if (source === 'user') {
+                    descriptionDirty = true;
+                }
+            });
 
             // Hide toolbar after Quill finishes rendering
             setTimeout(() => {
@@ -2030,13 +2121,64 @@ export class WorkItemPanel {
                 if (descToolbar && descToolbar.classList.contains('ql-toolbar')) {
                     console.log('Hiding description toolbar');
                     descToolbar.style.display = 'none';
-                
+
                     descriptionQuill.on('selection-change', function(range) {
                         if (!range && descToolbar) {
                             descToolbar.style.display = 'none';
                             hideDescriptionEditor();
                         } else if (range && descToolbar) {
                             descToolbar.style.display = 'block';
+                        }
+                    });
+                }
+            }, 100);
+
+            // Initialize acceptance criteria editor
+            console.log('Initializing acceptance criteria editor...');
+            acceptanceCriteriaQuill = new Quill('#acceptanceCriteriaEditor', {
+                theme: 'snow',
+                placeholder: 'Add acceptance criteria...',
+                modules: {
+                    toolbar: [
+                        [{ header: [1, 2, 3, false] }],
+                        ['bold', 'italic', 'underline', 'strike'],
+                        [{ color: [] }, { background: [] }],
+                        [{ align: [] }],
+                        [{ list: 'ordered'}, { list: 'bullet' }, { indent: '-1'}, { indent: '+1' }],
+                        ['blockquote', 'code-block'],
+                        ['link'],
+                        ['clean']
+                    ]
+                }
+            });
+            console.log('Acceptance criteria editor created');
+
+            // Set initial acceptance criteria content using Quill's API
+            const acceptanceCriteriaContent = ${JSON.stringify(acceptanceCriteria || '')};
+            if (acceptanceCriteriaContent) {
+                acceptanceCriteriaQuill.clipboard.dangerouslyPasteHTML(0, acceptanceCriteriaContent);
+            }
+
+            // Track user edits to acceptance criteria
+            acceptanceCriteriaQuill.on('text-change', function(delta, oldDelta, source) {
+                if (source === 'user') {
+                    acceptanceCriteriaDirty = true;
+                }
+            });
+
+            // Hide acceptance criteria toolbar initially
+            setTimeout(() => {
+                const acContainer = document.querySelector('#acceptanceCriteriaEditor');
+                const acToolbar = acContainer ? acContainer.previousElementSibling : null;
+                if (acToolbar && acToolbar.classList.contains('ql-toolbar')) {
+                    acToolbar.style.display = 'none';
+
+                    acceptanceCriteriaQuill.on('selection-change', function(range) {
+                        if (!range && acToolbar) {
+                            acToolbar.style.display = 'none';
+                            hideAcceptanceCriteriaEditor();
+                        } else if (range && acToolbar) {
+                            acToolbar.style.display = 'block';
                         }
                     });
                 }
@@ -2153,7 +2295,7 @@ export class WorkItemPanel {
                         ]
                     }
                 });
-                editQuills[commentId].root.innerHTML = commentDiv.innerHTML;
+                editQuills[commentId].clipboard.dangerouslyPasteHTML(0, commentDiv.innerHTML);
             }
         }
 
