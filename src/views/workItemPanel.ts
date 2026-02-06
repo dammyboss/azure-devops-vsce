@@ -1953,18 +1953,24 @@ export class WorkItemPanel {
             const display = document.getElementById('descriptionDisplay');
             const container = document.getElementById('descriptionEditorContainer');
 
+            // Guard: prevent selection-change from hiding the editor while we're opening it
+            descriptionEditorOpening = true;
+
             // Load current content from display into editor
-            // This ensures we have the latest content after refreshes
             const currentHtml = display.innerHTML;
             if (currentHtml && !currentHtml.includes('Click to add description')) {
-                // Use Quill's API to set content - direct innerHTML assignment crashes Quill's Delta model
                 descriptionQuill.setContents([]);
                 descriptionQuill.clipboard.dangerouslyPasteHTML(0, currentHtml);
             }
 
             display.style.display = 'none';
             container.classList.add('show');
-            setTimeout(() => descriptionQuill.focus(), 100);
+            // Explicitly show the toolbar
+            if (descToolbarEl) descToolbarEl.style.display = 'block';
+            setTimeout(() => {
+                descriptionQuill.focus();
+                descriptionEditorOpening = false;
+            }, 150);
         }
 
         function hideDescriptionEditor() {
@@ -1997,18 +2003,24 @@ export class WorkItemPanel {
             const display = document.getElementById('acceptanceCriteriaDisplay');
             const container = document.getElementById('acceptanceCriteriaEditorContainer');
 
+            // Guard: prevent selection-change from hiding the editor while we're opening it
+            acceptanceCriteriaEditorOpening = true;
+
             // Load current content from display into editor
-            // This ensures we have the latest content after refreshes
             const currentHtml = display.innerHTML;
             if (currentHtml && !currentHtml.includes('Click to add acceptance criteria')) {
-                // Use Quill's API to set content - direct innerHTML assignment crashes Quill's Delta model
                 acceptanceCriteriaQuill.setContents([]);
                 acceptanceCriteriaQuill.clipboard.dangerouslyPasteHTML(0, currentHtml);
             }
 
             display.style.display = 'none';
             container.classList.add('show');
-            setTimeout(() => acceptanceCriteriaQuill.focus(), 100);
+            // Explicitly show the toolbar
+            if (acToolbarEl) acToolbarEl.style.display = 'block';
+            setTimeout(() => {
+                acceptanceCriteriaQuill.focus();
+                acceptanceCriteriaEditorOpening = false;
+            }, 150);
         }
 
         function hideAcceptanceCriteriaEditor() {
@@ -2075,6 +2087,10 @@ export class WorkItemPanel {
         let editQuills = {};
         let descriptionDirty = false;
         let acceptanceCriteriaDirty = false;
+        let descriptionEditorOpening = false;
+        let acceptanceCriteriaEditorOpening = false;
+        let descToolbarEl = null;
+        let acToolbarEl = null;
 
         function initQuill() {
             try {
@@ -2115,19 +2131,18 @@ export class WorkItemPanel {
             // Hide toolbar after Quill finishes rendering
             setTimeout(() => {
                 const descContainer = document.querySelector('#descriptionEditor');
-                const descToolbar = descContainer ? descContainer.previousElementSibling : null;
-                console.log('Description container:', descContainer);
-                console.log('Description toolbar (previousSibling):', descToolbar);
-                if (descToolbar && descToolbar.classList.contains('ql-toolbar')) {
-                    console.log('Hiding description toolbar');
-                    descToolbar.style.display = 'none';
+                descToolbarEl = descContainer ? descContainer.previousElementSibling : null;
+                if (descToolbarEl && descToolbarEl.classList.contains('ql-toolbar')) {
+                    descToolbarEl.style.display = 'none';
 
                     descriptionQuill.on('selection-change', function(range) {
-                        if (!range && descToolbar) {
-                            descToolbar.style.display = 'none';
+                        // Skip if editor is in the process of opening
+                        if (descriptionEditorOpening) return;
+                        if (!range && descToolbarEl) {
+                            descToolbarEl.style.display = 'none';
                             hideDescriptionEditor();
-                        } else if (range && descToolbar) {
-                            descToolbar.style.display = 'block';
+                        } else if (range && descToolbarEl) {
+                            descToolbarEl.style.display = 'block';
                         }
                     });
                 }
@@ -2169,16 +2184,18 @@ export class WorkItemPanel {
             // Hide acceptance criteria toolbar initially
             setTimeout(() => {
                 const acContainer = document.querySelector('#acceptanceCriteriaEditor');
-                const acToolbar = acContainer ? acContainer.previousElementSibling : null;
-                if (acToolbar && acToolbar.classList.contains('ql-toolbar')) {
-                    acToolbar.style.display = 'none';
+                acToolbarEl = acContainer ? acContainer.previousElementSibling : null;
+                if (acToolbarEl && acToolbarEl.classList.contains('ql-toolbar')) {
+                    acToolbarEl.style.display = 'none';
 
                     acceptanceCriteriaQuill.on('selection-change', function(range) {
-                        if (!range && acToolbar) {
-                            acToolbar.style.display = 'none';
+                        // Skip if editor is in the process of opening
+                        if (acceptanceCriteriaEditorOpening) return;
+                        if (!range && acToolbarEl) {
+                            acToolbarEl.style.display = 'none';
                             hideAcceptanceCriteriaEditor();
-                        } else if (range && acToolbar) {
-                            acToolbar.style.display = 'block';
+                        } else if (range && acToolbarEl) {
+                            acToolbarEl.style.display = 'block';
                         }
                     });
                 }
