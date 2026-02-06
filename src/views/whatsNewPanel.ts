@@ -10,7 +10,7 @@ export class WhatsNewPanel {
     private disposables: vscode.Disposable[] = [];
 
     // Current announcement ID - UPDATE THIS FOR EACH NEW RELEASE
-    public static readonly LATEST_ANNOUNCEMENT_ID = 'feb-2026-v0.2.3-critical-fixes';
+    public static readonly LATEST_ANNOUNCEMENT_ID = 'feb-2026-v0.2.4-session-restore-fix';
 
     private constructor(
         panel: vscode.WebviewPanel,
@@ -784,7 +784,7 @@ export class WhatsNewPanel {
                             <div class="header-text">
                                 <h1>
                                     Azure DevOps Boards
-                                    <span class="version-badge">v0.2.3</span>
+                                    <span class="version-badge">v0.2.4</span>
                                 </h1>
                                 <p>What's new in this release</p>
                             </div>
@@ -819,12 +819,12 @@ export class WhatsNewPanel {
                                 <div class="feature-item fi-1">
                                     <div class="feature-icon">
                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008z" />
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
                                         </svg>
                                     </div>
                                     <div class="feature-text">
-                                        <h4>Multi-Tenant Authentication</h4>
-                                        <p>Fixed organization discovery when switching tenants. VSCODE_TENANT scope now properly included for cross-tenant access.</p>
+                                        <h4>Session Restoration Fixed</h4>
+                                        <p>Fixed session restoration to include stored tenant scope. Multi-tenant users now stay connected across VS Code restarts without losing organization access.</p>
                                     </div>
                                     <div class="hover-dot"><div class="hover-dot-inner"></div></div>
                                 </div>

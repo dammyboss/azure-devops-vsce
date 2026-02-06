@@ -2,6 +2,18 @@
 
 All notable changes to the Azure DevOps Boards extension will be documented in this file.
 
+## [0.2.4] - 2026-02-04
+
+### Fixed
+- **CRITICAL**: Fixed session restoration to include stored tenant scope for multi-tenant users
+- Session restore now properly includes VSCODE_TENANT scope when VS Code restarts
+- Resolved "no organizations found" error for guest users in different tenants
+- Fixed loadConfiguration() and getSession() to retrieve tenant-specific tokens
+
+### Improved
+- Enhanced session persistence across VS Code restarts for multi-tenant scenarios
+- Better tenant scope handling in authentication flow
+
 ## [0.2.3] - 2026-02-04
 
 ### Fixed
