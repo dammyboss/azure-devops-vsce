@@ -43,15 +43,23 @@ const WORK_ITEM_TYPES = [
 function makeRequest(method, path, data = null) {
     return new Promise((resolve, reject) => {
         const urlObj = new URL(path, config.organizationUrl);
-        const auth = Buffer.from(':' + config.pat).toString('base64');
+
+        // Support both PAT (Basic auth) and OAuth Bearer tokens
+        const authHeader = config.pat.startsWith('eyJ') || config.pat.length > 100
+            ? `Bearer ${config.pat}`  // OAuth token (JWT-like or long token)
+            : `Basic ${Buffer.from(':' + config.pat).toString('base64')}`; // PAT token
+
+        // Keep the original path to preserve URL encoding (pathname decodes it)
+        // Extract just the path part from the full URL
+        const fullPath = path.startsWith('http') ? path.substring(config.organizationUrl.length) : path;
 
         const options = {
             hostname: urlObj.hostname,
             port: 443,
-            path: urlObj.pathname + urlObj.search,
+            path: fullPath,
             method: method,
             headers: {
-                'Authorization': `Basic ${auth}`,
+                'Authorization': authHeader,
                 'Content-Type': 'application/json-patch+json',
                 'Accept': 'application/json'
             }
@@ -188,8 +196,10 @@ async function createWorkItem(type, title, iterationPath, description, acceptanc
         });
     }
 
-    const path = `/${encodeURIComponent(config.project)}/_apis/wit/workitems/$${encodeURIComponent(type)}?api-version=7.1`;
-    return await makeRequest('POST', path, patchDocument);
+    // Properly encode work item type - spaces need to be encoded in URL
+    const encodedType = encodeURIComponent(type);
+    const path = `/${encodeURIComponent(config.project)}/_apis/wit/workitems/$${encodedType}?api-version=7.1`;
+    return await makeRequest('PATCH', path, patchDocument);
 }
 
 /**
