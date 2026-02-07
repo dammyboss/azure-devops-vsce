@@ -25,6 +25,7 @@ interface BoardWorkItem {
     priority?: number;
     tags?: string;
     areaPath?: string;
+    iterationPath?: string;
     boardColumn?: string;
     effort?: number;
     children?: {
@@ -369,7 +370,7 @@ export class BoardPanel {
         // Query work items for all columns
         for (const column of columns) {
             try {
-                const wiql = `SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo], [Microsoft.VSTS.Common.Priority], [System.Tags], [System.AreaPath]
+                const wiql = `SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo], [Microsoft.VSTS.Common.Priority], [System.Tags], [System.AreaPath], [System.IterationPath]
                               FROM WorkItems
                               WHERE [System.TeamProject] = @project
                               AND [System.BoardColumn] = '${column.name.replace(/'/g, "''")}'
@@ -403,6 +404,7 @@ export class BoardPanel {
                             priority: item.fields['Microsoft.VSTS.Common.Priority'],
                             tags: item.fields['System.Tags'],
                             areaPath: item.fields['System.AreaPath'],
+                            iterationPath: item.fields['System.IterationPath'],
                             boardColumn: item.fields['System.BoardColumn'] || column.name,
                             effort: item.fields['Microsoft.VSTS.Scheduling.Effort']
                         };
@@ -1448,6 +1450,17 @@ export class BoardPanel {
             });
         });
         const boardAreas = Array.from(uniqueAreas).sort();
+
+        // Extract unique iterations from work items on the board
+        const uniqueIterations = new Set<string>();
+        workItems.forEach((items) => {
+            items.forEach(item => {
+                if (item.iterationPath) {
+                    uniqueIterations.add(item.iterationPath);
+                }
+            });
+        });
+        const boardIterations = Array.from(uniqueIterations).sort();
 
         // Derive default work item type from board name
         const defaultWorkItemType = this._getDefaultWorkItemType();
@@ -2958,6 +2971,20 @@ export class BoardPanel {
             </div>
         </div>
 
+        <div class="filter-dropdown" id="iterationDropdown">
+            <button class="filter-dropdown-btn" id="iterationDropdownBtn" onclick="toggleDropdown('iterationDropdownContent')">Iteration</button>
+            <div class="filter-dropdown-content" id="iterationDropdownContent">
+                ${boardIterations.map(iteration => `
+                    <label class="filter-checkbox-item">
+                        <input type="checkbox" name="iteration" value="${this._escapeHtml(iteration)}" onchange="handleFilterChange('iteration', this)">
+                        ${this._escapeHtml(iteration.split('\\\\').pop() || iteration)}
+                    </label>
+                `).join('')}
+                <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
+                <button class="filter-clear-btn" id="iterationClearBtn" onclick="clearFilter('iteration')" disabled>✕ Clear</button>
+            </div>
+        </div>
+
         <div class="filter-divider"></div>
 
         <button class="filter-toggle" id="hideDoneToggle" onclick="toggleHideDone()">
@@ -4069,12 +4096,14 @@ export class BoardPanel {
             const priorityValues = getSelectedValues('priority');
             const stateValues = getSelectedValues('state');
             const areaValues = getSelectedValues('area');
+            const iterationValues = getSelectedValues('iteration');
 
             const assigneeAll = assigneeValues.length === 0;
             const typeAll = typeValues.length === 0;
             const priorityAll = priorityValues.length === 0;
             const stateAll = stateValues.length === 0;
             const areaAll = areaValues.length === 0;
+            const iterationAll = iterationValues.length === 0;
 
             const cards = document.querySelectorAll('.card');
             let visibleCount = 0;
@@ -4147,6 +4176,14 @@ export class BoardPanel {
                     }
                 }
 
+                // Iteration filter
+                if (visible && !iterationAll) {
+                    const cardIteration = card.dataset.iterationpath;
+                    if (!iterationValues.includes(cardIteration)) {
+                        visible = false;
+                    }
+                }
+
                 // Hide Done toggle
                 if (visible && hideDoneActive) {
                     const state = card.dataset.state.toLowerCase();
@@ -4210,6 +4247,7 @@ export class BoardPanel {
             const priorityChecked = document.querySelectorAll('#priorityDropdownContent input[type="checkbox"]:checked').length > 0;
             const stateChecked = document.querySelectorAll('#stateDropdownContent input[type="checkbox"]:checked').length > 0;
             const areaChecked = document.querySelectorAll('#areaDropdownContent input[type="checkbox"]:checked').length > 0;
+            const iterationChecked = document.querySelectorAll('#iterationDropdownContent input[type="checkbox"]:checked').length > 0;
 
             return document.getElementById('searchInput').value.trim() !== '' ||
                    assigneeChecked ||
@@ -4217,6 +4255,7 @@ export class BoardPanel {
                    priorityChecked ||
                    stateChecked ||
                    areaChecked ||
+                   iterationChecked ||
                    hideDoneActive ||
                    myItemsActive;
         }
@@ -4327,6 +4366,7 @@ export class BoardPanel {
              data-state="${this._escapeHtml(item.state)}"
              data-tags="${item.tags || ''}"
              data-areapath="${this._escapeHtml(item.areaPath || '')}"
+             data-iterationpath="${this._escapeHtml(item.iterationPath || '')}"
              data-effort="${effort}"
              ${cardStyle}
              tabindex="0"
