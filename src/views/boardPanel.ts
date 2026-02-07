@@ -67,6 +67,15 @@ export class BoardPanel {
     private _cardStyleRules: Array<{name: string, filter: string, settings: any}> = [];
     private _projectWorkItemTypes: string[] = [];
     private _pendingMoves: Set<number> = new Set();
+    private _filterState: {
+        search?: string;
+        assignee?: string[];
+        type?: string[];
+        priority?: string[];
+        state?: string[];
+        iteration?: string[];
+        hideDone?: boolean;
+    } = {};
 
     public static createOrShow(
         extensionUri: vscode.Uri,
@@ -189,6 +198,9 @@ export class BoardPanel {
                             email: currentUser?.uniqueName || currentUser?.emailAddress || ''
                         });
                         break;
+                    case 'saveFilterState':
+                        this._filterState = message.filterState || {};
+                        break;
                     case 'updateWorkItemTitle':
                         await this._updateWorkItemTitle(message.workItemId, message.title);
                         break;
@@ -300,6 +312,17 @@ export class BoardPanel {
             }
 
             this._panel.webview.html = this._getHtmlForWebview();
+
+            // Restore filter state after HTML is loaded
+            if (Object.keys(this._filterState).length > 0) {
+                // Small delay to ensure HTML is fully loaded before restoring state
+                setTimeout(() => {
+                    this._panel.webview.postMessage({
+                        command: 'restoreFilterState',
+                        filterState: this._filterState
+                    });
+                }, 100);
+            }
         } catch (error) {
             console.error('Failed to load board:', error);
             this._panel.webview.html = this._getErrorHtml('Failed to load board data');
@@ -4257,6 +4280,23 @@ export class BoardPanel {
 
             updateFilterCounts();
             updateColumnVisibleCounts();
+
+            // Save filter state so it persists across board updates
+            saveFilterState();
+        }
+
+        function saveFilterState() {
+            const filterState = {
+                search: document.getElementById('searchInput').value,
+                assignee: getSelectedValues('assignee'),
+                type: getSelectedValues('type'),
+                priority: getSelectedValues('priority'),
+                state: getSelectedValues('state'),
+                area: getSelectedValues('area'),
+                iteration: getSelectedValues('iteration'),
+                hideDone: hideDoneActive
+            };
+            vscode.postMessage({ command: 'saveFilterState', filterState });
         }
 
         function updateFilterCounts() {
@@ -4350,8 +4390,45 @@ export class BoardPanel {
                 // Re-apply filters now that we have the current user info
                 // This ensures @Me works correctly even if data arrives late
                 applyFilters();
+            } else if (message.command === 'restoreFilterState') {
+                restoreFilterState(message.filterState);
             }
         });
+
+        function restoreFilterState(filterState) {
+            if (!filterState) return;
+
+            // Restore search
+            if (filterState.search) {
+                const searchInput = document.getElementById('searchInput');
+                if (searchInput) searchInput.value = filterState.search;
+            }
+
+            // Restore checkboxes for each filter type
+            const filterTypes = ['assignee', 'type', 'priority', 'state', 'area', 'iteration'];
+            filterTypes.forEach(type => {
+                if (filterState[type] && filterState[type].length > 0) {
+                    const container = document.getElementById(type + 'DropdownContent');
+                    if (container) {
+                        const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+                        checkboxes.forEach(cb => {
+                            cb.checked = filterState[type].includes(cb.value);
+                        });
+                        updateDropdownButton(type);
+                    }
+                }
+            });
+
+            // Restore hide done toggle
+            if (filterState.hideDone) {
+                hideDoneActive = true;
+                const toggle = document.getElementById('hideDoneToggle');
+                if (toggle) toggle.classList.add('active');
+            }
+
+            // Apply the restored filters
+            applyFilters();
+        }
     </script>
 </body>
 </html>`;
