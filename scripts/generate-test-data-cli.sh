@@ -143,17 +143,48 @@ create_iterations() {
             --org "$ORG_URL" \
             --output json 2>&1)
 
+        iteration_id=""
         if [ $? -eq 0 ]; then
             echo -e "     ${GREEN}✓ Created iteration${NC}"
+            # Extract iteration ID from response
+            iteration_id=$(echo "$result" | jq -r '.identifier // .id')
             # Store iteration info for work item creation
             echo "$iteration_path|$start_date|$end_date|$status" >> /tmp/ado_iterations.txt
         else
             # Check if it already exists
             if echo "$result" | grep -q "already exists"; then
                 echo -e "     ${YELLOW}⚠ Iteration already exists${NC}"
+                # Get the iteration ID for existing iteration
+                iteration_id=$(az boards iteration project list \
+                    --project "$PROJECT" \
+                    --org "$ORG_URL" \
+                    --depth 2 \
+                    --output json 2>/dev/null | jq -r ".[] | select(.name == \"$name\") | .identifier // .id" | head -1)
                 echo "$iteration_path|$start_date|$end_date|$status" >> /tmp/ado_iterations.txt
             else
                 echo -e "     ${RED}✗ Failed: $(echo "$result" | head -1)${NC}"
+            fi
+        fi
+
+        # Add iteration to team (this makes @CurrentIteration work)
+        if [ -n "$iteration_id" ]; then
+            echo "     Adding to team..."
+            team_result=$(az boards iteration team add \
+                --id "$iteration_id" \
+                --team "$TEAM" \
+                --project "$PROJECT" \
+                --org "$ORG_URL" \
+                --output json 2>&1)
+
+            if [ $? -eq 0 ]; then
+                timeframe=$(echo "$team_result" | jq -r '.attributes.timeFrame')
+                echo -e "     ${GREEN}✓ Added to team (timeframe: $timeframe)${NC}"
+            else
+                if echo "$team_result" | grep -q "already exists"; then
+                    echo -e "     ${YELLOW}⚠ Already added to team${NC}"
+                else
+                    echo -e "     ${YELLOW}⚠ Could not add to team${NC}"
+                fi
             fi
         fi
 
