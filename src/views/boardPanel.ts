@@ -2753,7 +2753,7 @@ export class BoardPanel {
         }
 
         .filter-dropdown-btn {
-            padding: 5px 16px 5px 8px;
+            padding: 5px 20px 5px 8px;
             background: var(--vscode-dropdown-background);
             color: var(--vscode-dropdown-foreground);
             border: 1px solid var(--vscode-dropdown-border);
@@ -2761,11 +2761,12 @@ export class BoardPanel {
             font-size: 12px;
             cursor: pointer;
             min-width: 100px;
+            width: auto;
             text-align: left;
             position: relative;
             white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            display: inline-block;
+            flex-shrink: 0;
             transition: all 0.15s ease;
         }
 
