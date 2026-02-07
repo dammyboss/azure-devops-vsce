@@ -619,7 +619,6 @@ export class WorkItemPanel {
             this._teamMembers = teamMembers;
             this._existingTags = existingTags;
             this._availableStates = availableStates;
-            console.log('Current user in _update:', currentUser);
             this._panel.webview.html = this._getHtmlForWebview(comments, linkedItems, attachments, currentUser);
         });
     }
@@ -972,9 +971,6 @@ export class WorkItemPanel {
     private _getHtmlForWebview(comments: any[] = [], linkedItems: any[] = [], attachments: any[] = [], currentUser: any = null): string {
         if (!this._workItem) return '<html><body><p>No work item loaded</p></body></html>';
 
-        console.log('[WorkItemPanel] _getHtmlForWebview received currentUser:', JSON.stringify(currentUser));
-        console.log('[WorkItemPanel] currentUser displayName:', currentUser?.displayName);
-
         const fields = this._workItem.fields;
         const title = this.escapeHtml(fields['System.Title'] || '');
         const description = fields['System.Description'] || '';
@@ -991,15 +987,11 @@ export class WorkItemPanel {
         const areaPath = fields['System.AreaPath'] || '';
         const tags = fields['System.Tags'] || '';
 
-        console.log('[WorkItemPanel] Work item iteration path:', iterationPath);
-        console.log('[WorkItemPanel] Available iterations:', this._iterations.map(i => i.path));
-
         // Get current user info for comment section
         // Azure DevOps API returns customDisplayName, not displayName
         const currentUserDisplayName = currentUser?.customDisplayName || currentUser?.providerDisplayName || currentUser?.displayName || 'You';
         const currentUserInitials = this.getInitials(currentUserDisplayName);
         const currentUserColor = this.getAvatarColor(currentUserDisplayName);
-        console.log('[WorkItemPanel] Using display name for comment section:', currentUserDisplayName);
 
         // Use dynamically fetched available states for this work item type
         const stateOptions = this._availableStates.length > 0
