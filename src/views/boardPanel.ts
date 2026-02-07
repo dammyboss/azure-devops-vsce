@@ -221,6 +221,7 @@ export class BoardPanel {
     }
 
     private _teamMembers: Array<{displayName: string, uniqueName: string}> = [];
+    private _currentIterationPath: string | null = null;
 
     private async _loadAndRender(fullRefresh: boolean = false) {
         try {
@@ -239,6 +240,9 @@ export class BoardPanel {
             }
             if (fullRefresh || this._teamMembers.length === 0) {
                 this._teamMembers = await this._getTeamMembers();
+            }
+            if (fullRefresh || !this._currentIterationPath) {
+                this._currentIterationPath = await this._getCurrentIteration();
             }
 
             // Always reload board data (this is what changes frequently)
@@ -1147,6 +1151,36 @@ export class BoardPanel {
         } catch (error) {
             console.error('Failed to get team members:', error);
             return [];
+        }
+    }
+
+    private async _getCurrentIteration(): Promise<string | null> {
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+
+            if (!axiosInstance || !config?.defaultProject || !config?.defaultTeam) {
+                console.log('Cannot get current iteration: missing config');
+                return null;
+            }
+
+            const response = await axiosInstance.get(
+                `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/teamsettings/iterations`,
+                { params: { '$timeframe': 'current', 'api-version': '7.1' } }
+            );
+
+            const iterations = response.data.value || [];
+            if (iterations.length > 0) {
+                const currentIteration = iterations[0];
+                console.log('Current iteration:', currentIteration.name, currentIteration.path);
+                return currentIteration.path;
+            }
+
+            console.log('No current iteration found');
+            return null;
+        } catch (error) {
+            console.error('Failed to get current iteration:', error);
+            return null;
         }
     }
 
@@ -2974,6 +3008,8 @@ export class BoardPanel {
         <div class="filter-dropdown" id="iterationDropdown">
             <button class="filter-dropdown-btn" id="iterationDropdownBtn" onclick="toggleDropdown('iterationDropdownContent')">Iteration</button>
             <div class="filter-dropdown-content" id="iterationDropdownContent">
+                <label class="filter-checkbox-item"><input type="checkbox" name="iteration" value="@currentiteration" onchange="handleFilterChange('iteration', this)"> @CurrentIteration</label>
+                <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
                 ${boardIterations.map(iteration => `
                     <label class="filter-checkbox-item">
                         <input type="checkbox" name="iteration" value="${this._escapeHtml(iteration)}" onchange="handleFilterChange('iteration', this)">
@@ -4074,6 +4110,7 @@ export class BoardPanel {
         let currentUserEmail = ''; // Will be set when user info is available
         let hideDoneActive = false;
         let myItemsActive = false;
+        const currentIterationPath = ${JSON.stringify(this._currentIterationPath || '')};
 
         // Initialize filters on load
         document.addEventListener('DOMContentLoaded', () => {
@@ -4179,7 +4216,21 @@ export class BoardPanel {
                 // Iteration filter
                 if (visible && !iterationAll) {
                     const cardIteration = card.dataset.iterationpath;
-                    if (!iterationValues.includes(cardIteration)) {
+                    let match = false;
+
+                    // Check for @CurrentIteration special value
+                    if (iterationValues.includes('@currentiteration')) {
+                        if (cardIteration && currentIterationPath && cardIteration === currentIterationPath) {
+                            match = true;
+                        }
+                    }
+
+                    // Check specific iterations
+                    if (!match && iterationValues.includes(cardIteration)) {
+                        match = true;
+                    }
+
+                    if (!match) {
                         visible = false;
                     }
                 }
