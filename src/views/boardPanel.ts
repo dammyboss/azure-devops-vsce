@@ -2699,6 +2699,7 @@ export class BoardPanel {
             font-size: 12px;
             cursor: pointer;
             transition: all 0.15s;
+            flex-shrink: 0;
         }
 
         .filter-toggle:hover {
@@ -2748,6 +2749,7 @@ export class BoardPanel {
         /* Filter Dropdown Styles */
         .filter-dropdown {
             position: relative;
+            flex-shrink: 0;
         }
 
         .filter-dropdown-btn {
@@ -3026,11 +3028,6 @@ export class BoardPanel {
         <button class="filter-toggle" id="hideDoneToggle" onclick="toggleHideDone()">
             <span class="filter-toggle-icon">✓</span>
             Hide Done
-        </button>
-
-        <button class="filter-toggle" id="myItemsToggle" onclick="toggleMyItems()">
-            <span class="filter-toggle-icon">👤</span>
-            My Items
         </button>
 
         <div class="filter-count" id="filterCount">
@@ -4109,7 +4106,6 @@ export class BoardPanel {
         // ========== FILTER FUNCTIONALITY ==========
         let currentUserEmail = ''; // Will be set when user info is available
         let hideDoneActive = false;
-        let myItemsActive = false;
         const currentIterationPath = ${JSON.stringify(this._currentIterationPath || '')};
 
         // Initialize filters on load
@@ -4243,14 +4239,6 @@ export class BoardPanel {
                     }
                 }
 
-                // My Items toggle (overrides assignee filter if active)
-                if (visible && myItemsActive) {
-                    const assignee = card.dataset.assignee;
-                    if (!assignee || (currentUserEmail && !assignee.toLowerCase().includes(currentUserEmail.toLowerCase()))) {
-                        visible = false;
-                    }
-                }
-
                 if (visible) {
                     card.classList.remove('filtered-out');
                     visibleCount++;
@@ -4307,8 +4295,7 @@ export class BoardPanel {
                    stateChecked ||
                    areaChecked ||
                    iterationChecked ||
-                   hideDoneActive ||
-                   myItemsActive;
+                   hideDoneActive;
         }
 
         function clearSearch() {
@@ -4320,21 +4307,6 @@ export class BoardPanel {
             hideDoneActive = !hideDoneActive;
             const toggle = document.getElementById('hideDoneToggle');
             toggle.classList.toggle('active', hideDoneActive);
-            applyFilters();
-        }
-
-        function toggleMyItems() {
-            myItemsActive = !myItemsActive;
-            const toggle = document.getElementById('myItemsToggle');
-            toggle.classList.toggle('active', myItemsActive);
-
-            if (myItemsActive) {
-                const container = document.getElementById('assigneeDropdownContent');
-                const checkboxes = container.querySelectorAll('input[type="checkbox"]');
-                checkboxes.forEach(cb => cb.checked = false);
-                updateDropdownButton('assignee');
-            }
-
             applyFilters();
         }
 
