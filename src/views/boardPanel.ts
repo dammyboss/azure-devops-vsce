@@ -4077,7 +4077,8 @@ export class BoardPanel {
                 type: 'Type',
                 priority: 'Priority',
                 state: 'States',
-                area: 'Area'
+                area: 'Area',
+                iteration: 'Iteration'
             };
             
             if (checkboxes.length === 0) {
