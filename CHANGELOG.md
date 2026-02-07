@@ -2,6 +2,27 @@
 
 All notable changes to the Azure DevOps Boards extension will be documented in this file.
 
+## [0.2.5] - 2026-02-07
+
+### Fixed
+- **CRITICAL**: Fixed comment avatar showing wrong initials - now correctly displays user's initials instead of "Y"
+- Fixed Azure DevOps API integration to use `customDisplayName` field for user display names
+- Fixed board filters being reset after work item updates - filters now persist across board refreshes
+- Fixed iteration, area, and assignee dropdowns opening outside metadata box boundaries
+
+### Improved
+- Enhanced dropdown components with intelligent left/right positioning based on available space
+- Converted iteration, area, and assignee selects to custom dropdowns with better UX
+- Improved iteration dropdown date text visibility (now white for better contrast)
+- Added proper z-index layering to prevent dropdown overlap issues
+- Optimized filter state management with automatic restoration after board updates
+
+### Technical Changes
+- Implemented filter state persistence across HTML regeneration cycles
+- Added dynamic dropdown positioning algorithm to detect optimal opening direction
+- Enhanced error handling for `getCurrentUser()` API calls with graceful fallbacks
+- Improved dropdown styling consistency across work item detail panel
+
 ## [0.2.4] - 2026-02-04
 
 ### Fixed
