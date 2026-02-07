@@ -609,13 +609,17 @@ export class WorkItemPanel {
             this.getExistingTags(),
             this.getAttachments(),
             this.getAvailableStates(),
-            this.authenticationManager.getCurrentUser()
+            this.authenticationManager.getCurrentUser().catch(err => {
+                console.error('Failed to get current user, using fallback:', err);
+                return null;
+            })
         ]).then(([comments, linkedItems, iterations, areas, teamMembers, existingTags, attachments, availableStates, currentUser]) => {
             this._iterations = iterations;
             this._areas = areas;
             this._teamMembers = teamMembers;
             this._existingTags = existingTags;
             this._availableStates = availableStates;
+            console.log('Current user in _update:', currentUser);
             this._panel.webview.html = this._getHtmlForWebview(comments, linkedItems, attachments, currentUser);
         });
     }
@@ -968,6 +972,9 @@ export class WorkItemPanel {
     private _getHtmlForWebview(comments: any[] = [], linkedItems: any[] = [], attachments: any[] = [], currentUser: any = null): string {
         if (!this._workItem) return '<html><body><p>No work item loaded</p></body></html>';
 
+        console.log('[WorkItemPanel] _getHtmlForWebview received currentUser:', JSON.stringify(currentUser));
+        console.log('[WorkItemPanel] currentUser displayName:', currentUser?.displayName);
+
         const fields = this._workItem.fields;
         const title = this.escapeHtml(fields['System.Title'] || '');
         const description = fields['System.Description'] || '';
@@ -988,9 +995,11 @@ export class WorkItemPanel {
         console.log('[WorkItemPanel] Available iterations:', this._iterations.map(i => i.path));
 
         // Get current user info for comment section
-        const currentUserDisplayName = currentUser?.displayName || 'You';
+        // Azure DevOps API returns customDisplayName, not displayName
+        const currentUserDisplayName = currentUser?.customDisplayName || currentUser?.providerDisplayName || currentUser?.displayName || 'You';
         const currentUserInitials = this.getInitials(currentUserDisplayName);
         const currentUserColor = this.getAvatarColor(currentUserDisplayName);
+        console.log('[WorkItemPanel] Using display name for comment section:', currentUserDisplayName);
 
         // Use dynamically fetched available states for this work item type
         const stateOptions = this._availableStates.length > 0
