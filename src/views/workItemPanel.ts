@@ -714,18 +714,39 @@ export class WorkItemPanel {
             const axiosInstance = this.authenticationManager.getAxiosInstance();
             const config = this.authenticationManager.getConfig();
 
-            if (!axiosInstance || !config?.defaultProject || !config?.defaultTeam) return [];
+            if (!axiosInstance || !config?.defaultProject) return [];
 
+            // Get all project-level iterations using Classification Nodes API
             const response = await axiosInstance.get(
-                `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/teamsettings/iterations`,
-                { params: { 'api-version': '7.0' } }
+                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/classificationnodes/iterations`,
+                { params: { '$depth': 2, 'api-version': '7.1' } }
             );
 
-            return (response.data.value || []).map((iter: any) => ({
-                id: iter.id,
-                name: iter.name,
-                path: iter.path
-            }));
+            // Flatten the iteration tree into a list
+            const iterations: IterationInfo[] = [];
+            const processNode = (node: any, parentPath: string = '') => {
+                const currentPath = parentPath ? `${parentPath}\\${node.name}` : node.name;
+
+                // Add current node if it has dates (is a sprint/iteration)
+                if (node.attributes?.startDate || node.hasChildren) {
+                    iterations.push({
+                        id: node.id || node.identifier,
+                        name: node.name,
+                        path: currentPath
+                    });
+                }
+
+                // Process children recursively
+                if (node.hasChildren && node.children) {
+                    node.children.forEach((child: any) => processNode(child, currentPath));
+                }
+            };
+
+            if (response.data) {
+                processNode(response.data, config.defaultProject);
+            }
+
+            return iterations;
         } catch (error) {
             console.error('Failed to load iterations:', error);
             return [];
