@@ -1356,11 +1356,11 @@ export class WorkItemPanel {
             border-color: var(--vscode-focusBorder);
             box-shadow: 0 0 0 2px var(--vscode-focusBorder);
         }
-        .iteration-dropdown-wrapper {
+        .custom-dropdown-wrapper {
             position: relative;
             width: 100%;
         }
-        .iteration-dropdown-btn {
+        .custom-dropdown-btn {
             text-align: left;
             cursor: pointer;
             display: flex;
@@ -1368,7 +1368,7 @@ export class WorkItemPanel {
             justify-content: space-between;
             padding-right: 24px !important;
         }
-        .iteration-dropdown-btn::after {
+        .custom-dropdown-btn::after {
             content: '\\25BC';
             position: absolute;
             right: 8px;
@@ -1379,7 +1379,6 @@ export class WorkItemPanel {
             display: none;
             position: absolute;
             top: 100%;
-            left: 0;
             right: 0;
             min-width: 350px;
             max-height: 300px;
@@ -1391,8 +1390,15 @@ export class WorkItemPanel {
             z-index: 100;
             margin-top: 2px;
         }
-        .iteration-dropdown-list.open {
+        .iteration-dropdown-list.open-left {
             display: block;
+            right: 0;
+            left: auto;
+        }
+        .iteration-dropdown-list.open-right {
+            display: block;
+            left: 0;
+            right: auto;
         }
         .iteration-dropdown-item {
             display: flex;
@@ -1417,8 +1423,88 @@ export class WorkItemPanel {
         .iteration-item-dates {
             white-space: nowrap;
             font-size: 12px;
-            opacity: 0.7;
-            color: var(--vscode-descriptionForeground);
+            opacity: 0.9;
+            color: #ffffff;
+        }
+        .area-dropdown-list {
+            display: none;
+            position: absolute;
+            top: 100%;
+            right: 0;
+            min-width: 300px;
+            max-height: 300px;
+            overflow-y: auto;
+            background: var(--vscode-dropdown-background);
+            border: 1px solid var(--vscode-dropdown-border);
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            z-index: 100;
+            margin-top: 2px;
+        }
+        .area-dropdown-list.open-left {
+            display: block;
+            right: 0;
+            left: auto;
+        }
+        .area-dropdown-list.open-right {
+            display: block;
+            left: 0;
+            right: auto;
+        }
+        .area-dropdown-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            transition: background 0.1s;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .area-dropdown-item:hover {
+            background: var(--vscode-list-hoverBackground);
+        }
+        .area-dropdown-item.selected {
+            background: var(--vscode-list-activeSelectionBackground);
+            color: var(--vscode-list-activeSelectionForeground);
+        }
+        .assignee-dropdown-list {
+            display: none;
+            position: absolute;
+            top: 100%;
+            right: 0;
+            min-width: 250px;
+            max-height: 300px;
+            overflow-y: auto;
+            background: var(--vscode-dropdown-background);
+            border: 1px solid var(--vscode-dropdown-border);
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            z-index: 100;
+            margin-top: 2px;
+        }
+        .assignee-dropdown-list.open-left {
+            display: block;
+            right: 0;
+            left: auto;
+        }
+        .assignee-dropdown-list.open-right {
+            display: block;
+            left: 0;
+            right: auto;
+        }
+        .assignee-dropdown-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            transition: background 0.1s;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .assignee-dropdown-item:hover {
+            background: var(--vscode-list-hoverBackground);
+        }
+        .assignee-dropdown-item.selected {
+            background: var(--vscode-list-activeSelectionBackground);
+            color: var(--vscode-list-activeSelectionForeground);
         }
         .meta-input {
             width: 100%;
@@ -1887,12 +1973,24 @@ export class WorkItemPanel {
         <div class="card">
             <div class="card-title">Metadata</div>
             <div class="metadata-grid">
-                <div class="meta-item">
+                <div class="meta-item" style="z-index: 9;">
                     <span class="meta-label">Assigned To</span>
-                    <select class="meta-select" id="assigneeSelect" onchange="updateAssignee()">
-                        <option value="">Unassigned</option>
-                        ${this._teamMembers.map(m => `<option value="${this.escapeHtml(m.uniqueName)}" ${m.uniqueName === assignedToUniqueName ? 'selected' : ''}>${this.escapeHtml(m.displayName)}</option>`).join('')}
-                    </select>
+                    <div class="custom-dropdown-wrapper" id="assigneeDropdownWrapper">
+                        <button class="meta-select custom-dropdown-btn" id="assigneeDropdownBtn" type="button" onclick="toggleAssigneeDropdown()">
+                            ${assignedToUniqueName ? this.escapeHtml(this._teamMembers.find(m => m.uniqueName === assignedToUniqueName)?.displayName || 'Unassigned') : 'Unassigned'}
+                        </button>
+                        <div class="assignee-dropdown-list" id="assigneeDropdownList">
+                            <div class="assignee-dropdown-item ${!assignedToUniqueName ? 'selected' : ''}" onclick="selectAssignee('', 'Unassigned')">
+                                Unassigned
+                            </div>
+                            ${this._teamMembers.map(m => {
+                                const isSelected = m.uniqueName === assignedToUniqueName;
+                                return `<div class="assignee-dropdown-item ${isSelected ? 'selected' : ''}" onclick="selectAssignee('${this.escapeHtml(m.uniqueName)}', '${this.escapeHtml(m.displayName)}')">
+                                    ${this.escapeHtml(m.displayName)}
+                                </div>`;
+                            }).join('')}
+                        </div>
+                    </div>
                 </div>
                 <div class="meta-item">
                     <span class="meta-label">Priority</span>
@@ -1906,8 +2004,8 @@ export class WorkItemPanel {
                 </div>
                 <div class="meta-item" style="z-index: 10;">
                     <span class="meta-label">Iteration</span>
-                    <div class="iteration-dropdown-wrapper" id="iterationDropdownWrapper">
-                        <button class="meta-select iteration-dropdown-btn" id="iterationDropdownBtn" type="button" onclick="toggleIterationDropdown()">
+                    <div class="custom-dropdown-wrapper" id="iterationDropdownWrapper">
+                        <button class="meta-select custom-dropdown-btn" id="iterationDropdownBtn" type="button" onclick="toggleIterationDropdown()">
                             ${iterationPath ? this.escapeHtml(iterationPath.split('\\\\').pop() || iterationPath) : 'None'}
                         </button>
                         <div class="iteration-dropdown-list" id="iterationDropdownList">
@@ -1945,11 +2043,21 @@ export class WorkItemPanel {
                     <span class="meta-label">Modified</span>
                     <span class="meta-value">${changedDate}</span>
                 </div>
-                <div class="meta-item">
+                <div class="meta-item" style="z-index: 8;">
                     <span class="meta-label">Area</span>
-                    <select class="meta-select" id="areaSelect" onchange="updateArea()">
-                        ${this._areas.map(area => `<option value="${this.escapeHtml(area.path)}" ${area.path === areaPath ? 'selected' : ''}>${this.escapeHtml(area.path)}</option>`).join('')}
-                    </select>
+                    <div class="custom-dropdown-wrapper" id="areaDropdownWrapper">
+                        <button class="meta-select custom-dropdown-btn" id="areaDropdownBtn" type="button" onclick="toggleAreaDropdown()">
+                            ${areaPath ? this.escapeHtml(areaPath) : 'Select Area'}
+                        </button>
+                        <div class="area-dropdown-list" id="areaDropdownList">
+                            ${this._areas.map(area => {
+                                const isSelected = area.path === areaPath;
+                                return `<div class="area-dropdown-item ${isSelected ? 'selected' : ''}" onclick="selectArea('${this.escapeHtml(area.path)}')">
+                                    ${this.escapeHtml(area.path)}
+                                </div>`;
+                            }).join('')}
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -2518,11 +2626,28 @@ export class WorkItemPanel {
 
         function toggleIterationDropdown() {
             const list = document.getElementById('iterationDropdownList');
-            const isOpen = list.classList.contains('open');
+            const wrapper = document.getElementById('iterationDropdownWrapper');
+            const isOpen = list.classList.contains('open-left') || list.classList.contains('open-right');
+
             // Close any other open dropdowns first
-            document.querySelectorAll('.iteration-dropdown-list.open').forEach(el => el.classList.remove('open'));
+            document.querySelectorAll('.iteration-dropdown-list.open-left, .iteration-dropdown-list.open-right').forEach(el => {
+                el.classList.remove('open-left', 'open-right');
+            });
+
             if (!isOpen) {
-                list.classList.add('open');
+                // Calculate available space on left and right
+                const rect = wrapper.getBoundingClientRect();
+                const viewportWidth = window.innerWidth;
+                const spaceOnRight = viewportWidth - rect.right;
+                const spaceOnLeft = rect.left;
+                const dropdownWidth = 350; // min-width of dropdown
+
+                // Open to the side with more space, preferring left if both are insufficient
+                if (spaceOnLeft >= dropdownWidth || spaceOnLeft > spaceOnRight) {
+                    list.classList.add('open-left');
+                } else {
+                    list.classList.add('open-right');
+                }
             }
         }
 
@@ -2530,28 +2655,110 @@ export class WorkItemPanel {
             const btn = document.getElementById('iterationDropdownBtn');
             const list = document.getElementById('iterationDropdownList');
             btn.textContent = name;
-            list.classList.remove('open');
+            list.classList.remove('open-left', 'open-right');
             // Update selected state
             list.querySelectorAll('.iteration-dropdown-item').forEach(item => item.classList.remove('selected'));
             event.currentTarget.classList.add('selected');
             vscode.postMessage({ command: 'updateField', field: 'System.IterationPath', value: path || null });
         }
 
-        // Close iteration dropdown when clicking outside
+        function toggleAreaDropdown() {
+            const list = document.getElementById('areaDropdownList');
+            const wrapper = document.getElementById('areaDropdownWrapper');
+            const isOpen = list.classList.contains('open-left') || list.classList.contains('open-right');
+
+            // Close any other open dropdowns first
+            document.querySelectorAll('.iteration-dropdown-list.open-left, .iteration-dropdown-list.open-right, .area-dropdown-list.open-left, .area-dropdown-list.open-right').forEach(el => {
+                el.classList.remove('open-left', 'open-right');
+            });
+
+            if (!isOpen) {
+                // Calculate available space on left and right
+                const rect = wrapper.getBoundingClientRect();
+                const viewportWidth = window.innerWidth;
+                const spaceOnRight = viewportWidth - rect.right;
+                const spaceOnLeft = rect.left;
+                const dropdownWidth = 300; // min-width of dropdown
+
+                // Open to the side with more space, preferring left if both are insufficient
+                if (spaceOnLeft >= dropdownWidth || spaceOnLeft > spaceOnRight) {
+                    list.classList.add('open-left');
+                } else {
+                    list.classList.add('open-right');
+                }
+            }
+        }
+
+        function selectArea(path) {
+            const btn = document.getElementById('areaDropdownBtn');
+            const list = document.getElementById('areaDropdownList');
+            btn.textContent = path;
+            list.classList.remove('open-left', 'open-right');
+            // Update selected state
+            list.querySelectorAll('.area-dropdown-item').forEach(item => item.classList.remove('selected'));
+            event.currentTarget.classList.add('selected');
+            vscode.postMessage({ command: 'updateField', field: 'System.AreaPath', value: path });
+        }
+
+        function toggleAssigneeDropdown() {
+            const list = document.getElementById('assigneeDropdownList');
+            const wrapper = document.getElementById('assigneeDropdownWrapper');
+            const isOpen = list.classList.contains('open-left') || list.classList.contains('open-right');
+
+            // Close any other open dropdowns first
+            document.querySelectorAll('.iteration-dropdown-list.open-left, .iteration-dropdown-list.open-right, .area-dropdown-list.open-left, .area-dropdown-list.open-right, .assignee-dropdown-list.open-left, .assignee-dropdown-list.open-right').forEach(el => {
+                el.classList.remove('open-left', 'open-right');
+            });
+
+            if (!isOpen) {
+                // Calculate available space on left and right
+                const rect = wrapper.getBoundingClientRect();
+                const viewportWidth = window.innerWidth;
+                const spaceOnRight = viewportWidth - rect.right;
+                const spaceOnLeft = rect.left;
+                const dropdownWidth = 250; // min-width of dropdown
+
+                // Open to the side with more space, preferring left if both are insufficient
+                if (spaceOnLeft >= dropdownWidth || spaceOnLeft > spaceOnRight) {
+                    list.classList.add('open-left');
+                } else {
+                    list.classList.add('open-right');
+                }
+            }
+        }
+
+        function selectAssignee(uniqueName, displayName) {
+            const btn = document.getElementById('assigneeDropdownBtn');
+            const list = document.getElementById('assigneeDropdownList');
+            btn.textContent = displayName;
+            list.classList.remove('open-left', 'open-right');
+            // Update selected state
+            list.querySelectorAll('.assignee-dropdown-item').forEach(item => item.classList.remove('selected'));
+            event.currentTarget.classList.add('selected');
+            vscode.postMessage({ command: 'assignTo', uniqueName: uniqueName || '' });
+        }
+
+        // Close dropdowns when clicking outside
         document.addEventListener('click', function(e) {
-            const wrapper = document.getElementById('iterationDropdownWrapper');
-            if (wrapper && !wrapper.contains(e.target)) {
-                document.getElementById('iterationDropdownList').classList.remove('open');
+            const iterationWrapper = document.getElementById('iterationDropdownWrapper');
+            const areaWrapper = document.getElementById('areaDropdownWrapper');
+            const assigneeWrapper = document.getElementById('assigneeDropdownWrapper');
+
+            if (iterationWrapper && !iterationWrapper.contains(e.target)) {
+                const list = document.getElementById('iterationDropdownList');
+                list.classList.remove('open-left', 'open-right');
+            }
+
+            if (areaWrapper && !areaWrapper.contains(e.target)) {
+                const list = document.getElementById('areaDropdownList');
+                list.classList.remove('open-left', 'open-right');
+            }
+
+            if (assigneeWrapper && !assigneeWrapper.contains(e.target)) {
+                const list = document.getElementById('assigneeDropdownList');
+                list.classList.remove('open-left', 'open-right');
             }
         });
-
-        function updateArea() {
-            console.log('updateArea called');
-            const select = document.getElementById('areaSelect');
-            console.log('Area select element:', select);
-            console.log('Selected value:', select.value);
-            vscode.postMessage({ command: 'updateField', field: 'System.AreaPath', value: select.value });
-        }
 
         function uploadAttachment() {
             vscode.postMessage({ command: 'uploadAttachment' });
