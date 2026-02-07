@@ -2789,6 +2789,12 @@ export class BoardPanel {
             opacity: 0.7;
         }
 
+        /* Ensure iteration dropdown button never collapses */
+        #iterationDropdownBtn {
+            min-width: 100px !important;
+            width: auto !important;
+        }
+
         .filter-dropdown-content {
             display: none;
             position: absolute;
@@ -3008,17 +3014,17 @@ export class BoardPanel {
             </div>
         </div>
 
-        <div class="filter-dropdown" id="iterationDropdown">
-            <button class="filter-dropdown-btn" id="iterationDropdownBtn" onclick="toggleDropdown('iterationDropdownContent')">Iteration</button>
+        <div class="filter-dropdown" id="iterationDropdown" style="flex-shrink: 0;">
+            <button class="filter-dropdown-btn" id="iterationDropdownBtn" onclick="toggleDropdown('iterationDropdownContent')" style="min-width: 100px;">Iteration</button>
             <div class="filter-dropdown-content" id="iterationDropdownContent">
                 <label class="filter-checkbox-item"><input type="checkbox" name="iteration" value="@currentiteration" onchange="handleFilterChange('iteration', this)"> @CurrentIteration</label>
                 <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
-                ${boardIterations.map(iteration => `
+                ${boardIterations.length > 0 ? boardIterations.map(iteration => `
                     <label class="filter-checkbox-item">
                         <input type="checkbox" name="iteration" value="${this._escapeHtml(iteration)}" onchange="handleFilterChange('iteration', this)">
                         ${this._escapeHtml(iteration.split('\\\\').pop() || iteration)}
                     </label>
-                `).join('')}
+                `).join('') : '<div style="padding: 8px; color: var(--vscode-descriptionForeground); font-size: 11px;">No iterations available</div>'}
                 <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
                 <button class="filter-clear-btn" id="iterationClearBtn" onclick="clearFilter('iteration')" disabled>✕ Clear</button>
             </div>
