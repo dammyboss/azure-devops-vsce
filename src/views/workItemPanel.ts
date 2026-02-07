@@ -725,10 +725,11 @@ export class WorkItemPanel {
             // Flatten the iteration tree into a list
             const iterations: IterationInfo[] = [];
             const processNode = (node: any, parentPath: string = '') => {
+                // Build the full path
                 const currentPath = parentPath ? `${parentPath}\\${node.name}` : node.name;
 
-                // Add current node if it has dates (is a sprint/iteration)
-                if (node.attributes?.startDate || node.hasChildren) {
+                // Add current node (skip the root "Iteration" node)
+                if (parentPath) {  // Only add if not root
                     iterations.push({
                         id: node.id || node.identifier,
                         name: node.name,
@@ -743,9 +744,11 @@ export class WorkItemPanel {
             };
 
             if (response.data) {
-                processNode(response.data, config.defaultProject);
+                // Don't pass a parentPath - the API response root node is already the project
+                processNode(response.data);
             }
 
+            console.log('[WorkItemPanel] Loaded iterations:', iterations);
             return iterations;
         } catch (error) {
             console.error('Failed to load iterations:', error);
@@ -976,6 +979,9 @@ export class WorkItemPanel {
         const iterationPath = fields['System.IterationPath'] || '';
         const areaPath = fields['System.AreaPath'] || '';
         const tags = fields['System.Tags'] || '';
+
+        console.log('[WorkItemPanel] Work item iteration path:', iterationPath);
+        console.log('[WorkItemPanel] Available iterations:', this._iterations.map(i => i.path));
 
         // Get current user info for comment section
         const currentUserDisplayName = currentUser?.displayName || 'You';
