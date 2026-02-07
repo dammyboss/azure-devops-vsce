@@ -7,6 +7,8 @@ interface IterationInfo {
     id: string;
     name: string;
     path: string;
+    startDate?: string;
+    finishDate?: string;
 }
 
 interface AreaInfo {
@@ -728,12 +730,14 @@ export class WorkItemPanel {
                 // Build the full path
                 const currentPath = parentPath ? `${parentPath}\\${node.name}` : node.name;
 
-                // Add current node (skip the root "Iteration" node)
+                // Add current node (skip the root node which is the project itself)
                 if (parentPath) {  // Only add if not root
                     iterations.push({
                         id: node.id || node.identifier,
                         name: node.name,
-                        path: currentPath
+                        path: currentPath,
+                        startDate: node.attributes?.startDate || undefined,
+                        finishDate: node.attributes?.finishDate || undefined
                     });
                 }
 
@@ -1352,6 +1356,70 @@ export class WorkItemPanel {
             border-color: var(--vscode-focusBorder);
             box-shadow: 0 0 0 2px var(--vscode-focusBorder);
         }
+        .iteration-dropdown-wrapper {
+            position: relative;
+            width: 100%;
+        }
+        .iteration-dropdown-btn {
+            text-align: left;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding-right: 24px !important;
+        }
+        .iteration-dropdown-btn::after {
+            content: '\\25BC';
+            position: absolute;
+            right: 8px;
+            font-size: 10px;
+            opacity: 0.7;
+        }
+        .iteration-dropdown-list {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            min-width: 350px;
+            max-height: 300px;
+            overflow-y: auto;
+            background: var(--vscode-dropdown-background);
+            border: 1px solid var(--vscode-dropdown-border);
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            z-index: 100;
+            margin-top: 2px;
+        }
+        .iteration-dropdown-list.open {
+            display: block;
+        }
+        .iteration-dropdown-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
+            cursor: pointer;
+            transition: background 0.1s;
+            gap: 12px;
+        }
+        .iteration-dropdown-item:hover {
+            background: var(--vscode-list-hoverBackground);
+        }
+        .iteration-dropdown-item.selected {
+            background: var(--vscode-list-activeSelectionBackground);
+            color: var(--vscode-list-activeSelectionForeground);
+        }
+        .iteration-item-name {
+            white-space: nowrap;
+            font-size: 13px;
+        }
+        .iteration-item-dates {
+            white-space: nowrap;
+            font-size: 12px;
+            opacity: 0.7;
+            color: var(--vscode-descriptionForeground);
+        }
         .meta-input {
             width: 100%;
             padding: 8px 10px;
@@ -1836,26 +1904,28 @@ export class WorkItemPanel {
                     <span class="meta-label">Effort / Story Points</span>
                     <input type="number" class="meta-input effort-input" id="effortInput" value="${effort}" placeholder="0" onchange="updateEffort()">
                 </div>
-                <div class="meta-item">
-                    <span class="meta-label">Sprint</span>
-                    <select class="meta-select" id="sprintSelect" onchange="updateSprint()">
-                        <option value="">None</option>
-                        ${this._iterations.map(iter => `<option value="${this.escapeHtml(iter.path)}" ${iter.path === iterationPath ? 'selected' : ''}>${this.escapeHtml(iter.name)}</option>`).join('')}
-                    </select>
-                </div>
-                <div class="meta-item">
-                    <span class="meta-label">Area</span>
-                    <select class="meta-select" id="areaSelect" onchange="updateArea()">
-                        ${this._areas.map(area => `<option value="${this.escapeHtml(area.path)}" ${area.path === areaPath ? 'selected' : ''}>${this.escapeHtml(area.path)}</option>`).join('')}
-                    </select>
-                </div>
-                <div class="meta-item">
-                    <span class="meta-label">Created</span>
-                    <span class="meta-value">${createdDate}</span>
-                </div>
-                <div class="meta-item">
-                    <span class="meta-label">Modified</span>
-                    <span class="meta-value">${changedDate}</span>
+                <div class="meta-item" style="z-index: 10;">
+                    <span class="meta-label">Iteration</span>
+                    <div class="iteration-dropdown-wrapper" id="iterationDropdownWrapper">
+                        <button class="meta-select iteration-dropdown-btn" id="iterationDropdownBtn" type="button" onclick="toggleIterationDropdown()">
+                            ${iterationPath ? this.escapeHtml(iterationPath.split('\\\\').pop() || iterationPath) : 'None'}
+                        </button>
+                        <div class="iteration-dropdown-list" id="iterationDropdownList">
+                            <div class="iteration-dropdown-item ${!iterationPath ? 'selected' : ''}" onclick="selectIteration('', 'None')">
+                                <span class="iteration-item-name">None</span>
+                            </div>
+                            ${this._iterations.map(iter => {
+                                const dateRange = iter.startDate && iter.finishDate
+                                    ? `${new Date(iter.startDate).toLocaleDateString()} - ${new Date(iter.finishDate).toLocaleDateString()}`
+                                    : '';
+                                const isSelected = iter.path === iterationPath;
+                                return `<div class="iteration-dropdown-item ${isSelected ? 'selected' : ''}" onclick="selectIteration('${this.escapeHtml(iter.path)}', '${this.escapeHtml(iter.name)}')">
+                                    <span class="iteration-item-name">${this.escapeHtml(iter.name)}</span>
+                                    ${dateRange ? `<span class="iteration-item-dates">${dateRange}</span>` : ''}
+                                </div>`;
+                            }).join('')}
+                        </div>
+                    </div>
                 </div>
                 <div class="meta-item">
                     <span class="meta-label">Tags</span>
@@ -1866,6 +1936,20 @@ export class WorkItemPanel {
                         </div>
                         <div class="tag-suggestions" id="tagSuggestions"></div>
                     </div>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Created</span>
+                    <span class="meta-value">${createdDate}</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Modified</span>
+                    <span class="meta-value">${changedDate}</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Area</span>
+                    <select class="meta-select" id="areaSelect" onchange="updateArea()">
+                        ${this._areas.map(area => `<option value="${this.escapeHtml(area.path)}" ${area.path === areaPath ? 'selected' : ''}>${this.escapeHtml(area.path)}</option>`).join('')}
+                    </select>
                 </div>
             </div>
         </div>
@@ -2432,13 +2516,34 @@ export class WorkItemPanel {
             vscode.postMessage({ command: 'updateField', field: 'Microsoft.VSTS.Scheduling.StoryPoints', value: value });
         }
 
-        function updateSprint() {
-            console.log('updateSprint called');
-            const select = document.getElementById('sprintSelect');
-            console.log('Sprint select element:', select);
-            console.log('Selected value:', select.value);
-            vscode.postMessage({ command: 'updateField', field: 'System.IterationPath', value: select.value || null });
+        function toggleIterationDropdown() {
+            const list = document.getElementById('iterationDropdownList');
+            const isOpen = list.classList.contains('open');
+            // Close any other open dropdowns first
+            document.querySelectorAll('.iteration-dropdown-list.open').forEach(el => el.classList.remove('open'));
+            if (!isOpen) {
+                list.classList.add('open');
+            }
         }
+
+        function selectIteration(path, name) {
+            const btn = document.getElementById('iterationDropdownBtn');
+            const list = document.getElementById('iterationDropdownList');
+            btn.textContent = name;
+            list.classList.remove('open');
+            // Update selected state
+            list.querySelectorAll('.iteration-dropdown-item').forEach(item => item.classList.remove('selected'));
+            event.currentTarget.classList.add('selected');
+            vscode.postMessage({ command: 'updateField', field: 'System.IterationPath', value: path || null });
+        }
+
+        // Close iteration dropdown when clicking outside
+        document.addEventListener('click', function(e) {
+            const wrapper = document.getElementById('iterationDropdownWrapper');
+            if (wrapper && !wrapper.contains(e.target)) {
+                document.getElementById('iterationDropdownList').classList.remove('open');
+            }
+        });
 
         function updateArea() {
             console.log('updateArea called');
