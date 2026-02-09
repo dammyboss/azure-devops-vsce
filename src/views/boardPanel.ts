@@ -82,6 +82,10 @@ export class BoardPanel {
     private _loadDebounceTimer: NodeJS.Timeout | undefined;
     private _teamIterations: Array<{name: string, path: string, timeFrame: string}> = [];
 
+    // Cache timestamps for metadata (5 minute cache)
+    private _metadataCacheTime: number = 0;
+    private readonly METADATA_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
     public static createOrShow(
         extensionUri: vscode.Uri,
         authenticationManager: AuthenticationManager,
@@ -275,27 +279,45 @@ export class BoardPanel {
             this._lastRefreshTime = Date.now();
             outputChannel.appendLine(`[Board] Starting load (fullRefresh: ${fullRefresh})`);
 
-            // Only reload metadata on full refresh or if not loaded yet
-            if (fullRefresh || this.availableBoards.length === 0) {
-                this.availableBoards = await this._getAvailableBoards();
+            // Show loading screen immediately for better perceived performance
+            if (fullRefresh || !this.currentBoard) {
+                this._panel.webview.html = this._getLoadingHtml();
             }
-            if (fullRefresh || this._tagColors.size === 0) {
-                await this._getTagColors();
-            }
-            if (fullRefresh || this._projectWorkItemTypes.length === 0) {
-                await this._fetchProjectWorkItemTypes();
-            }
-            if (fullRefresh || this._teamMembers.length === 0) {
-                this._teamMembers = await this._getTeamMembers();
-            }
-            if (fullRefresh || this._teamIterations.length === 0) {
-                this._teamIterations = await this._getAllTeamIterations();
-            }
-            if (fullRefresh || !this._currentIterationPath) {
-                this._currentIterationPath = await this._getCurrentIteration();
-            }
-            if (fullRefresh || !this._teamAreaPath) {
-                this._teamAreaPath = await this._getTeamAreaPath();
+
+            // Check if metadata cache is still valid (within 5 minutes)
+            const now = Date.now();
+            const metadataCacheValid = !fullRefresh && (now - this._metadataCacheTime) < this.METADATA_CACHE_DURATION;
+
+            // Only reload metadata on full refresh, if not loaded yet, or if cache expired
+            if (!metadataCacheValid) {
+                outputChannel.appendLine('[Board] Reloading metadata (cache expired or full refresh)');
+
+                if (fullRefresh || this.availableBoards.length === 0) {
+                    this.availableBoards = await this._getAvailableBoards();
+                }
+                if (fullRefresh || this._tagColors.size === 0) {
+                    await this._getTagColors();
+                }
+                if (fullRefresh || this._projectWorkItemTypes.length === 0) {
+                    await this._fetchProjectWorkItemTypes();
+                }
+                if (fullRefresh || this._teamMembers.length === 0) {
+                    this._teamMembers = await this._getTeamMembers();
+                }
+                if (fullRefresh || this._teamIterations.length === 0) {
+                    this._teamIterations = await this._getAllTeamIterations();
+                }
+                if (fullRefresh || !this._currentIterationPath) {
+                    this._currentIterationPath = await this._getCurrentIteration();
+                }
+                if (fullRefresh || !this._teamAreaPath) {
+                    this._teamAreaPath = await this._getTeamAreaPath();
+                }
+
+                // Update cache timestamp
+                this._metadataCacheTime = now;
+            } else {
+                outputChannel.appendLine('[Board] Using cached metadata (still valid)');
             }
 
             // Always reload board data (this is what changes frequently)
@@ -666,13 +688,17 @@ export class BoardPanel {
 
         outputChannel.appendLine(`[Board] Loaded ${columns.length} columns in ${Date.now() - loadStartTime}ms`);
 
-        // Fetch all child work items in a single batch
+        // Skip loading child work items by default for better performance
+        // Child work items can be loaded on-demand when parent cards are expanded
+        // Uncomment below to re-enable child work item loading:
+        /*
         try {
             await this._loadChildWorkItems(workItemsMap, axiosInstance);
         } catch (error) {
             outputChannel.appendLine(`[Board] Failed to load child work items: ${error}`);
             console.error('Failed to load child work items:', error);
         }
+        */
 
         this.currentBoard = {
             id: this.boardId,
@@ -1025,18 +1051,23 @@ export class BoardPanel {
             throw new Error('Configuration not available');
         }
 
+        const startTime = Date.now();
         outputChannel.appendLine(`[Board] Fetching details for ${workItemRefs.length} work items in batches of 200`);
 
         // Azure DevOps API supports up to 200 work items per request
         const BATCH_SIZE = 200;
-        const allWorkItems: BoardWorkItem[] = [];
+        const batches: any[][] = [];
 
         // Split work item IDs into batches
         for (let i = 0; i < workItemRefs.length; i += BATCH_SIZE) {
-            const batch = workItemRefs.slice(i, i + BATCH_SIZE);
-            const workItemIds = batch.map((item: any) => item.id).join(',');
+            batches.push(workItemRefs.slice(i, i + BATCH_SIZE));
+        }
 
-            outputChannel.appendLine(`[Board] Fetching batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(workItemRefs.length / BATCH_SIZE)} (${batch.length} items)`);
+        outputChannel.appendLine(`[Board] Loading ${batches.length} batches in parallel...`);
+
+        // Load all batches in parallel for massive speed improvement
+        const batchPromises = batches.map(async (batch, index) => {
+            const workItemIds = batch.map((item: any) => item.id).join(',');
 
             const detailsResponse = await axiosInstance.get(`/${encodeURIComponent(config.defaultProject || '')}/_apis/wit/workitems`, {
                 params: {
@@ -1046,7 +1077,9 @@ export class BoardPanel {
                 }
             });
 
-            const batchWorkItems = (detailsResponse.data.value || []).map((item: any) => {
+            outputChannel.appendLine(`[Board] ✓ Batch ${index + 1}/${batches.length} completed (${batch.length} items)`);
+
+            return (detailsResponse.data.value || []).map((item: any) => {
                 const workItem: any = {
                     id: item.id,
                     title: item.fields['System.Title'],
@@ -1066,11 +1099,14 @@ export class BoardPanel {
                 }
                 return workItem;
             });
+        });
 
-            allWorkItems.push(...batchWorkItems);
-        }
+        // Wait for all batches to complete
+        const batchResults = await Promise.all(batchPromises);
+        const allWorkItems: BoardWorkItem[] = batchResults.flat();
 
-        outputChannel.appendLine(`[Board] ✓ Fetched ${allWorkItems.length} work items total`);
+        const elapsed = Date.now() - startTime;
+        outputChannel.appendLine(`[Board] ✓ Fetched ${allWorkItems.length} work items total in ${elapsed}ms (${batches.length} parallel batches)`);
         return allWorkItems;
     }
 
@@ -4954,11 +4990,16 @@ export class BoardPanel {
 
         // ========== FILTER FUNCTIONALITY ==========
         let currentUserEmail = ''; // Will be set when user info is available
-        let hideDoneActive = false;
+        let hideDoneActive = true; // Enable by default for faster initial load
         const currentIterationPath = ${JSON.stringify(this._currentIterationPath || '')};
 
         // Initialize filters on load
         document.addEventListener('DOMContentLoaded', () => {
+            // Set Hide Done toggle as active by default
+            const hideDoneToggle = document.getElementById('hideDoneToggle');
+            if (hideDoneToggle) {
+                hideDoneToggle.classList.add('active');
+            }
             updateFilterCounts();
             // Request current user info from extension
             vscode.postMessage({ command: 'getCurrentUser' });
@@ -5272,11 +5313,17 @@ export class BoardPanel {
                 }
             });
 
-            // Restore hide done toggle
-            if (filterState.hideDone) {
-                hideDoneActive = true;
+            // Restore hide done toggle (default is true, so only change if explicitly false)
+            if (filterState.hideDone !== undefined) {
+                hideDoneActive = filterState.hideDone;
                 const toggle = document.getElementById('hideDoneToggle');
-                if (toggle) toggle.classList.add('active');
+                if (toggle) {
+                    if (hideDoneActive) {
+                        toggle.classList.add('active');
+                    } else {
+                        toggle.classList.remove('active');
+                    }
+                }
             }
 
             // Apply the restored filters
