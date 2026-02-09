@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { AuthenticationManager } from '../authentication/authenticationManager';
 import { WorkItemEventManager } from '../events/workItemEventManager';
+import { OrganizationManager } from '../authentication/organizationManager';
+import { outputChannel } from '../extension';
 
 interface BoardColumn {
     id: string;
@@ -76,6 +78,9 @@ export class BoardPanel {
         iteration?: string[];
         hideDone?: boolean;
     } = {};
+    private _isLoading: boolean = false;
+    private _loadDebounceTimer: NodeJS.Timeout | undefined;
+    private _teamIterations: Array<{name: string, path: string, timeFrame: string}> = [];
 
     public static createOrShow(
         extensionUri: vscode.Uri,
@@ -124,11 +129,18 @@ export class BoardPanel {
         // Set initial loading state
         this._panel.webview.html = this._getLoadingHtml();
 
-        // Subscribe to work item updates from other views
+        // Subscribe to work item updates from other views with debouncing
         this.eventSubscription = this.eventManager.onWorkItemUpdated(() => {
             // Don't refresh if we have pending moves (to avoid race conditions)
-            if (this._pendingMoves.size === 0) {
-                this._loadAndRender();
+            if (this._pendingMoves.size === 0 && !this._isLoading) {
+                // Debounce - wait 2 seconds before actually refreshing
+                if (this._loadDebounceTimer) {
+                    clearTimeout(this._loadDebounceTimer);
+                }
+                this._loadDebounceTimer = setTimeout(() => {
+                    outputChannel.appendLine('[Board] Debounced refresh triggered by work item update');
+                    this._loadAndRender();
+                }, 2000);
             }
         });
 
@@ -193,13 +205,27 @@ export class BoardPanel {
                         break;
                     case 'getCurrentUser':
                         const currentUser = await this.authenticationManager.getCurrentUser();
+                        // Try multiple fields to find the user's email/uniqueName
+                        const userEmail = currentUser?.uniqueName
+                            || currentUser?.emailAddress
+                            || currentUser?.providerDisplayName
+                            || currentUser?.mailAddress
+                            || currentUser?.properties?.Account?.$value
+                            || currentUser?.properties?.Mail?.$value
+                            || '';
+
+                        outputChannel.appendLine(`[Board] getCurrentUser extracted email: "${userEmail}" from user: ${JSON.stringify(currentUser)}`);
+
                         this._panel.webview.postMessage({
                             command: 'setCurrentUser',
-                            email: currentUser?.uniqueName || currentUser?.emailAddress || ''
+                            email: userEmail
                         });
                         break;
                     case 'saveFilterState':
                         this._filterState = message.filterState || {};
+                        break;
+                    case 'debugLog':
+                        outputChannel.appendLine(`[Webview] ${message.text}`);
                         break;
                     case 'updateWorkItemTitle':
                         await this._updateWorkItemTitle(message.workItemId, message.title);
@@ -234,11 +260,20 @@ export class BoardPanel {
 
     private _teamMembers: Array<{displayName: string, uniqueName: string}> = [];
     private _currentIterationPath: string | null = null;
+    private _teamAreaPath: string | null = null;
 
     private async _loadAndRender(fullRefresh: boolean = false) {
+        // Prevent concurrent loads
+        if (this._isLoading && !fullRefresh) {
+            outputChannel.appendLine('[Board] Already loading, skipping duplicate request');
+            return;
+        }
+
         try {
+            this._isLoading = true;
             // Update last refresh time
             this._lastRefreshTime = Date.now();
+            outputChannel.appendLine(`[Board] Starting load (fullRefresh: ${fullRefresh})`);
 
             // Only reload metadata on full refresh or if not loaded yet
             if (fullRefresh || this.availableBoards.length === 0) {
@@ -253,8 +288,14 @@ export class BoardPanel {
             if (fullRefresh || this._teamMembers.length === 0) {
                 this._teamMembers = await this._getTeamMembers();
             }
+            if (fullRefresh || this._teamIterations.length === 0) {
+                this._teamIterations = await this._getAllTeamIterations();
+            }
             if (fullRefresh || !this._currentIterationPath) {
                 this._currentIterationPath = await this._getCurrentIteration();
+            }
+            if (fullRefresh || !this._teamAreaPath) {
+                this._teamAreaPath = await this._getTeamAreaPath();
             }
 
             // Always reload board data (this is what changes frequently)
@@ -306,9 +347,8 @@ export class BoardPanel {
                     });
                 });
 
-                // Update team members list
-                this._teamMembers = Array.from(uniqueAssignees.values())
-                    .sort((a, b) => a.displayName.localeCompare(b.displayName));
+                // Note: _teamMembers is loaded from the team API in _loadAndRender(),
+                // NOT from work item assignees. This ensures we only show actual team members.
             }
 
             this._panel.webview.html = this._getHtmlForWebview();
@@ -323,19 +363,162 @@ export class BoardPanel {
                     });
                 }, 100);
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error('Failed to load board:', error);
-            this._panel.webview.html = this._getErrorHtml('Failed to load board data');
+            outputChannel.appendLine(`[Board] Failed to load board: ${error.message || error}`);
+
+            let message = 'Failed to Load Board';
+            let details = '';
+            let actionable = '';
+
+            if (error.message?.includes('Team selection is required')) {
+                message = 'Team Selection Required';
+                details = 'Board view requires a team to be configured. This is needed to load board columns and work items from Azure DevOps.';
+                actionable = 'Please close this panel and try opening the board again. You will be prompted to select a team.';
+            } else if (error.message?.includes('Team configuration is missing')) {
+                message = 'Team Configuration Missing';
+                details = 'The team configuration was lost after selection. This might be a configuration issue.';
+                actionable = 'Please run "Azure DevOps: Setup Connection Wizard" from the command palette to reconfigure your connection.';
+            } else if (error.response?.status === 404) {
+                message = 'Board Not Found';
+                details = 'The requested board could not be found. It may have been deleted, renamed, or you may not have access to it.';
+                actionable = 'Try selecting a different board from the Boards view, or verify your team permissions in Azure DevOps.';
+            } else if (error.response?.status === 401 || error.response?.status === 403) {
+                message = 'Authentication Error';
+                details = 'Your session may have expired or you do not have permission to access this board.';
+                actionable = 'Try reconnecting: Run "Azure DevOps: Connect" from the command palette (Cmd/Ctrl+Shift+P).';
+            } else if (error.message?.includes('Not connected')) {
+                message = 'Not Connected to Azure DevOps';
+                details = 'You need to connect to Azure DevOps before viewing boards.';
+                actionable = 'Run "Azure DevOps: Connect" from the command palette to sign in and configure your connection.';
+            } else if (error.code === 'ENOTFOUND' || error.code === 'ETIMEDOUT') {
+                message = 'Network Error';
+                details = 'Unable to reach Azure DevOps. Please check your internet connection.';
+                actionable = 'Verify you are connected to the internet and try again. If using a VPN, ensure it is properly configured.';
+            } else {
+                message = 'Failed to Load Board';
+                details = error.message || 'An unexpected error occurred while loading the board.';
+                actionable = 'Check the Output panel (View → Output → Azure DevOps) for more details, or try refreshing the board.';
+            }
+
+            this._panel.webview.html = this._getErrorHtml(message, details, actionable);
+        } finally {
+            this._isLoading = false;
         }
+    }
+
+    /**
+     * Ensure team is selected before loading board data
+     * Returns true if team is available, false if user cancelled selection
+     */
+    private async _ensureTeamSelected(): Promise<boolean> {
+        const config = this.authenticationManager.getConfig();
+
+        if (!config) {
+            return false;
+        }
+
+        // Check if team is missing or empty string
+        if (!config.defaultTeam || config.defaultTeam.trim() === '') {
+            outputChannel.appendLine('[Board] Team not configured, prompting user to select team...');
+
+            const session = await this.authenticationManager.getSession();
+            if (!session) {
+                vscode.window.showErrorMessage('Please sign in to Azure DevOps first.');
+                return false;
+            }
+
+            try {
+                // Get available teams for the project using direct API call
+                const axios = require('axios');
+                const teamsUrl = `${config.organizationUrl}/_apis/projects/${encodeURIComponent(config.defaultProject || '')}/teams`;
+
+                const teamsResponse = await axios.get(teamsUrl, {
+                    headers: { 'Authorization': `Bearer ${session.accessToken}` },
+                    params: { 'api-version': '7.1-preview.3' }
+                });
+
+                const teams = teamsResponse.data.value || [];
+
+                if (teams.length === 0) {
+                    vscode.window.showWarningMessage(
+                        'No teams found in this project. Board view requires a team to be configured.'
+                    );
+                    return false;
+                }
+
+                // Prompt user to select team
+                interface TeamQuickPickItem extends vscode.QuickPickItem {
+                    team: { name: string; id: string; url: string };
+                }
+
+                const teamItems: TeamQuickPickItem[] = teams.map((team: any) => ({
+                    label: `$(people) ${team.name}`,
+                    description: team.url,
+                    team: team
+                }));
+
+                const selectedItem = await vscode.window.showQuickPick<TeamQuickPickItem>(teamItems, {
+                    title: 'Select Team for Board View',
+                    placeHolder: 'Choose a team to load board data...',
+                    canPickMany: false
+                });
+
+                if (selectedItem) {
+                    const selectedTeam = selectedItem.team;
+
+                    // Save team to VS Code configuration
+                    await vscode.workspace.getConfiguration('azureDevOps')
+                        .update('defaultTeam', selectedTeam.name, vscode.ConfigurationTarget.Global);
+
+                    // Update auth manager config
+                    this.authenticationManager.setConfig({
+                        ...config,
+                        defaultTeam: selectedTeam.name
+                    });
+
+                    outputChannel.appendLine(`[Board] Team selected: ${selectedTeam.name}`);
+                    vscode.window.showInformationMessage(`Team selected: ${selectedTeam.name}`);
+                    return true;
+                } else {
+                    outputChannel.appendLine('[Board] User cancelled team selection');
+                    return false;
+                }
+            } catch (error) {
+                console.error('Failed to select team:', error);
+                outputChannel.appendLine(`[Board] Failed to select team: ${error}`);
+                vscode.window.showErrorMessage('Failed to select team. Please try again.');
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private async _loadBoardData(): Promise<void> {
         const axiosInstance = this.authenticationManager.getAxiosInstance();
-        const config = this.authenticationManager.getConfig();
+        let config = this.authenticationManager.getConfig();
 
-        if (!axiosInstance || !config?.defaultProject || !config?.defaultTeam) {
+        if (!axiosInstance || !config?.defaultProject) {
             throw new Error('Not connected to Azure DevOps');
         }
+
+        // Ensure team is selected before proceeding
+        const teamSelected = await this._ensureTeamSelected();
+        if (!teamSelected) {
+            throw new Error('Team selection is required for board view. Please select a team and try again.');
+        }
+
+        // Reload config after potential team selection
+        config = this.authenticationManager.getConfig();
+
+        if (!config?.defaultTeam) {
+            throw new Error('Team configuration is missing');
+        }
+
+        outputChannel.appendLine(`[Board] Loading board: ${this.boardName} (ID: ${this.boardId})`);
+        outputChannel.appendLine(`[Board] Project: ${config.defaultProject}, Team: ${config.defaultTeam}`);
+        outputChannel.appendLine(`[Board] ⚠️ VERIFY THIS IS YOUR CORRECT TEAM! ⚠️`);
 
         // Get the backlog work item types for this specific board
         // First, get the team's backlog configuration to map board names to work item types
@@ -344,7 +527,7 @@ export class BoardPanel {
         try {
             // Get team settings which includes backlog configuration
             const backlogsResponse = await axiosInstance.get(
-                `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/backlogs`
+                `/${encodeURIComponent(config.defaultProject || '')}/${encodeURIComponent(config.defaultTeam || '')}/_apis/work/backlogs`
             );
 
             const backlogs = backlogsResponse.data.value || [];
@@ -364,7 +547,7 @@ export class BoardPanel {
 
         // Load board columns
         const columnsResponse = await axiosInstance.get(
-            `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/boards/${this.boardId}/columns`
+            `/${encodeURIComponent(config.defaultProject || '')}/${encodeURIComponent(config.defaultTeam || '')}/_apis/work/boards/${this.boardId}/columns`
         );
 
         const columns: BoardColumn[] = (columnsResponse.data.value || []).map((col: any) => ({
@@ -376,6 +559,13 @@ export class BoardPanel {
             description: col.description || '',
             columnType: col.columnType || 'inProgress'
         }));
+
+        // DEBUG: Log all columns and their state mappings
+        outputChannel.appendLine(`[Board] Loaded ${columns.length} columns:`);
+        columns.forEach(col => {
+            const states = Object.values(col.stateMappings);
+            outputChannel.appendLine(`[Board]   - "${col.name}": states = [${states.join(', ')}]`);
+        });
 
         // Load work items for the board using WIQL
         const workItemsMap = new Map<string, BoardWorkItem[]>();
@@ -394,65 +584,93 @@ export class BoardPanel {
             workItemTypeFilter = `AND (${typeConditions})`;
         }
 
-        // Query work items for all columns
-        for (const column of columns) {
-            try {
-                const wiql = `SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo], [Microsoft.VSTS.Common.Priority], [System.Tags], [System.AreaPath], [System.IterationPath]
-                              FROM WorkItems
-                              WHERE [System.TeamProject] = @project
-                              AND [System.BoardColumn] = '${column.name.replace(/'/g, "''")}'
-                              ${workItemTypeFilter}
-                              ORDER BY [Microsoft.VSTS.Common.BacklogPriority]`;
+        // Query work items using smart strategy to avoid duplicates
+        outputChannel.appendLine(`[Board] Loading columns...`);
+        const loadStartTime = Date.now();
 
-                const wiqlResponse = await axiosInstance.post(
-                    `/${encodeURIComponent(config.defaultProject)}/_apis/wit/wiql`,
-                    { query: wiql }
-                );
+        // STRATEGY 1: Try Board Items API (same as browser) - gets specific work items on the board
+        let allWorkItems: BoardWorkItem[] = [];
+        try {
+            allWorkItems = await this._queryBoardItems(columns, axiosInstance, config);
+            if (allWorkItems.length > 0) {
+                outputChannel.appendLine(`[Board] ✓ Using Board Items API (${allWorkItems.length} total items)`);
 
-                const workItemRefs = wiqlResponse.data.workItems || [];
-
-                if (workItemRefs.length > 0) {
-                    const workItemIds = workItemRefs.slice(0, 100).map((item: any) => item.id).join(',');
-                    const detailsResponse = await axiosInstance.get('/_apis/wit/workitems', {
-                        params: {
-                            'ids': workItemIds,
-                            '$expand': 'relations',
-                            'api-version': '7.1'
-                        }
-                    });
-
-                    const workItems: BoardWorkItem[] = (detailsResponse.data.value || []).map((item: any) => {
-                        const workItem: any = {
-                            id: item.id,
-                            title: item.fields['System.Title'],
-                            state: item.fields['System.State'],
-                            type: item.fields['System.WorkItemType'],
-                            assignedTo: item.fields['System.AssignedTo'],
-                            priority: item.fields['Microsoft.VSTS.Common.Priority'],
-                            tags: item.fields['System.Tags'],
-                            areaPath: item.fields['System.AreaPath'],
-                            iterationPath: item.fields['System.IterationPath'],
-                            boardColumn: item.fields['System.BoardColumn'] || column.name,
-                            effort: item.fields['Microsoft.VSTS.Scheduling.Effort']
-                        };
-                        // Store relations temporarily for child work items loading
-                        if (item.relations) {
-                            workItem._tempRelations = item.relations;
-                        }
-                        return workItem;
-                    });
-
-                    workItemsMap.set(column.name, workItems);
+                // Distribute items to columns based on their column field
+                for (const item of allWorkItems) {
+                    const columnName = item.boardColumn || this._findColumnForWorkItem(item, columns) || 'Unknown';
+                    if (!workItemsMap.has(columnName)) {
+                        workItemsMap.set(columnName, []);
+                    }
+                    workItemsMap.get(columnName)!.push(item);
                 }
-            } catch (error) {
-                console.error(`Failed to load work items for column ${column.name}:`, error);
+            }
+        } catch (error: any) {
+            outputChannel.appendLine(`[Board] Board Items API failed: ${error?.message || error}`);
+        }
+
+        // STRATEGY 2: Try BoardColumn WIQL query
+        if (allWorkItems.length === 0) {
+            allWorkItems = await this._queryAllWorkItemsByBoardColumn(
+                columns,
+                workItemTypeFilter,
+                axiosInstance,
+                config
+            );
+
+            if (allWorkItems.length > 0) {
+                // BoardColumn query worked - distribute items to columns
+                outputChannel.appendLine(`[Board] ✓ Using System.BoardColumn query (${allWorkItems.length} total items)`);
+                for (const item of allWorkItems) {
+                    const columnName = item.boardColumn || 'Unknown';
+                    if (!workItemsMap.has(columnName)) {
+                        workItemsMap.set(columnName, []);
+                    }
+                    workItemsMap.get(columnName)!.push(item);
+                }
             }
         }
+
+        // STRATEGY 3: Fallback to state-based query
+        if (allWorkItems.length === 0) {
+            outputChannel.appendLine(`[Board] Using state-based distribution as fallback...`);
+            const allWorkItemsByState = await this._queryAllWorkItemsByState(
+                columns,
+                workItemTypeFilter,
+                axiosInstance,
+                config
+            );
+
+            outputChannel.appendLine(`[Board] ✓ Loaded ${allWorkItemsByState.length} work items, distributing to columns...`);
+
+            // DEBUG: Log unique states found in work items
+            const uniqueStates = new Set<string>();
+            allWorkItemsByState.forEach(item => uniqueStates.add(item.state));
+            outputChannel.appendLine(`[Board] Unique states in work items: [${Array.from(uniqueStates).join(', ')}]`);
+
+            // Distribute items to columns based on state (each item goes to ONE column)
+            for (const item of allWorkItemsByState) {
+                const columnName = this._findColumnForWorkItem(item, columns);
+                if (columnName) {
+                    if (!workItemsMap.has(columnName)) {
+                        workItemsMap.set(columnName, []);
+                    }
+                    workItemsMap.get(columnName)!.push(item);
+                }
+            }
+        }
+
+        // Log distribution
+        for (const [columnName, items] of workItemsMap.entries()) {
+            outputChannel.appendLine(`[Board] Column "${columnName}": ${items.length} items`);
+        }
+
+        outputChannel.appendLine(`[Board] Loaded ${columns.length} columns in ${Date.now() - loadStartTime}ms`);
 
         // Fetch all child work items in a single batch
         try {
             await this._loadChildWorkItems(workItemsMap, axiosInstance);
         } catch (error) {
+            outputChannel.appendLine(`[Board] Failed to load child work items: ${error}`);
             console.error('Failed to load child work items:', error);
         }
 
@@ -464,8 +682,406 @@ export class BoardPanel {
         };
     }
 
+    /**
+     * Query work items using Board Items API (same approach as browser)
+     * This API returns the specific work items that are on the board
+     */
+    private async _queryBoardItems(
+        columns: BoardColumn[],
+        axiosInstance: any,
+        config: any
+    ): Promise<BoardWorkItem[]> {
+        try {
+            // Use the board items API to get work items on this board
+            const response = await axiosInstance.get(
+                `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/boards/${this.boardId}/boarditems`,
+                { params: { 'api-version': '7.1-preview.1' } }
+            );
+
+            outputChannel.appendLine(`[Board] Board Items API response structure: ${JSON.stringify(Object.keys(response.data), null, 2)}`);
+
+            // The response contains work item references grouped by column
+            const boardRows = response.data.workItemRelations || [];
+
+            if (boardRows.length === 0) {
+                outputChannel.appendLine('[Board] No work items found in board items API');
+                return [];
+            }
+
+            // Collect all work item IDs from the board
+            const workItemIds: number[] = [];
+            for (const row of boardRows) {
+                if (row.target?.id) {
+                    workItemIds.push(row.target.id);
+                }
+            }
+
+            if (workItemIds.length === 0) {
+                outputChannel.appendLine('[Board] No work item IDs found in board response');
+                return [];
+            }
+
+            outputChannel.appendLine(`[Board] Found ${workItemIds.length} work item IDs from board API`);
+
+            // Fetch details for all work items
+            const workItemIdsStr = workItemIds.join(',');
+            const detailsResponse = await axiosInstance.get(`/${encodeURIComponent(config.defaultProject || '')}/_apis/wit/workitems`, {
+                params: {
+                    'ids': workItemIdsStr,
+                    'api-version': '7.1',
+                    '$expand': 'relations'
+                }
+            });
+
+            const workItems = detailsResponse.data.value || [];
+            outputChannel.appendLine(`[Board] Fetched details for ${workItems.length} work items`);
+
+            // Convert to BoardWorkItem format
+            return workItems.map((item: any) => ({
+                id: item.id,
+                title: item.fields['System.Title'] || '',
+                state: item.fields['System.State'] || '',
+                assignedTo: item.fields['System.AssignedTo']?.displayName || null,
+                workItemType: item.fields['System.WorkItemType'] || '',
+                priority: item.fields['Microsoft.VSTS.Common.Priority'] || 0,
+                tags: item.fields['System.Tags'] || '',
+                areaPath: item.fields['System.AreaPath'] || '',
+                iterationPath: item.fields['System.IterationPath'] || '',
+                boardColumn: item.fields['System.BoardColumn'] || null,
+                children: [],
+                relations: item.relations || []
+            }));
+        } catch (error: any) {
+            outputChannel.appendLine(`[Board] Board Items API error: ${error?.message || error}`);
+            if (error?.response?.status) {
+                outputChannel.appendLine(`[Board] Status: ${error.response.status}`);
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * Find the correct column for a work item based on its type and state
+     * Each column has state mappings keyed by work item type
+     */
+    private _findColumnForWorkItem(item: BoardWorkItem, columns: BoardColumn[]): string | null {
+        // DEBUG: Log first few items
+        if (Math.random() < 0.05) { // Log 5% of items to avoid spam
+            outputChannel.appendLine(`[Board] Finding column for item #${item.id} (${item.title.substring(0, 30)}...) type: "${item.type}", state: "${item.state}"`);
+        }
+
+        // Check each column's state mappings to find where this item belongs
+        // State mappings are keyed by work item type, so we need to check BOTH type and state
+        for (const column of columns) {
+            // DEBUG: Log column state mappings for first check
+            if (Math.random() < 0.02) {
+                outputChannel.appendLine(`[Board]   Column "${column.name}" state mappings: ${JSON.stringify(column.stateMappings)}`);
+            }
+
+            // Check if this column has a mapping for this work item type AND the state matches
+            if (column.stateMappings[item.type] === item.state) {
+                if (Math.random() < 0.05) {
+                    outputChannel.appendLine(`[Board]   ✓ Matched column: "${column.name}" (${item.type}: ${item.state})`);
+                }
+                return column.name;
+            }
+        }
+
+        outputChannel.appendLine(`[Board]   ✗ No column found for type "${item.type}" with state "${item.state}" on item #${item.id}`);
+        return null;
+    }
+
+    /**
+     * Query ALL work items using BoardColumn (for all columns at once)
+     */
+    private async _queryAllWorkItemsByBoardColumn(
+        columns: BoardColumn[],
+        workItemTypeFilter: string,
+        axiosInstance: any,
+        config: any
+    ): Promise<BoardWorkItem[]> {
+        // Build area path filter
+        let areaFilter = '';
+        if (this._teamAreaPath) {
+            areaFilter = `AND [System.AreaPath] UNDER '${this._teamAreaPath.replace(/'/g, "''")}'`;
+        }
+
+        // Build column filter - get items from ANY of these columns
+        const columnNames = columns.map(c => `[System.BoardColumn] = '${c.name.replace(/'/g, "''")}'`).join(' OR ');
+
+        const wiql = `SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType],
+                             [System.AssignedTo], [Microsoft.VSTS.Common.Priority], [System.Tags],
+                             [System.AreaPath], [System.IterationPath], [System.BoardColumn]
+                      FROM WorkItems
+                      WHERE [System.TeamProject] = @project
+                      AND (${columnNames})
+                      ${areaFilter}
+                      ${workItemTypeFilter}
+                      ORDER BY [Microsoft.VSTS.Common.BacklogPriority]`;
+
+        try {
+            const wiqlResponse = await axiosInstance.post(
+                `/${encodeURIComponent(config.defaultProject || '')}/_apis/wit/wiql`,
+                { query: wiql }
+            );
+
+            const workItemRefs = wiqlResponse.data.workItems || [];
+            if (workItemRefs.length === 0) {
+                return [];
+            }
+
+            return await this._fetchWorkItemDetails(workItemRefs, axiosInstance, columns[0]);
+        } catch (error) {
+            console.error('BoardColumn query failed:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Query ALL work items using State (fallback when BoardColumn not available)
+     */
+    private async _queryAllWorkItemsByState(
+        columns: BoardColumn[],
+        workItemTypeFilter: string,
+        axiosInstance: any,
+        config: any
+    ): Promise<BoardWorkItem[]> {
+        // Build area path filter
+        let areaFilter = '';
+        if (this._teamAreaPath) {
+            areaFilter = `AND [System.AreaPath] UNDER '${this._teamAreaPath.replace(/'/g, "''")}'`;
+            outputChannel.appendLine(`[Board] Filtering by area path: ${this._teamAreaPath}`);
+        }
+
+        // NOTE: Not filtering by iteration in WIQL to avoid query complexity
+        // With many team iterations (37+), the WIQL query becomes too large and fails with 400
+        // The UI filter will handle iteration filtering client-side
+        const iterationFilter = '';
+        outputChannel.appendLine(`[Board] No iteration filter in WIQL (will filter client-side in UI)`);
+
+        // Collect ALL states from ALL columns
+        const allStates = new Set<string>();
+        columns.forEach(column => {
+            Object.values(column.stateMappings).forEach(state => allStates.add(state));
+        });
+
+        if (allStates.size === 0) {
+            outputChannel.appendLine('[Board] No state mappings found in any column');
+            return [];
+        }
+
+        // Build state filter
+        const stateConditions = Array.from(allStates)
+            .map(state => `[System.State] = '${state.replace(/'/g, "''")}'`)
+            .join(' OR ');
+
+        // NOTE: WIQL doesn't support TOP keyword - default limit is 20000 items
+        const wiql = `SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType],
+                             [System.AssignedTo], [Microsoft.VSTS.Common.Priority], [System.Tags],
+                             [System.AreaPath], [System.IterationPath]
+                      FROM WorkItems
+                      WHERE [System.TeamProject] = @project
+                      AND (${stateConditions})
+                      ${areaFilter}
+                      ${iterationFilter}
+                      ${workItemTypeFilter}
+                      ORDER BY [Microsoft.VSTS.Common.BacklogPriority] DESC`;
+
+        outputChannel.appendLine(`[Board] Full WIQL query:\n${wiql}`);
+
+        try {
+            const wiqlResponse = await axiosInstance.post(
+                `/${encodeURIComponent(config.defaultProject || '')}/_apis/wit/wiql`,
+                { query: wiql }
+            );
+
+            const workItemRefs = wiqlResponse.data.workItems || [];
+            outputChannel.appendLine(`[Board] WIQL returned ${workItemRefs.length} work item references`);
+
+            if (workItemRefs.length === 0) {
+                return [];
+            }
+
+            return await this._fetchWorkItemDetails(workItemRefs, axiosInstance, columns[0]);
+        } catch (error: any) {
+            outputChannel.appendLine(`[Board] WIQL query failed with error: ${error?.message}`);
+            if (error?.response?.data) {
+                outputChannel.appendLine(`[Board] Error details: ${JSON.stringify(error.response.data, null, 2)}`);
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * Query work items using System.BoardColumn field
+     */
+    private async _queryByBoardColumn(
+        column: BoardColumn,
+        workItemTypeFilter: string,
+        axiosInstance: any,
+        config: any
+    ): Promise<BoardWorkItem[]> {
+        // Build area path filter - use team area if available (keep this one)
+        let areaFilter = '';
+        if (this._teamAreaPath) {
+            areaFilter = `AND [System.AreaPath] UNDER '${this._teamAreaPath.replace(/'/g, "''")}'`;
+            outputChannel.appendLine(`[Board] Filtering by team area: ${this._teamAreaPath}`);
+        }
+
+        // NOTE: NOT filtering by iteration in WIQL - we want all team iterations
+        // The UI filter will handle current iteration selection
+
+        const wiql = `SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType],
+                             [System.AssignedTo], [Microsoft.VSTS.Common.Priority], [System.Tags],
+                             [System.AreaPath], [System.IterationPath]
+                      FROM WorkItems
+                      WHERE [System.TeamProject] = @project
+                      AND [System.BoardColumn] = '${column.name.replace(/'/g, "''")}'
+                      ${areaFilter}
+                      ${workItemTypeFilter}
+                      ORDER BY [Microsoft.VSTS.Common.BacklogPriority]`;
+
+        const wiqlResponse = await axiosInstance.post(
+            `/${encodeURIComponent(config.defaultProject || '')}/_apis/wit/wiql`,
+            { query: wiql }
+        );
+
+        const workItemRefs = wiqlResponse.data.workItems || [];
+
+        if (workItemRefs.length === 0) {
+            return [];
+        }
+
+        return await this._fetchWorkItemDetails(workItemRefs, axiosInstance, column);
+    }
+
+    /**
+     * Query work items using System.State field (fallback for when BoardColumn is unavailable)
+     */
+    private async _queryByStateMappings(
+        column: BoardColumn,
+        workItemTypeFilter: string,
+        axiosInstance: any,
+        config: any
+    ): Promise<BoardWorkItem[]> {
+        // Use column's stateMappings to query by state
+        const states = Object.values(column.stateMappings);
+
+        if (states.length === 0) {
+            outputChannel.appendLine(`[Board] Column "${column.name}" has no state mappings, cannot query by state`);
+            return [];
+        }
+
+        // Build state filter: [System.State] IN ('State1', 'State2', ...)
+        const stateConditions = states
+            .map(state => `[System.State] = '${state.replace(/'/g, "''")}'`)
+            .join(' OR ');
+
+        // Build area path filter - use team area if available
+        let areaFilter = '';
+        if (this._teamAreaPath) {
+            areaFilter = `AND [System.AreaPath] UNDER '${this._teamAreaPath.replace(/'/g, "''")}'`;
+        }
+
+        const wiql = `SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType],
+                             [System.AssignedTo], [Microsoft.VSTS.Common.Priority], [System.Tags],
+                             [System.AreaPath], [System.IterationPath]
+                      FROM WorkItems
+                      WHERE [System.TeamProject] = @project
+                      AND (${stateConditions})
+                      ${areaFilter}
+                      ${workItemTypeFilter}
+                      ORDER BY [Microsoft.VSTS.Common.BacklogPriority]`;
+
+        const wiqlResponse = await axiosInstance.post(
+            `/${encodeURIComponent(config.defaultProject || '')}/_apis/wit/wiql`,
+            { query: wiql }
+        );
+
+        const workItemRefs = wiqlResponse.data.workItems || [];
+
+        if (workItemRefs.length === 0) {
+            return [];
+        }
+
+        return await this._fetchWorkItemDetails(workItemRefs, axiosInstance, column);
+    }
+
+    /**
+     * Fetch full work item details from work item references
+     * Batches requests in chunks of 200 (Azure DevOps API limit)
+     */
+    private async _fetchWorkItemDetails(
+        workItemRefs: any[],
+        axiosInstance: any,
+        column: BoardColumn
+    ): Promise<BoardWorkItem[]> {
+        if (workItemRefs.length === 0) {
+            return [];
+        }
+
+        const config = this.authenticationManager.getConfig();
+        if (!config) {
+            throw new Error('Configuration not available');
+        }
+
+        outputChannel.appendLine(`[Board] Fetching details for ${workItemRefs.length} work items in batches of 200`);
+
+        // Azure DevOps API supports up to 200 work items per request
+        const BATCH_SIZE = 200;
+        const allWorkItems: BoardWorkItem[] = [];
+
+        // Split work item IDs into batches
+        for (let i = 0; i < workItemRefs.length; i += BATCH_SIZE) {
+            const batch = workItemRefs.slice(i, i + BATCH_SIZE);
+            const workItemIds = batch.map((item: any) => item.id).join(',');
+
+            outputChannel.appendLine(`[Board] Fetching batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(workItemRefs.length / BATCH_SIZE)} (${batch.length} items)`);
+
+            const detailsResponse = await axiosInstance.get(`/${encodeURIComponent(config.defaultProject || '')}/_apis/wit/workitems`, {
+                params: {
+                    'ids': workItemIds,
+                    '$expand': 'relations',
+                    'api-version': '7.1'
+                }
+            });
+
+            const batchWorkItems = (detailsResponse.data.value || []).map((item: any) => {
+                const workItem: any = {
+                    id: item.id,
+                    title: item.fields['System.Title'],
+                    state: item.fields['System.State'],
+                    type: item.fields['System.WorkItemType'],
+                    assignedTo: item.fields['System.AssignedTo'],
+                    priority: item.fields['Microsoft.VSTS.Common.Priority'],
+                    tags: item.fields['System.Tags'],
+                    areaPath: item.fields['System.AreaPath'],
+                    iterationPath: item.fields['System.IterationPath'],
+                    boardColumn: item.fields['System.BoardColumn'] || column.name,
+                    effort: item.fields['Microsoft.VSTS.Scheduling.Effort']
+                };
+                // Store relations temporarily for child work items loading
+                if (item.relations) {
+                    workItem._tempRelations = item.relations;
+                }
+                return workItem;
+            });
+
+            allWorkItems.push(...batchWorkItems);
+        }
+
+        outputChannel.appendLine(`[Board] ✓ Fetched ${allWorkItems.length} work items total`);
+        return allWorkItems;
+    }
+
     private async _loadChildWorkItems(workItemsMap: Map<string, BoardWorkItem[]>, axiosInstance: any): Promise<void> {
         try {
+            const config = this.authenticationManager.getConfig();
+            if (!config) {
+                outputChannel.appendLine('[Board] Configuration not available, skipping child work items');
+                return;
+            }
+
             // Collect all child work item IDs from all parent work items
             const allChildIds = new Set<string>();
             const parentToChildMap = new Map<number, string[]>(); // Maps parent ID to array of child IDs
@@ -497,15 +1113,18 @@ export class BoardPanel {
 
             // If we have child IDs, fetch them all in one batch
             if (allChildIds.size > 0) {
+                outputChannel.appendLine(`[Board] Loading ${allChildIds.size} child work items...`);
                 const childIdsString = Array.from(allChildIds).join(',');
 
-                const childrenResponse = await axiosInstance.get('/_apis/wit/workitems', {
+                const childrenResponse = await axiosInstance.get(`/${encodeURIComponent(config.defaultProject || '')}/_apis/wit/workitems`, {
                     params: {
                         'ids': childIdsString,
                         'fields': 'System.Id,System.Title,System.State,System.WorkItemType',
                         'api-version': '7.1'
                     }
                 });
+
+                outputChannel.appendLine(`[Board] ✓ Loaded ${childrenResponse.data.value?.length || 0} child work items`);
 
                 // Create a map of child ID to child data for quick lookup
                 const childDataMap = new Map<number, any>();
@@ -534,6 +1153,7 @@ export class BoardPanel {
                     }
                 }
             } else {
+                outputChannel.appendLine(`[Board] No child work items found, skipping child loading`);
                 // Clean up relations from all work items even if no children
                 for (const [, workItems] of workItemsMap.entries()) {
                     for (const workItem of workItems) {
@@ -541,7 +1161,8 @@ export class BoardPanel {
                     }
                 }
             }
-        } catch (error) {
+        } catch (error: any) {
+            outputChannel.appendLine(`[Board] Failed to load child work items: ${error?.message || error}`);
             console.error('Failed to load child work items:', error);
             // Clean up relations even on error
             for (const [, workItems] of workItemsMap.entries()) {
@@ -556,20 +1177,29 @@ export class BoardPanel {
         // Track this move as pending to prevent race conditions with refresh
         this._pendingMoves.add(workItemId);
 
+        outputChannel.appendLine(`[Board] Moving work item #${workItemId} to column "${targetColumn}" with state "${targetState}"`);
+
         try {
             const axiosInstance = this.authenticationManager.getAxiosInstance();
-            if (!axiosInstance) {
+            const config = this.authenticationManager.getConfig();
+            if (!axiosInstance || !config) {
                 throw new Error('Not connected');
             }
 
             // Update work item state
+            const url = `/${encodeURIComponent(config.defaultProject || '')}/_apis/wit/workitems/${workItemId}`;
+            outputChannel.appendLine(`[Board] PATCH URL: ${url}`);
+            outputChannel.appendLine(`[Board] Setting state to: ${targetState}`);
+
             await axiosInstance.patch(
-                `/_apis/wit/workitems/${workItemId}`,
+                url,
                 [
                     { op: 'replace', path: '/fields/System.State', value: targetState }
                 ],
                 { headers: { 'Content-Type': 'application/json-patch+json' } }
             );
+
+            outputChannel.appendLine(`[Board] ✓ Successfully moved work item #${workItemId}`);
 
             // Broadcast state change to all views
             this.eventManager.notifyWorkItemUpdated({
@@ -595,6 +1225,15 @@ export class BoardPanel {
         } catch (error: any) {
             // Remove from pending moves immediately on error
             this._pendingMoves.delete(workItemId);
+
+            outputChannel.appendLine(`[Board] ✗ Failed to move work item #${workItemId}`);
+            outputChannel.appendLine(`[Board] Error: ${error?.message || error}`);
+            if (error?.response?.status) {
+                outputChannel.appendLine(`[Board] HTTP Status: ${error.response.status}`);
+            }
+            if (error?.response?.data) {
+                outputChannel.appendLine(`[Board] Error details: ${JSON.stringify(error.response.data, null, 2)}`);
+            }
 
             // Send failure message to webview for rollback
             this._panel.webview.postMessage({
@@ -656,7 +1295,8 @@ export class BoardPanel {
     private async _assignToMe(workItemId: number): Promise<void> {
         try {
             const axiosInstance = this.authenticationManager.getAxiosInstance();
-            if (!axiosInstance) {
+            const config = this.authenticationManager.getConfig();
+            if (!axiosInstance || !config) {
                 throw new Error('Not connected');
             }
 
@@ -666,7 +1306,7 @@ export class BoardPanel {
             }
 
             await axiosInstance.patch(
-                `/_apis/wit/workitems/${workItemId}`,
+                `/${encodeURIComponent(config.defaultProject || '')}/_apis/wit/workitems/${workItemId}`,
                 [{ op: 'replace', path: '/fields/System.AssignedTo', value: currentUser.uniqueName }],
                 { headers: { 'Content-Type': 'application/json-patch+json' } }
             );
@@ -720,12 +1360,13 @@ export class BoardPanel {
     private async _changeState(workItemId: number, newState: string): Promise<void> {
         try {
             const axiosInstance = this.authenticationManager.getAxiosInstance();
-            if (!axiosInstance) {
+            const config = this.authenticationManager.getConfig();
+            if (!axiosInstance || !config) {
                 throw new Error('Not connected');
             }
 
             await axiosInstance.patch(
-                `/_apis/wit/workitems/${workItemId}`,
+                `/${encodeURIComponent(config.defaultProject || '')}/_apis/wit/workitems/${workItemId}`,
                 [{ op: 'replace', path: '/fields/System.State', value: newState }],
                 { headers: { 'Content-Type': 'application/json-patch+json' } }
             );
@@ -1081,7 +1722,7 @@ export class BoardPanel {
 
             // Update the work item's iteration path
             await axiosInstance.patch(
-                `/_apis/wit/workitems/${workItemId}`,
+                `/${encodeURIComponent(config.defaultProject || '')}/_apis/wit/workitems/${workItemId}`,
                 [{ op: 'replace', path: '/fields/System.IterationPath', value: selected.iterationPath }],
                 { headers: { 'Content-Type': 'application/json-patch+json' } }
             );
@@ -1127,52 +1768,63 @@ export class BoardPanel {
                     })).filter((m: any) => m.displayName && m.uniqueName);
 
                     members.push(...teamMembers);
-                    console.log(`Loaded ${teamMembers.length} team members`);
+                    outputChannel.appendLine(`[Board] Loaded ${teamMembers.length} team members from team "${config.defaultTeam}"`);
                 } catch (teamError) {
+                    outputChannel.appendLine(`[Board] Failed to load team members: ${teamError}`);
                     console.error('Failed to load team members:', teamError);
                 }
+            } else {
+                outputChannel.appendLine('[Board] No team configured, cannot load team members');
             }
 
-            // Also get all project users as a fallback/supplement
-            try {
-                const identitiesResponse = await axiosInstance.get(
-                    `/_apis/projects/${encodeURIComponent(config.defaultProject)}/teams`,
-                    { params: { 'api-version': '7.0' } }
-                );
-
-                // Get members from all teams in the project
-                const teams = identitiesResponse.data.value || [];
-                // Increase limit to scan more teams (was 5)
-                for (const team of teams.slice(0, 20)) { 
-                    try {
-                        const teamMembersResponse = await axiosInstance.get(
-                            `/_apis/projects/${encodeURIComponent(config.defaultProject)}/teams/${encodeURIComponent(team.id)}/members`,
-                            { params: { 'api-version': '7.0' } }
-                        );
-
-                        const additionalMembers = (teamMembersResponse.data.value || []).map((member: any) => ({
-                            displayName: member.identity?.displayName || '',
-                            uniqueName: member.identity?.uniqueName || ''
-                        })).filter((m: any) => m.displayName && m.uniqueName);
-
-                        // Add unique members
-                        additionalMembers.forEach((newMember: {displayName: string, uniqueName: string}) => {
-                            if (!members.find(m => m.uniqueName === newMember.uniqueName)) {
-                                members.push(newMember);
-                            }
-                        });
-                    } catch (e) {
-                        // Skip this team if error
-                    }
-                }
-            } catch (projectError) {
-                console.error('Failed to load project users:', projectError);
-            }
-
-            console.log(`Total unique members: ${members.length}`);
+            outputChannel.appendLine(`[Board] Total team members: ${members.length}`);
             return members.sort((a, b) => a.displayName.localeCompare(b.displayName));
         } catch (error) {
             console.error('Failed to get team members:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Get ALL team iterations (past, current, and future) from Azure DevOps API
+     * According to official docs: https://learn.microsoft.com/en-us/rest/api/azure/devops/work/iterations/list
+     */
+    private async _getAllTeamIterations(): Promise<Array<{name: string, path: string, timeFrame: string}>> {
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+
+            if (!axiosInstance || !config?.defaultProject || !config?.defaultTeam) {
+                outputChannel.appendLine('[Board] Cannot get team iterations: missing config');
+                return [];
+            }
+
+            // Call WITHOUT $timeframe parameter to get ALL iterations (past, current, future)
+            const response = await axiosInstance.get(
+                `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/teamsettings/iterations`,
+                { params: { 'api-version': '7.1' } }
+            );
+
+            const iterations = response.data.value || [];
+            outputChannel.appendLine(`[Board] Loaded ${iterations.length} team iterations from API`);
+
+            // Map to simpler structure with timeFrame info
+            const mapped = iterations.map((iter: any) => ({
+                name: iter.name,
+                path: iter.path,
+                timeFrame: iter.attributes?.timeFrame || 'unknown'
+            }));
+
+            // Log iteration details for debugging
+            const futureCount = mapped.filter((i: any) => i.timeFrame === 'future').length;
+            const currentCount = mapped.filter((i: any) => i.timeFrame === 'current').length;
+            const pastCount = mapped.filter((i: any) => i.timeFrame === 'past').length;
+            outputChannel.appendLine(`[Board] Iterations: ${futureCount} future, ${currentCount} current, ${pastCount} past`);
+
+            return mapped;
+        } catch (error) {
+            console.error('Failed to get team iterations:', error);
+            outputChannel.appendLine(`[Board] Failed to get team iterations: ${error}`);
             return [];
         }
     }
@@ -1203,6 +1855,53 @@ export class BoardPanel {
             return null;
         } catch (error) {
             console.error('Failed to get current iteration:', error);
+            return null;
+        }
+    }
+
+    private async _getTeamAreaPath(): Promise<string | null> {
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+
+            if (!axiosInstance || !config?.defaultProject || !config?.defaultTeam) {
+                return null;
+            }
+
+            // The team settings response has a link to teamFieldValues - need to call it separately
+            const teamFieldValuesResponse = await axiosInstance.get(
+                `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/teamsettings/teamfieldvalues`,
+                { params: { 'api-version': '7.1' } }
+            );
+
+            // DEBUG: Log the team field values response
+            outputChannel.appendLine(`[Board] Team field values response: ${JSON.stringify(teamFieldValuesResponse.data, null, 2)}`);
+
+            // The response should have a field (usually Area Path) with values
+            if (teamFieldValuesResponse.data.field && teamFieldValuesResponse.data.field.referenceName === 'System.AreaPath') {
+                const values = teamFieldValuesResponse.data.values || [];
+                if (values.length > 0 && values[0].value) {
+                    const areaPath = values[0].value;
+                    outputChannel.appendLine(`[Board] Team area path: ${areaPath}`);
+                    return areaPath;
+                }
+            }
+
+            // Fallback: try defaultValue
+            if (teamFieldValuesResponse.data.defaultValue) {
+                const areaPath = teamFieldValuesResponse.data.defaultValue;
+                outputChannel.appendLine(`[Board] Team area path (from defaultValue): ${areaPath}`);
+                return areaPath;
+            }
+
+            outputChannel.appendLine('[Board] No team area path found in teamFieldValues response');
+            return null;
+        } catch (error: any) {
+            console.error('Failed to get team area path:', error);
+            outputChannel.appendLine(`[Board] Failed to get team area path: ${error?.message || error}`);
+            if (error?.response?.data) {
+                outputChannel.appendLine(`[Board] Error details: ${JSON.stringify(error.response.data, null, 2)}`);
+            }
             return null;
         }
     }
@@ -1397,13 +2096,16 @@ export class BoardPanel {
 </html>`;
     }
 
-    private _getErrorHtml(message: string): string {
+    private _getErrorHtml(message: string, details?: string, actionable?: string): string {
+        const detailsHtml = details ? `<p class="error-details">${this._escapeHtml(details)}</p>` : '';
+        const actionableHtml = actionable ? `<div class="error-actionable">${this._escapeHtml(actionable)}</div>` : '';
+
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Error</title>
+    <title>Board Error</title>
     <style>
         body {
             font-family: var(--vscode-font-family);
@@ -1414,23 +2116,54 @@ export class BoardPanel {
             justify-content: center;
             height: 100vh;
             margin: 0;
+            padding: 20px;
         }
         .error {
             text-align: center;
-            padding: 20px;
+            padding: 30px;
+            max-width: 600px;
         }
         .error-icon {
             font-size: 48px;
             margin-bottom: 16px;
         }
+        .error-message {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 12px;
+            color: var(--vscode-errorForeground);
+        }
+        .error-details {
+            font-size: 14px;
+            color: var(--vscode-descriptionForeground);
+            margin-bottom: 16px;
+            line-height: 1.5;
+        }
+        .error-actionable {
+            font-size: 14px;
+            background: var(--vscode-textBlockQuote-background);
+            border-left: 4px solid var(--vscode-textBlockQuote-border);
+            padding: 16px;
+            margin: 20px 0;
+            text-align: left;
+            border-radius: 4px;
+            line-height: 1.6;
+        }
+        .error-actionable strong {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--vscode-foreground);
+        }
         button {
             margin-top: 16px;
-            padding: 8px 16px;
+            padding: 10px 20px;
             background: var(--vscode-button-background);
             color: var(--vscode-button-foreground);
             border: none;
             border-radius: 4px;
             cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
         }
         button:hover {
             background: var(--vscode-button-hoverBackground);
@@ -1440,7 +2173,9 @@ export class BoardPanel {
 <body>
     <div class="error">
         <div class="error-icon">⚠️</div>
-        <p>${this._escapeHtml(message)}</p>
+        <p class="error-message">${this._escapeHtml(message)}</p>
+        ${detailsHtml}
+        ${actionableHtml}
         <button onclick="location.reload()">Retry</button>
     </div>
 </body>
@@ -1508,16 +2243,26 @@ export class BoardPanel {
         });
         const boardAreas = Array.from(uniqueAreas).sort();
 
-        // Extract unique iterations from work items on the board
-        const uniqueIterations = new Set<string>();
+        // Extract unique assignees from work items on the board
+        const uniqueAssignees = new Set<string>();
         workItems.forEach((items) => {
             items.forEach(item => {
-                if (item.iterationPath) {
-                    uniqueIterations.add(item.iterationPath);
+                if (item.assignedTo?.uniqueName) {
+                    uniqueAssignees.add(item.assignedTo.uniqueName);
                 }
             });
         });
-        const boardIterations = Array.from(uniqueIterations).sort();
+
+        // Filter team members to only include those who have work items on the board
+        const teamMembersWithWorkItems = this._teamMembers.filter(member =>
+            uniqueAssignees.has(member.uniqueName)
+        );
+        outputChannel.appendLine(`[Board] Filtered team members: ${teamMembersWithWorkItems.length} of ${this._teamMembers.length} have work items on board`);
+
+        // Use ALL team iterations from API instead of just those in loaded work items
+        // This ensures FY26 and future iterations appear in the filter dropdown
+        const boardIterations = this._teamIterations.map(iter => iter.path).sort();
+        outputChannel.appendLine(`[Board] Using ${boardIterations.length} team iterations for filter dropdown`);
 
         // Derive default work item type from board name
         const defaultWorkItemType = this._getDefaultWorkItemType();
@@ -2970,7 +3715,7 @@ export class BoardPanel {
                 <label class="filter-checkbox-item"><input type="checkbox" name="assignee" value="me" onchange="handleFilterChange('assignee', this)"> @Me</label>
                 <label class="filter-checkbox-item"><input type="checkbox" name="assignee" value="unassigned" onchange="handleFilterChange('assignee', this)"> Unassigned</label>
                 <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
-                ${this._teamMembers.map(m => `
+                ${teamMembersWithWorkItems.map(m => `
                     <label class="filter-checkbox-item">
                         <input type="checkbox" name="assignee" value="${this._escapeHtml(m.uniqueName)}" onchange="handleFilterChange('assignee', this)">
                         ${this._escapeHtml(m.displayName)}
@@ -3029,7 +3774,7 @@ export class BoardPanel {
                 ${boardAreas.map(area => `
                     <label class="filter-checkbox-item">
                         <input type="checkbox" name="area" value="${this._escapeHtml(area)}" onchange="handleFilterChange('area', this)">
-                        ${this._escapeHtml(area)}
+                        ${this._escapeHtml(area.split('\\').pop() || area)}
                     </label>
                 `).join('')}
                 <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
@@ -3042,12 +3787,18 @@ export class BoardPanel {
             <div class="filter-dropdown-content" id="iterationDropdownContent">
                 <label class="filter-checkbox-item"><input type="checkbox" name="iteration" value="@currentiteration" onchange="handleFilterChange('iteration', this)"> @CurrentIteration</label>
                 <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
-                ${boardIterations.length > 0 ? boardIterations.map(iteration => `
+                ${boardIterations.length > 0 ? boardIterations.map(iteration => {
+                    // Remove organization and team prefix (first 2 segments)
+                    // e.g., "Experian Verifications\\DevOps\\FY26.Q4.03" -> "FY26.Q4.03"
+                    const parts = iteration.split('\\');
+                    const displayName = parts.length > 2 ? parts.slice(2).join('\\') : iteration;
+                    return `
                     <label class="filter-checkbox-item">
                         <input type="checkbox" name="iteration" value="${this._escapeHtml(iteration)}" onchange="handleFilterChange('iteration', this)">
-                        ${this._escapeHtml(iteration.split('\\\\').pop() || iteration)}
+                        ${this._escapeHtml(displayName)}
                     </label>
-                `).join('') : '<div style="padding: 8px; color: var(--vscode-descriptionForeground); font-size: 11px;">No iterations available</div>'}
+                    `;
+                }).join('') : '<div style="padding: 8px; color: var(--vscode-descriptionForeground); font-size: 11px;">No iterations available</div>'}
                 <div class="filter-divider" style="margin: 4px 0; height: 1px; width: 100%;"></div>
                 <button class="filter-clear-btn" id="iterationClearBtn" onclick="clearFilter('iteration')" disabled>✕ Clear</button>
             </div>
@@ -3080,6 +3831,7 @@ export class BoardPanel {
             <div class="column"
                  data-column="${this._escapeHtml(column.name)}"
                  data-state="${this._escapeHtml(String(targetState))}"
+                 data-state-mappings="${this._escapeHtml(JSON.stringify(stateMappings))}"
                  data-limit="${column.itemLimit}"
                  data-index="${colIndex}"
                  tabindex="0"
@@ -3448,7 +4200,19 @@ export class BoardPanel {
             const column = selectedCard.closest('.column');
             const workItemId = parseInt(selectedCard.dataset.id);
             const targetColumn = column.dataset.column;
-            const targetState = column.dataset.state;
+
+            // Look up the correct state based on the work item type
+            const workItemType = selectedCard.dataset.type;
+            let targetState = column.dataset.state; // fallback
+
+            try {
+                const stateMappings = JSON.parse(column.dataset.stateMappings || '{}');
+                if (stateMappings[workItemType]) {
+                    targetState = stateMappings[workItemType];
+                }
+            } catch (e) {
+                console.error('Failed to parse state mappings:', e);
+            }
 
             vscode.postMessage({
                 command: 'moveWorkItem',
@@ -3544,15 +4308,21 @@ export class BoardPanel {
 
         // Drag and Drop
         function handleDragStart(event, workItemId) {
-            draggedCard = event.target;
-            originalColumn = draggedCard.closest('.column').dataset.column;
-            event.target.classList.add('dragging');
+            // Use currentTarget to get the card element, not a child element
+            draggedCard = event.currentTarget;
+            const column = draggedCard.closest('.column');
+            if (column) {
+                originalColumn = column.dataset.column;
+            }
+            draggedCard.classList.add('dragging');
             event.dataTransfer.effectAllowed = 'move';
             event.dataTransfer.setData('text/plain', workItemId);
         }
 
         function handleDragEnd(event) {
-            event.target.classList.remove('dragging');
+            if (event.currentTarget) {
+                event.currentTarget.classList.remove('dragging');
+            }
             document.querySelectorAll('.column').forEach(col => {
                 col.classList.remove('drag-over');
             });
@@ -3585,7 +4355,31 @@ export class BoardPanel {
 
             const workItemId = parseInt(event.dataTransfer.getData('text/plain'));
             const targetColumn = column.dataset.column;
-            const targetState = column.dataset.state;
+
+            // Look up the correct state based on the work item type being dragged
+            const workItemType = draggedCard.dataset.type;
+            let targetState = column.dataset.state; // fallback
+
+            console.log('[Drag] Work item type:', workItemType);
+            console.log('[Drag] Target column:', targetColumn);
+            console.log('[Drag] Fallback state:', targetState);
+
+            try {
+                const stateMappings = JSON.parse(column.dataset.stateMappings || '{}');
+                console.log('[Drag] State mappings for column:', stateMappings);
+
+                if (stateMappings[workItemType]) {
+                    targetState = stateMappings[workItemType];
+                    console.log('[Drag] Found state for type:', targetState);
+                } else {
+                    console.warn('[Drag] No state mapping found for type:', workItemType, '- using fallback:', targetState);
+                    console.log('[Drag] Available types in mapping:', Object.keys(stateMappings));
+                }
+            } catch (e) {
+                console.error('[Drag] Failed to parse state mappings:', e);
+            }
+
+            console.log('[Drag] Final target state:', targetState);
 
             if (originalColumn === targetColumn) {
                 return;
@@ -3593,7 +4387,16 @@ export class BoardPanel {
 
             const limit = parseInt(column.dataset.limit) || 0;
             if (limit > 0) {
-                const currentCount = column.querySelectorAll('.card').length;
+                // Count cards in target column, excluding the card being dragged
+                const cardsInColumn = column.querySelectorAll('.card');
+                let currentCount = 0;
+                cardsInColumn.forEach(card => {
+                    // Don't count the dragged card if it's already in this column
+                    if (card !== draggedCard) {
+                        currentCount++;
+                    }
+                });
+
                 if (currentCount >= limit) {
                     showToast('WIP limit reached for ' + targetColumn, 'error');
                     return;
@@ -4189,16 +4992,47 @@ export class BoardPanel {
                 if (visible && !assigneeAll) {
                     const assignee = card.dataset.assignee; // uniqueName
                     let match = false;
-                    
+
                     if (assigneeValues.includes('me')) {
-                         if (assignee && currentUserEmail && assignee.toLowerCase().includes(currentUserEmail.toLowerCase())) {
-                             match = true;
+                         // Exact match comparison (case-insensitive)
+                         if (assignee && currentUserEmail) {
+                             // Log first 3 match attempts for debugging
+                             if (!window._meFilterLogCount) {
+                                 window._meFilterLogCount = 0;
+                             }
+                             if (window._meFilterLogCount < 3) {
+                                 vscode.postMessage({
+                                     command: 'debugLog',
+                                     text: '[@Me Filter] Current user uniqueName: "' + currentUserEmail + '"'
+                                 });
+                                 vscode.postMessage({
+                                     command: 'debugLog',
+                                     text: '[@Me Filter] Card assignee uniqueName: "' + assignee + '"'
+                                 });
+                                 vscode.postMessage({
+                                     command: 'debugLog',
+                                     text: '[@Me Filter] Match: ' + (assignee.toLowerCase() === currentUserEmail.toLowerCase())
+                                 });
+                                 window._meFilterLogCount++;
+                             }
+                             if (assignee.toLowerCase() === currentUserEmail.toLowerCase()) {
+                                 match = true;
+                             }
+                         } else {
+                             // Log if we're missing required data
+                             if (!window._meFilterWarningLogged) {
+                                 vscode.postMessage({
+                                     command: 'debugLog',
+                                     text: '[@Me Filter] WARNING - Missing data: assignee=' + (!!assignee) + ', currentUserEmail=' + (!!currentUserEmail) + ', value="' + currentUserEmail + '"'
+                                 });
+                                 window._meFilterWarningLogged = true;
+                             }
                          }
                     }
                     if (assigneeValues.includes('unassigned')) {
                         if (!assignee) match = true;
                     }
-                    
+
                     // Check specific assignees
                     if (!match && assignee) {
                         if (assigneeValues.includes(assignee)) {
@@ -4387,6 +5221,10 @@ export class BoardPanel {
             const message = event.data;
             if (message.command === 'setCurrentUser') {
                 currentUserEmail = message.email || '';
+                vscode.postMessage({
+                    command: 'debugLog',
+                    text: '[@Me Filter] Current user set to: "' + currentUserEmail + '"'
+                });
                 // Re-apply filters now that we have the current user info
                 // This ensures @Me works correctly even if data arrives late
                 applyFilters();

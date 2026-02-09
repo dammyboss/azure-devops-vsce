@@ -412,7 +412,12 @@ export class AuthenticationManager {
             const response = await this.axiosInstance.get('/_apis/connectionData', {
                 params: { 'api-version': '7.1-preview.1' }
             });
-            return response.data.authenticatedUser;
+            const authenticatedUser = response.data.authenticatedUser;
+
+            // Log the user data to diagnose the issue
+            console.log('[Auth] getCurrentUser response:', JSON.stringify(authenticatedUser, null, 2));
+
+            return authenticatedUser;
         } catch (error) {
             console.error('Failed to get current user:', error);
             throw error;
