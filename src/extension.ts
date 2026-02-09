@@ -26,11 +26,17 @@ export let gitIntegration: GitIntegration;
 export let statusBarManager: StatusBarManager;
 export let workItemLinksManager: WorkItemLinksManager;
 export let connectionStatusProvider: ConnectionStatusProvider;
+export let outputChannel: vscode.OutputChannel;
 // DISABLED: AI Chat features - uncomment to re-enable in future
 // export let aiChatProvider: AIChatProvider;
 
 export async function activate(context: vscode.ExtensionContext) {
     console.log('Azure DevOps Boards extension is now active!');
+
+    // Initialize output channel
+    outputChannel = vscode.window.createOutputChannel('Azure DevOps');
+    context.subscriptions.push(outputChannel);
+    outputChannel.appendLine('Azure DevOps Boards extension activated');
 
     // Initialize managers
     authenticationManager = new AuthenticationManager(context);

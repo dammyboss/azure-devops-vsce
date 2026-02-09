@@ -4173,9 +4173,20 @@ export class BoardPanel {
             const limit = parseInt(targetColumn.dataset.limit) || 0;
 
             if (limit > 0) {
-                const currentCount = targetColumn.querySelectorAll('.card').length;
+                // Only count visible cards (not filtered out)
+                const currentCount = targetColumn.querySelectorAll('.card:not(.filtered-out)').length;
+
+                // Debug logging
+                const allCards = targetColumn.querySelectorAll('.card').length;
+                const filteredCards = targetColumn.querySelectorAll('.card.filtered-out').length;
+                console.log('[WIP Check] Column:', targetColumn.dataset.column,
+                    'Limit:', limit,
+                    'Visible cards:', currentCount,
+                    'Total cards:', allCards,
+                    'Filtered cards:', filteredCards);
+
                 if (currentCount >= limit) {
-                    showToast('WIP limit reached for ' + targetColumn.dataset.column, 'error');
+                    showToast('WIP limit reached for ' + targetColumn.dataset.column + ' (' + currentCount + '/' + limit + ')', 'error');
                     return;
                 }
             }
@@ -4387,8 +4398,8 @@ export class BoardPanel {
 
             const limit = parseInt(column.dataset.limit) || 0;
             if (limit > 0) {
-                // Count cards in target column, excluding the card being dragged
-                const cardsInColumn = column.querySelectorAll('.card');
+                // Count visible cards in target column (not filtered out), excluding the card being dragged
+                const cardsInColumn = column.querySelectorAll('.card:not(.filtered-out)');
                 let currentCount = 0;
                 cardsInColumn.forEach(card => {
                     // Don't count the dragged card if it's already in this column
@@ -4397,8 +4408,12 @@ export class BoardPanel {
                     }
                 });
 
+                console.log('[WIP Check - Keyboard] Column:', targetColumn,
+                    'Limit:', limit,
+                    'Visible cards (excluding dragged):', currentCount);
+
                 if (currentCount >= limit) {
-                    showToast('WIP limit reached for ' + targetColumn, 'error');
+                    showToast('WIP limit reached for ' + targetColumn + ' (' + currentCount + '/' + limit + ')', 'error');
                     return;
                 }
             }

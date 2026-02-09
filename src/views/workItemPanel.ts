@@ -308,11 +308,19 @@ export class WorkItemPanel {
                 ? { op: 'replace', path: fieldPath, value: value }
                 : { op: 'remove', path: fieldPath };
 
-            await axiosInstance.patch(
+            console.log(`[WorkItemPanel] Updating field ${field} with value:`, value);
+            console.log('[WorkItemPanel] Patch operation:', JSON.stringify(patchOp));
+
+            const response = await axiosInstance.patch(
                 `/_apis/wit/workitems/${this._workItem.id}`,
                 [patchOp],
-                { headers: { 'Content-Type': 'application/json-patch+json' } }
+                {
+                    headers: { 'Content-Type': 'application/json-patch+json' },
+                    params: { 'api-version': '7.0' }
+                }
             );
+
+            console.log('[WorkItemPanel] Update successful:', response.status);
 
             // Broadcast field update to all views
             this.eventManager.notifyWorkItemUpdated({
@@ -323,8 +331,11 @@ export class WorkItemPanel {
 
             vscode.window.showInformationMessage('Field updated');
             await this.refreshWorkItem();
-        } catch (error) {
-            vscode.window.showErrorMessage(`Failed to update field: ${error}`);
+        } catch (error: any) {
+            console.error('[WorkItemPanel] Failed to update field:', error);
+            console.error('[WorkItemPanel] Error response:', error.response?.data);
+            console.error('[WorkItemPanel] Error status:', error.response?.status);
+            vscode.window.showErrorMessage(`Failed to update field: ${error.response?.data?.message || error.message}`);
         }
     }
 
@@ -719,43 +730,27 @@ export class WorkItemPanel {
             const axiosInstance = this.authenticationManager.getAxiosInstance();
             const config = this.authenticationManager.getConfig();
 
-            if (!axiosInstance || !config?.defaultProject) return [];
+            if (!axiosInstance || !config?.defaultProject || !config?.defaultTeam) return [];
 
-            // Get all project-level iterations using Classification Nodes API
+            // Get team-specific iterations instead of all project iterations
             const response = await axiosInstance.get(
-                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/classificationnodes/iterations`,
-                { params: { '$depth': 2, 'api-version': '7.1' } }
+                `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/teamsettings/iterations`,
+                { params: { 'api-version': '7.1' } }
             );
 
-            // Flatten the iteration tree into a list
-            const iterations: IterationInfo[] = [];
-            const processNode = (node: any, parentPath: string = '') => {
-                // Build the full path
-                const currentPath = parentPath ? `${parentPath}\\${node.name}` : node.name;
+            // Log the raw API response to see what we're getting
+            console.log('[WorkItemPanel] Raw iteration data from API:', JSON.stringify(response.data.value, null, 2));
 
-                // Add current node (skip the root node which is the project itself)
-                if (parentPath) {  // Only add if not root
-                    iterations.push({
-                        id: node.id || node.identifier,
-                        name: node.name,
-                        path: currentPath,
-                        startDate: node.attributes?.startDate || undefined,
-                        finishDate: node.attributes?.finishDate || undefined
-                    });
-                }
+            const iterations: IterationInfo[] = (response.data.value || []).map((iter: any) => ({
+                id: iter.id,
+                name: iter.name,
+                path: iter.path,
+                startDate: iter.attributes?.startDate,
+                finishDate: iter.attributes?.finishDate
+            }));
 
-                // Process children recursively
-                if (node.hasChildren && node.children) {
-                    node.children.forEach((child: any) => processNode(child, currentPath));
-                }
-            };
-
-            if (response.data) {
-                // Don't pass a parentPath - the API response root node is already the project
-                processNode(response.data);
-            }
-
-            console.log('[WorkItemPanel] Loaded iterations:', iterations);
+            console.log('[WorkItemPanel] Loaded', iterations.length, 'team iterations');
+            console.log('[WorkItemPanel] Iteration paths:', iterations.map(i => i.path));
             return iterations;
         } catch (error) {
             console.error('Failed to load iterations:', error);
@@ -768,26 +763,34 @@ export class WorkItemPanel {
             const axiosInstance = this.authenticationManager.getAxiosInstance();
             const config = this.authenticationManager.getConfig();
 
-            if (!axiosInstance || !config?.defaultProject) return [];
+            if (!axiosInstance || !config?.defaultProject || !config?.defaultTeam) return [];
 
-            const response = await axiosInstance.get(
-                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/classificationnodes/Areas`,
-                { params: { '$depth': 10, 'api-version': '7.0' } }
+            // Get team-specific area from team settings
+            const teamFieldValuesResponse = await axiosInstance.get(
+                `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/teamsettings/teamfieldvalues`,
+                { params: { 'api-version': '7.1' } }
             );
 
             const areas: AreaInfo[] = [];
-            const extractAreas = (node: any, parentPath: string = '') => {
-                const path = parentPath ? `${parentPath}\\${node.name}` : node.name;
-                areas.push({ id: node.id?.toString() || '', name: node.name, path });
-                if (node.children) {
-                    node.children.forEach((child: any) => extractAreas(child, path));
+
+            // Get the team's area paths from team settings
+            const teamAreaValues = teamFieldValuesResponse.data.values || [];
+            teamAreaValues.forEach((areaValue: any) => {
+                const areaPath = areaValue.value;
+                if (areaPath) {
+                    // Extract the last segment as the name
+                    const pathSegments = areaPath.split('\\');
+                    const name = pathSegments[pathSegments.length - 1];
+
+                    areas.push({
+                        id: areaPath, // Use path as id since we don't have node id
+                        name: name,
+                        path: areaPath
+                    });
                 }
-            };
+            });
 
-            if (response.data) {
-                extractAreas(response.data);
-            }
-
+            console.log('[WorkItemPanel] Loaded', areas.length, 'team areas');
             return areas;
         } catch (error) {
             console.error('Failed to load areas:', error);
@@ -986,6 +989,11 @@ export class WorkItemPanel {
         const iterationPath = fields['System.IterationPath'] || '';
         const areaPath = fields['System.AreaPath'] || '';
         const tags = fields['System.Tags'] || '';
+
+        // Log the current work item's paths to understand the expected format
+        console.log('[WorkItemPanel] Current work item paths:');
+        console.log('  - IterationPath:', iterationPath);
+        console.log('  - AreaPath:', areaPath);
 
         // Get current user info for comment section
         // Azure DevOps API returns customDisplayName, not displayName
@@ -2007,7 +2015,7 @@ export class WorkItemPanel {
                     <span class="meta-label">Iteration</span>
                     <div class="custom-dropdown-wrapper" id="iterationDropdownWrapper">
                         <button class="meta-select custom-dropdown-btn" id="iterationDropdownBtn" type="button" onclick="toggleIterationDropdown()">
-                            ${iterationPath ? this.escapeHtml(iterationPath.split('\\\\').pop() || iterationPath) : 'None'}
+                            ${iterationPath ? this.escapeHtml(iterationPath.split('\\').pop() || iterationPath) : 'None'}
                         </button>
                         <div class="iteration-dropdown-list" id="iterationDropdownList">
                             <div class="iteration-dropdown-item ${!iterationPath ? 'selected' : ''}" onclick="selectIteration('', 'None')">
@@ -2018,7 +2026,10 @@ export class WorkItemPanel {
                                     ? `${new Date(iter.startDate).toLocaleDateString()} - ${new Date(iter.finishDate).toLocaleDateString()}`
                                     : '';
                                 const isSelected = iter.path === iterationPath;
-                                return `<div class="iteration-dropdown-item ${isSelected ? 'selected' : ''}" onclick="selectIteration('${this.escapeHtml(iter.path)}', '${this.escapeHtml(iter.name)}')">
+                                return `<div class="iteration-dropdown-item ${isSelected ? 'selected' : ''}"
+                                    data-path="${this.escapeHtml(iter.path)}"
+                                    data-name="${this.escapeHtml(iter.name)}"
+                                    onclick="selectIterationFromData(this)">
                                     <span class="iteration-item-name">${this.escapeHtml(iter.name)}</span>
                                     ${dateRange ? `<span class="iteration-item-dates">${dateRange}</span>` : ''}
                                 </div>`;
@@ -2048,13 +2059,16 @@ export class WorkItemPanel {
                     <span class="meta-label">Area</span>
                     <div class="custom-dropdown-wrapper" id="areaDropdownWrapper">
                         <button class="meta-select custom-dropdown-btn" id="areaDropdownBtn" type="button" onclick="toggleAreaDropdown()">
-                            ${areaPath ? this.escapeHtml(areaPath) : 'Select Area'}
+                            ${areaPath ? this.escapeHtml(areaPath.split('\\').pop() || areaPath) : 'Select Area'}
                         </button>
                         <div class="area-dropdown-list" id="areaDropdownList">
                             ${this._areas.map(area => {
                                 const isSelected = area.path === areaPath;
-                                return `<div class="area-dropdown-item ${isSelected ? 'selected' : ''}" onclick="selectArea('${this.escapeHtml(area.path)}')">
-                                    ${this.escapeHtml(area.path)}
+                                return `<div class="area-dropdown-item ${isSelected ? 'selected' : ''}"
+                                    data-path="${this.escapeHtml(area.path)}"
+                                    data-name="${this.escapeHtml(area.name)}"
+                                    onclick="selectAreaFromData(this)">
+                                    ${this.escapeHtml(area.name)}
                                 </div>`;
                             }).join('')}
                         </div>
@@ -2653,6 +2667,7 @@ export class WorkItemPanel {
         }
 
         function selectIteration(path, name) {
+            console.log('[WorkItemPanel - WebView] selectIteration called with path:', path, 'name:', name);
             const btn = document.getElementById('iterationDropdownBtn');
             const list = document.getElementById('iterationDropdownList');
             btn.textContent = name;
@@ -2660,6 +2675,22 @@ export class WorkItemPanel {
             // Update selected state
             list.querySelectorAll('.iteration-dropdown-item').forEach(item => item.classList.remove('selected'));
             event.currentTarget.classList.add('selected');
+            console.log('[WorkItemPanel - WebView] Sending updateField message with path:', path);
+            vscode.postMessage({ command: 'updateField', field: 'System.IterationPath', value: path || null });
+        }
+
+        function selectIterationFromData(element) {
+            const path = element.dataset.path;
+            const name = element.dataset.name;
+            console.log('[WorkItemPanel - WebView] selectIterationFromData called with path:', path, 'name:', name);
+            const btn = document.getElementById('iterationDropdownBtn');
+            const list = document.getElementById('iterationDropdownList');
+            btn.textContent = name;
+            list.classList.remove('open-left', 'open-right');
+            // Update selected state
+            list.querySelectorAll('.iteration-dropdown-item').forEach(item => item.classList.remove('selected'));
+            element.classList.add('selected');
+            console.log('[WorkItemPanel - WebView] Sending updateField message with path:', path);
             vscode.postMessage({ command: 'updateField', field: 'System.IterationPath', value: path || null });
         }
 
@@ -2691,13 +2722,32 @@ export class WorkItemPanel {
         }
 
         function selectArea(path) {
+            console.log('[WorkItemPanel - WebView] selectArea called with path:', path);
             const btn = document.getElementById('areaDropdownBtn');
             const list = document.getElementById('areaDropdownList');
-            btn.textContent = path;
+            // Display only the last segment (e.g., "DevOps" instead of "Experian Verifications\\DevOps")
+            const displayName = path.split('\\\\').pop() || path;
+            btn.textContent = displayName;
             list.classList.remove('open-left', 'open-right');
             // Update selected state
             list.querySelectorAll('.area-dropdown-item').forEach(item => item.classList.remove('selected'));
             event.currentTarget.classList.add('selected');
+            console.log('[WorkItemPanel - WebView] Sending updateField message with path:', path);
+            vscode.postMessage({ command: 'updateField', field: 'System.AreaPath', value: path });
+        }
+
+        function selectAreaFromData(element) {
+            const path = element.dataset.path;
+            const name = element.dataset.name;
+            console.log('[WorkItemPanel - WebView] selectAreaFromData called with path:', path, 'name:', name);
+            const btn = document.getElementById('areaDropdownBtn');
+            const list = document.getElementById('areaDropdownList');
+            btn.textContent = name;
+            list.classList.remove('open-left', 'open-right');
+            // Update selected state
+            list.querySelectorAll('.area-dropdown-item').forEach(item => item.classList.remove('selected'));
+            element.classList.add('selected');
+            console.log('[WorkItemPanel - WebView] Sending updateField message with path:', path);
             vscode.postMessage({ command: 'updateField', field: 'System.AreaPath', value: path });
         }
 
