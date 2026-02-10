@@ -2,6 +2,38 @@
 
 All notable changes to the Azure DevOps Boards extension will be documented in this file.
 
+## [0.2.6] - 2026-02-10
+
+### Added
+- **Board TreeView Section**: New sidebar board view with sprint and assignee filtering
+  - Hierarchical view showing boards → columns → work items
+  - Sprint/iteration filter with current, all, and specific sprint options
+  - Assignee filter with @me (current user), all, and specific team member options
+  - Collapsible Filters node showing active filter count
+  - Default filters set to current sprint and current user (@me)
+- **Quick Open Work Item**: Fast work item search and navigation
+  - Quick Pick interface for searching work items by ID or title
+  - Recently viewed work items with timestamps
+  - Opens work item directly in board panel
+
+### Fixed
+- **CRITICAL**: Fixed board TreeView work item loading using official Azure DevOps WIQL API
+  - Query by System.State instead of undocumented System.BoardColumn field
+  - Follow official WIQL syntax with @project and @me macros
+  - Filter by exact type+state combination to prevent wrong column assignments
+  - Based on official Azure DevOps REST API documentation
+
+### Improved
+- Enhanced status bar with active work item tracking and Quick Open integration
+- Better work item organization with automatic filtering by sprint and assignee
+- Improved board TreeView performance with proper state-based queries
+
+### Technical Changes
+- Implemented official Azure DevOps WIQL query patterns for work item filtering
+- Added team iterations and team members API integration
+- Enhanced filter state management with default filter initialization
+- Added Quick Open search service with fuzzy matching and history tracking
+
 ## [0.2.5] - 2026-02-07
 
 ### Fixed
