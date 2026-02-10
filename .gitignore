@@ -81,3 +81,5 @@ coverage/
 
 # TypeScript cache
 *.tsbuildinfo
+# Claude Code configuration
+.claude/

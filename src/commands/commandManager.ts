@@ -486,6 +486,81 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
     );
 
     context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.boards.changeIterationFilter', async () => {
+            const iterations = components.boardProvider.getTeamIterations();
+
+            if (iterations.length === 0) {
+                vscode.window.showInformationMessage('No iterations found for this team');
+                return;
+            }
+
+            // Build quick pick items
+            const quickPickItems: vscode.QuickPickItem[] = [
+                {
+                    label: '$(calendar) All Iterations',
+                    description: 'Show work items from all sprints',
+                    detail: 'No filtering applied'
+                },
+                {
+                    label: '$(watch) Current Sprint',
+                    description: 'Show only current sprint work items',
+                    detail: iterations.find(i => i.timeFrame === 'current')?.name || 'Current'
+                },
+                { label: '', kind: vscode.QuickPickItemKind.Separator }
+            ];
+
+            // Add individual iterations
+            const futureIterations = iterations.filter(i => i.timeFrame === 'future');
+            const pastIterations = iterations.filter(i => i.timeFrame === 'past');
+
+            if (futureIterations.length > 0) {
+                quickPickItems.push({ label: 'Future Sprints', kind: vscode.QuickPickItemKind.Separator });
+                futureIterations.forEach(iter => {
+                    quickPickItems.push({
+                        label: `$(calendar) ${iter.name}`,
+                        description: iter.path
+                    });
+                });
+            }
+
+            const currentIter = iterations.find(i => i.timeFrame === 'current');
+            if (currentIter) {
+                quickPickItems.push({ label: 'Current Sprint', kind: vscode.QuickPickItemKind.Separator });
+                quickPickItems.push({
+                    label: `$(watch) ${currentIter.name}`,
+                    description: currentIter.path
+                });
+            }
+
+            if (pastIterations.length > 0) {
+                quickPickItems.push({ label: 'Past Sprints', kind: vscode.QuickPickItemKind.Separator });
+                pastIterations.slice().reverse().slice(0, 10).forEach(iter => {
+                    quickPickItems.push({
+                        label: `$(history) ${iter.name}`,
+                        description: iter.path
+                    });
+                });
+            }
+
+            const selected = await vscode.window.showQuickPick(quickPickItems, {
+                placeHolder: 'Select sprint/iteration to filter by',
+                matchOnDescription: true
+            });
+
+            if (!selected) return;
+
+            // Apply filter
+            if (selected.label.includes('All Iterations')) {
+                components.boardProvider.setIterationFilter(null);
+            } else if (selected.label.includes('Current Sprint')) {
+                components.boardProvider.setIterationFilter('@current');
+            } else {
+                components.boardProvider.setIterationFilter(selected.description || null);
+            }
+        })
+    );
+
+    context.subscriptions.push(
         vscode.commands.registerCommand('azureDevOps.refreshSprints', () => {
             components.sprintProvider.refresh();
         })

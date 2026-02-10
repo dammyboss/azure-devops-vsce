@@ -10,6 +10,9 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
     private boards: any[] = [];
     private boardColumns: Map<string, any[]> = new Map();
     private columnWorkItems: Map<string, any[]> = new Map();
+    private teamIterations: Array<{name: string, path: string, timeFrame: string}> = [];
+    private currentIterationPath: string | null = null;
+    private selectedIterationFilter: string | null = null; // null = all, '@current' = current sprint, or specific path
 
     constructor(context: vscode.ExtensionContext, authenticationManager: AuthenticationManager) {
         this.context = context;
@@ -42,10 +45,67 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
             );
 
             this.boards = response.data.value || [];
+
+            // Load iterations on first load
+            if (this.teamIterations.length === 0) {
+                await this.loadTeamIterations();
+            }
         } catch (error: any) {
             console.error('Failed to load boards:', error?.message || error);
             this.boards = [];
         }
+    }
+
+    /**
+     * Load all team iterations from Azure DevOps API
+     * API Reference: https://learn.microsoft.com/en-us/rest/api/azure/devops/work/iterations/list
+     */
+    private async loadTeamIterations(): Promise<void> {
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+
+            if (!axiosInstance || !config?.defaultProject || !config?.defaultTeam) {
+                return;
+            }
+
+            // Get all team iterations
+            const response = await axiosInstance.get(
+                `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/teamsettings/iterations`,
+                { params: { 'api-version': '7.1' } }
+            );
+
+            const iterations = response.data.value || [];
+            this.teamIterations = iterations.map((iter: any) => ({
+                name: iter.name,
+                path: iter.path,
+                timeFrame: iter.attributes?.timeFrame || 'unknown'
+            }));
+
+            // Find current iteration
+            const currentIter = this.teamIterations.find(i => i.timeFrame === 'current');
+            if (currentIter) {
+                this.currentIterationPath = currentIter.path;
+            }
+
+            console.log('[BoardProvider] Loaded', this.teamIterations.length, 'team iterations');
+        } catch (error: any) {
+            console.error('Failed to load team iterations:', error?.message || error);
+        }
+    }
+
+    public setIterationFilter(iterationFilter: string | null): void {
+        this.selectedIterationFilter = iterationFilter;
+        this.columnWorkItems.clear();
+        this.refresh();
+    }
+
+    public getIterationFilter(): string | null {
+        return this.selectedIterationFilter;
+    }
+
+    public getTeamIterations(): Array<{name: string, path: string, timeFrame: string}> {
+        return this.teamIterations;
     }
 
     private async loadBoardColumns(boardId: string): Promise<any[]> {
@@ -129,15 +189,33 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
                 workItemTypeFilter = `AND (${typeConditions})`;
             }
 
+            // Build iteration filter
+            let iterationFilter = '';
+            if (this.selectedIterationFilter) {
+                if (this.selectedIterationFilter === '@current') {
+                    // Filter by current iteration
+                    if (this.currentIterationPath) {
+                        iterationFilter = `AND [System.IterationPath] = '${this.currentIterationPath.replace(/'/g, "''")}'`;
+                    }
+                } else {
+                    // Filter by specific iteration path
+                    iterationFilter = `AND [System.IterationPath] = '${this.selectedIterationFilter.replace(/'/g, "''")}'`;
+                }
+            }
+
             // Strategy 1: Try querying by System.BoardColumn first
             let wiql = `SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo]
                         FROM WorkItems
                         WHERE [System.TeamProject] = @project
                         AND [System.BoardColumn] = '${columnName.replace(/'/g, "''")}'
                         ${workItemTypeFilter}
+                        ${iterationFilter}
                         ORDER BY [Microsoft.VSTS.Common.BacklogPriority]`;
 
             console.log('[BoardProvider] Trying System.BoardColumn query for column:', columnName);
+            if (iterationFilter) {
+                console.log('[BoardProvider] With iteration filter:', this.selectedIterationFilter);
+            }
 
             let response = await axiosInstance.post(
                 `/${encodeURIComponent(config.defaultProject)}/_apis/wit/wiql`,
@@ -163,6 +241,7 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
                             WHERE [System.TeamProject] = @project
                             AND (${stateConditions})
                             ${workItemTypeFilter}
+                            ${iterationFilter}
                             ORDER BY [Microsoft.VSTS.Common.BacklogPriority]`;
 
                     console.log('[BoardProvider] Using state-based query with states:', states);
@@ -211,14 +290,34 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
         }
 
         if (!element) {
-            // Root level - show boards
+            // Root level - show filter status and boards
             await this.loadBoards();
 
+            const items: BoardTreeItem[] = [];
+
+            // Add iteration filter indicator
+            const filterLabel = this.getFilterLabel();
+            const filterItem = new BoardTreeItem(
+                filterLabel,
+                vscode.TreeItemCollapsibleState.None,
+                {
+                    command: 'azureDevOps.boards.changeIterationFilter',
+                    title: 'Change Iteration Filter',
+                    arguments: []
+                }
+            );
+            filterItem.contextValue = 'iterationFilter';
+            filterItem.iconPath = new vscode.ThemeIcon('filter');
+            filterItem.tooltip = 'Click to change sprint/iteration filter';
+            items.push(filterItem);
+
             if (this.boards.length === 0) {
-                return [new BoardTreeItem('No boards found', vscode.TreeItemCollapsibleState.None)];
+                items.push(new BoardTreeItem('No boards found', vscode.TreeItemCollapsibleState.None));
+                return items;
             }
 
-            return this.boards.map(board => {
+            // Add boards
+            this.boards.forEach(board => {
                 const treeItem = new BoardTreeItem(
                     board.name,
                     vscode.TreeItemCollapsibleState.Collapsed
@@ -228,8 +327,10 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
                 treeItem.tooltip = board.description || `Board: ${board.name}`;
                 treeItem.boardId = board.id;
                 treeItem.boardName = board.name;
-                return treeItem;
+                items.push(treeItem);
             });
+
+            return items;
         } else if (element.contextValue === 'board') {
             // Show board columns
             const columns = await this.loadBoardColumns(element.boardId!);
@@ -282,6 +383,18 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
         }
 
         return [];
+    }
+
+    private getFilterLabel(): string {
+        if (!this.selectedIterationFilter) {
+            return 'Sprint: All Iterations';
+        } else if (this.selectedIterationFilter === '@current') {
+            const currentIter = this.teamIterations.find(i => i.timeFrame === 'current');
+            return `Sprint: ${currentIter?.name || 'Current'}`;
+        } else {
+            const selectedIter = this.teamIterations.find(i => i.path === this.selectedIterationFilter);
+            return `Sprint: ${selectedIter?.name || 'Selected'}`;
+        }
     }
 
     private getColumnIcon(columnType: string): vscode.ThemeIcon {
