@@ -373,17 +373,31 @@ export class BoardPanel {
                 // NOT from work item assignees. This ensures we only show actual team members.
             }
 
-            this._panel.webview.html = this._getHtmlForWebview();
+            try {
+                this._panel.webview.html = this._getHtmlForWebview();
 
-            // Restore filter state after HTML is loaded
-            if (Object.keys(this._filterState).length > 0) {
-                // Small delay to ensure HTML is fully loaded before restoring state
-                setTimeout(() => {
-                    this._panel.webview.postMessage({
-                        command: 'restoreFilterState',
-                        filterState: this._filterState
-                    });
-                }, 100);
+                // Restore filter state after HTML is loaded
+                if (Object.keys(this._filterState).length > 0) {
+                    // Small delay to ensure HTML is fully loaded before restoring state
+                    setTimeout(() => {
+                        this._panel.webview.postMessage({
+                            command: 'restoreFilterState',
+                            filterState: this._filterState
+                        });
+                    }, 100);
+                }
+            } catch (htmlError: any) {
+                // Special handling for webview HTML errors
+                outputChannel.appendLine(`[Board] Failed to set webview HTML: ${htmlError?.message || htmlError}`);
+                outputChannel.appendLine(`[Board] Error code: ${htmlError?.code}`);
+                outputChannel.appendLine(`[Board] Error errno: ${htmlError?.errno}`);
+
+                // If it's a system error (like EAFNOSUPPORT -96), provide helpful message
+                if (htmlError?.errno === -96 || htmlError?.code === 'EAFNOSUPPORT') {
+                    throw new Error('System error -96 (EAFNOSUPPORT). This can happen when loading many items at once. The board has been loaded but rendering failed. Try refreshing the board.');
+                }
+
+                throw htmlError;
             }
         } catch (error: any) {
             console.error('Failed to load board:', error);
@@ -1088,50 +1102,66 @@ export class BoardPanel {
             batches.push(workItemRefs.slice(i, i + BATCH_SIZE));
         }
 
-        outputChannel.appendLine(`[Board] Loading ${batches.length} batches in parallel...`);
+        // Load batches in parallel but limit concurrency to avoid overwhelming the system
+        // This prevents "EAFNOSUPPORT" errors from too many simultaneous connections
+        const MAX_CONCURRENT_BATCHES = 3;
+        outputChannel.appendLine(`[Board] Loading batches with max ${MAX_CONCURRENT_BATCHES} concurrent requests...`);
 
-        // Load all batches in parallel for massive speed improvement
-        const batchPromises = batches.map(async (batch, index) => {
-            const workItemIds = batch.map((item: any) => item.id).join(',');
+        const allWorkItems: BoardWorkItem[] = [];
 
-            const detailsResponse = await axiosInstance.get(`/${encodeURIComponent(config.defaultProject || '')}/_apis/wit/workitems`, {
-                params: {
-                    'ids': workItemIds,
-                    '$expand': 'relations',
-                    'api-version': '7.1'
+        // Process batches in groups of MAX_CONCURRENT_BATCHES
+        for (let i = 0; i < batches.length; i += MAX_CONCURRENT_BATCHES) {
+            const batchGroup = batches.slice(i, i + MAX_CONCURRENT_BATCHES);
+
+            const batchPromises = batchGroup.map(async (batch, groupIndex) => {
+                const actualIndex = i + groupIndex;
+                const workItemIds = batch.map((item: any) => item.id).join(',');
+
+                try {
+                    const detailsResponse = await axiosInstance.get(`/${encodeURIComponent(config.defaultProject || '')}/_apis/wit/workitems`, {
+                        params: {
+                            'ids': workItemIds,
+                            '$expand': 'relations',
+                            'api-version': '7.1'
+                        }
+                    });
+
+                    outputChannel.appendLine(`[Board] ✓ Batch ${actualIndex + 1}/${batches.length} completed (${batch.length} items)`);
+
+                    return (detailsResponse.data.value || []).map((item: any) => {
+                        const workItem: any = {
+                            id: item.id,
+                            title: item.fields['System.Title'],
+                            state: item.fields['System.State'],
+                            type: item.fields['System.WorkItemType'],
+                            assignedTo: item.fields['System.AssignedTo'],
+                            priority: item.fields['Microsoft.VSTS.Common.Priority'],
+                            tags: item.fields['System.Tags'],
+                            areaPath: item.fields['System.AreaPath'],
+                            iterationPath: item.fields['System.IterationPath'],
+                            boardColumn: item.fields['System.BoardColumn'] || column.name,
+                            effort: item.fields['Microsoft.VSTS.Scheduling.Effort']
+                        };
+                        // Store relations temporarily for child work items loading
+                        if (item.relations) {
+                            workItem._tempRelations = item.relations;
+                        }
+                        return workItem;
+                    });
+                } catch (error: any) {
+                    outputChannel.appendLine(`[Board] ✗ Batch ${actualIndex + 1}/${batches.length} failed: ${error?.message || error}`);
+                    // Return empty array for failed batch
+                    return [];
                 }
             });
 
-            outputChannel.appendLine(`[Board] ✓ Batch ${index + 1}/${batches.length} completed (${batch.length} items)`);
-
-            return (detailsResponse.data.value || []).map((item: any) => {
-                const workItem: any = {
-                    id: item.id,
-                    title: item.fields['System.Title'],
-                    state: item.fields['System.State'],
-                    type: item.fields['System.WorkItemType'],
-                    assignedTo: item.fields['System.AssignedTo'],
-                    priority: item.fields['Microsoft.VSTS.Common.Priority'],
-                    tags: item.fields['System.Tags'],
-                    areaPath: item.fields['System.AreaPath'],
-                    iterationPath: item.fields['System.IterationPath'],
-                    boardColumn: item.fields['System.BoardColumn'] || column.name,
-                    effort: item.fields['Microsoft.VSTS.Scheduling.Effort']
-                };
-                // Store relations temporarily for child work items loading
-                if (item.relations) {
-                    workItem._tempRelations = item.relations;
-                }
-                return workItem;
-            });
-        });
-
-        // Wait for all batches to complete
-        const batchResults = await Promise.all(batchPromises);
-        const allWorkItems: BoardWorkItem[] = batchResults.flat();
+            // Wait for this group of batches to complete
+            const batchResults = await Promise.all(batchPromises);
+            allWorkItems.push(...batchResults.flat());
+        }
 
         const elapsed = Date.now() - startTime;
-        outputChannel.appendLine(`[Board] ✓ Fetched ${allWorkItems.length} work items total in ${elapsed}ms (${batches.length} parallel batches)`);
+        outputChannel.appendLine(`[Board] ✓ Fetched ${allWorkItems.length} work items total in ${elapsed}ms (${batches.length} batches, max ${MAX_CONCURRENT_BATCHES} concurrent)`);
         return allWorkItems;
     }
 
