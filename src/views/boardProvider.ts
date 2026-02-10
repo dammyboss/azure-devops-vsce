@@ -13,6 +13,9 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
     private teamIterations: Array<{name: string, path: string, timeFrame: string}> = [];
     private currentIterationPath: string | null = null;
     private selectedIterationFilter: string | null = null; // null = all, '@current' = current sprint, or specific path
+    private teamMembers: Array<{displayName: string, uniqueName: string}> = [];
+    private selectedAssigneeFilter: string | null = null; // null = all, '@me' = current user, or specific uniqueName
+    private filtersExpanded: boolean = true; // Whether the Filters node is expanded
 
     constructor(context: vscode.ExtensionContext, authenticationManager: AuthenticationManager) {
         this.context = context;
@@ -46,9 +49,12 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
 
             this.boards = response.data.value || [];
 
-            // Load iterations on first load
+            // Load iterations and team members on first load
             if (this.teamIterations.length === 0) {
                 await this.loadTeamIterations();
+            }
+            if (this.teamMembers.length === 0) {
+                await this.loadTeamMembers();
             }
         } catch (error: any) {
             console.error('Failed to load boards:', error?.message || error);
@@ -94,6 +100,35 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
         }
     }
 
+    /**
+     * Load team members from Azure DevOps API
+     */
+    private async loadTeamMembers(): Promise<void> {
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+
+            if (!axiosInstance || !config?.defaultProject || !config?.defaultTeam) {
+                return;
+            }
+
+            const response = await axiosInstance.get(
+                `/_apis/projects/${encodeURIComponent(config.defaultProject)}/teams/${encodeURIComponent(config.defaultTeam)}/members`,
+                { params: { 'api-version': '7.1' } }
+            );
+
+            const members = response.data.value || [];
+            this.teamMembers = members.map((member: any) => ({
+                displayName: member.identity.displayName,
+                uniqueName: member.identity.uniqueName
+            }));
+
+            console.log('[BoardProvider] Loaded', this.teamMembers.length, 'team members');
+        } catch (error: any) {
+            console.error('Failed to load team members:', error?.message || error);
+        }
+    }
+
     public setIterationFilter(iterationFilter: string | null): void {
         this.selectedIterationFilter = iterationFilter;
         this.columnWorkItems.clear();
@@ -106,6 +141,38 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
 
     public getTeamIterations(): Array<{name: string, path: string, timeFrame: string}> {
         return this.teamIterations;
+    }
+
+    public setAssigneeFilter(assigneeFilter: string | null): void {
+        this.selectedAssigneeFilter = assigneeFilter;
+        this.columnWorkItems.clear();
+        this.refresh();
+    }
+
+    public getAssigneeFilter(): string | null {
+        return this.selectedAssigneeFilter;
+    }
+
+    public getTeamMembers(): Array<{displayName: string, uniqueName: string}> {
+        return this.teamMembers;
+    }
+
+    public clearAllFilters(): void {
+        this.selectedIterationFilter = null;
+        this.selectedAssigneeFilter = null;
+        this.columnWorkItems.clear();
+        this.refresh();
+    }
+
+    public hasActiveFilters(): boolean {
+        return this.selectedIterationFilter !== null || this.selectedAssigneeFilter !== null;
+    }
+
+    public getActiveFilterCount(): number {
+        let count = 0;
+        if (this.selectedIterationFilter) count++;
+        if (this.selectedAssigneeFilter) count++;
+        return count;
     }
 
     private async loadBoardColumns(boardId: string): Promise<any[]> {
@@ -203,6 +270,18 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
                 }
             }
 
+            // Build assignee filter
+            let assigneeFilter = '';
+            if (this.selectedAssigneeFilter) {
+                if (this.selectedAssigneeFilter === '@me') {
+                    // Filter by current user using WIQL @me macro
+                    assigneeFilter = `AND [System.AssignedTo] = @me`;
+                } else {
+                    // Filter by specific user
+                    assigneeFilter = `AND [System.AssignedTo] = '${this.selectedAssigneeFilter.replace(/'/g, "''")}'`;
+                }
+            }
+
             // Strategy 1: Try querying by System.BoardColumn first
             let wiql = `SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo]
                         FROM WorkItems
@@ -210,11 +289,15 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
                         AND [System.BoardColumn] = '${columnName.replace(/'/g, "''")}'
                         ${workItemTypeFilter}
                         ${iterationFilter}
+                        ${assigneeFilter}
                         ORDER BY [Microsoft.VSTS.Common.BacklogPriority]`;
 
             console.log('[BoardProvider] Trying System.BoardColumn query for column:', columnName);
             if (iterationFilter) {
                 console.log('[BoardProvider] With iteration filter:', this.selectedIterationFilter);
+            }
+            if (assigneeFilter) {
+                console.log('[BoardProvider] With assignee filter:', this.selectedAssigneeFilter);
             }
 
             let response = await axiosInstance.post(
@@ -242,6 +325,7 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
                             AND (${stateConditions})
                             ${workItemTypeFilter}
                             ${iterationFilter}
+                            ${assigneeFilter}
                             ORDER BY [Microsoft.VSTS.Common.BacklogPriority]`;
 
                     console.log('[BoardProvider] Using state-based query with states:', states);
@@ -290,26 +374,22 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
         }
 
         if (!element) {
-            // Root level - show filter status and boards
+            // Root level - show Filters node and boards
             await this.loadBoards();
 
             const items: BoardTreeItem[] = [];
 
-            // Add iteration filter indicator
-            const filterLabel = this.getFilterLabel();
-            const filterItem = new BoardTreeItem(
+            // Add collapsible Filters parent node
+            const activeCount = this.getActiveFilterCount();
+            const filterLabel = activeCount > 0 ? `Filters (${activeCount} active)` : 'Filters';
+            const filtersNode = new BoardTreeItem(
                 filterLabel,
-                vscode.TreeItemCollapsibleState.None,
-                {
-                    command: 'azureDevOps.boards.changeIterationFilter',
-                    title: 'Change Iteration Filter',
-                    arguments: []
-                }
+                this.filtersExpanded ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed
             );
-            filterItem.contextValue = 'iterationFilter';
-            filterItem.iconPath = new vscode.ThemeIcon('filter');
-            filterItem.tooltip = 'Click to change sprint/iteration filter';
-            items.push(filterItem);
+            filtersNode.contextValue = 'filtersParent';
+            filtersNode.iconPath = new vscode.ThemeIcon('filter');
+            filtersNode.tooltip = 'Click to expand/collapse filters';
+            items.push(filtersNode);
 
             if (this.boards.length === 0) {
                 items.push(new BoardTreeItem('No boards found', vscode.TreeItemCollapsibleState.None));
@@ -329,6 +409,60 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
                 treeItem.boardName = board.name;
                 items.push(treeItem);
             });
+
+            return items;
+        } else if (element.contextValue === 'filtersParent') {
+            // Show individual filter items
+            const items: BoardTreeItem[] = [];
+
+            // Sprint/Iteration filter
+            const sprintLabel = this.getSprintFilterLabel();
+            const sprintItem = new BoardTreeItem(
+                sprintLabel,
+                vscode.TreeItemCollapsibleState.None,
+                {
+                    command: 'azureDevOps.boards.changeIterationFilter',
+                    title: 'Change Sprint Filter',
+                    arguments: []
+                }
+            );
+            sprintItem.contextValue = 'sprintFilter';
+            sprintItem.iconPath = new vscode.ThemeIcon('calendar');
+            sprintItem.tooltip = 'Click to change sprint/iteration filter';
+            items.push(sprintItem);
+
+            // Assigned To filter
+            const assigneeLabel = this.getAssigneeFilterLabel();
+            const assigneeItem = new BoardTreeItem(
+                assigneeLabel,
+                vscode.TreeItemCollapsibleState.None,
+                {
+                    command: 'azureDevOps.boards.changeAssigneeFilter',
+                    title: 'Change Assignee Filter',
+                    arguments: []
+                }
+            );
+            assigneeItem.contextValue = 'assigneeFilter';
+            assigneeItem.iconPath = new vscode.ThemeIcon('person');
+            assigneeItem.tooltip = 'Click to change assignee filter';
+            items.push(assigneeItem);
+
+            // Clear all filters button (only show if filters are active)
+            if (this.hasActiveFilters()) {
+                const clearItem = new BoardTreeItem(
+                    'Clear All Filters',
+                    vscode.TreeItemCollapsibleState.None,
+                    {
+                        command: 'azureDevOps.boards.clearAllFilters',
+                        title: 'Clear All Filters',
+                        arguments: []
+                    }
+                );
+                clearItem.contextValue = 'clearFilters';
+                clearItem.iconPath = new vscode.ThemeIcon('clear-all');
+                clearItem.tooltip = 'Remove all active filters';
+                items.push(clearItem);
+            }
 
             return items;
         } else if (element.contextValue === 'board') {
@@ -385,15 +519,26 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
         return [];
     }
 
-    private getFilterLabel(): string {
+    private getSprintFilterLabel(): string {
         if (!this.selectedIterationFilter) {
-            return 'Sprint: All Iterations';
+            return 'Sprint: All';
         } else if (this.selectedIterationFilter === '@current') {
             const currentIter = this.teamIterations.find(i => i.timeFrame === 'current');
             return `Sprint: ${currentIter?.name || 'Current'}`;
         } else {
             const selectedIter = this.teamIterations.find(i => i.path === this.selectedIterationFilter);
             return `Sprint: ${selectedIter?.name || 'Selected'}`;
+        }
+    }
+
+    private getAssigneeFilterLabel(): string {
+        if (!this.selectedAssigneeFilter) {
+            return 'Assigned To: All';
+        } else if (this.selectedAssigneeFilter === '@me') {
+            return 'Assigned To: Me';
+        } else {
+            const member = this.teamMembers.find(m => m.uniqueName === this.selectedAssigneeFilter);
+            return `Assigned To: ${member?.displayName || 'Selected'}`;
         }
     }
 

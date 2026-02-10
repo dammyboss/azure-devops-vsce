@@ -561,6 +561,64 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
     );
 
     context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.boards.changeAssigneeFilter', async () => {
+            const members = components.boardProvider.getTeamMembers();
+
+            if (members.length === 0) {
+                vscode.window.showInformationMessage('No team members found');
+                return;
+            }
+
+            // Build quick pick items
+            const quickPickItems: vscode.QuickPickItem[] = [
+                {
+                    label: '$(organization) All Team Members',
+                    description: 'Show work items assigned to anyone',
+                    detail: 'No filtering applied'
+                },
+                {
+                    label: '$(account) Me',
+                    description: 'Show only work items assigned to me',
+                    detail: 'Assigned to current user'
+                },
+                { label: '', kind: vscode.QuickPickItemKind.Separator }
+            ];
+
+            // Add individual team members sorted alphabetically
+            const sortedMembers = [...members].sort((a, b) => a.displayName.localeCompare(b.displayName));
+            sortedMembers.forEach(member => {
+                quickPickItems.push({
+                    label: `$(person) ${member.displayName}`,
+                    description: member.uniqueName
+                });
+            });
+
+            const selected = await vscode.window.showQuickPick(quickPickItems, {
+                placeHolder: 'Select assignee to filter by',
+                matchOnDescription: true
+            });
+
+            if (!selected) return;
+
+            // Apply filter
+            if (selected.label.includes('All Team Members')) {
+                components.boardProvider.setAssigneeFilter(null);
+            } else if (selected.label.includes('Me')) {
+                components.boardProvider.setAssigneeFilter('@me');
+            } else {
+                components.boardProvider.setAssigneeFilter(selected.description || null);
+            }
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.boards.clearAllFilters', () => {
+            components.boardProvider.clearAllFilters();
+            vscode.window.showInformationMessage('All board filters cleared');
+        })
+    );
+
+    context.subscriptions.push(
         vscode.commands.registerCommand('azureDevOps.refreshSprints', () => {
             components.sprintProvider.refresh();
         })
