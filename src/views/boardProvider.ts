@@ -378,11 +378,26 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
             // The state-based query can return items from other columns due to overlapping state mappings
             const filteredWorkItems = workItems.filter((item: any) => {
                 const itemBoardColumn = item.fields['System.BoardColumn'];
+                const itemState = item.fields['System.State'];
+                const itemType = item.fields['System.WorkItemType'];
 
-                // If BoardColumn is set and doesn't match our target column, exclude it
-                if (itemBoardColumn && itemBoardColumn !== 'undefined' && itemBoardColumn !== columnName) {
-                    console.log(`[BoardProvider] Filtering out item ${item.id}: belongs to column "${itemBoardColumn}", not "${columnName}"`);
-                    return false;
+                // Strategy 1: If BoardColumn is set and valid, use it
+                if (itemBoardColumn && itemBoardColumn !== 'undefined') {
+                    if (itemBoardColumn !== columnName) {
+                        console.log(`[BoardProvider] Filtering out item ${item.id}: belongs to column "${itemBoardColumn}", not "${columnName}"`);
+                        return false;
+                    }
+                    return true;
+                }
+
+                // Strategy 2: If BoardColumn is not set, check type+state against column's stateMappings
+                // This matches the logic used in boardPanel.ts _findColumnForWorkItem
+                if (column?.stateMappings) {
+                    const expectedState = column.stateMappings[itemType];
+                    if (expectedState !== itemState) {
+                        console.log(`[BoardProvider] Filtering out item ${item.id}: type="${itemType}", state="${itemState}" doesn't match column "${columnName}" mapping (expects "${expectedState}")`);
+                        return false;
+                    }
                 }
 
                 return true;
