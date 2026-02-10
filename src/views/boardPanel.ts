@@ -279,8 +279,8 @@ export class BoardPanel {
             this._lastRefreshTime = Date.now();
             outputChannel.appendLine(`[Board] Starting load (fullRefresh: ${fullRefresh})`);
 
-            // Show loading screen immediately for better perceived performance
-            if (fullRefresh || !this.currentBoard) {
+            // Show loading screen only on initial load, not on refresh
+            if (!this.currentBoard) {
                 this._panel.webview.html = this._getLoadingHtml();
             }
 
@@ -601,7 +601,7 @@ export class BoardPanel {
         let workItemTypeFilter = '';
         if (allowedWorkItemTypes.length > 0) {
             const typeConditions = allowedWorkItemTypes
-                .map(t => `[System.WorkItemType] = '${t.replace(/'/g, "''")}'`)
+                .map((t: string) => `[System.WorkItemType] = '${t.replace(/'/g, "''")}'`)
                 .join(' OR ');
             workItemTypeFilter = `AND (${typeConditions})`;
         }
@@ -654,7 +654,8 @@ export class BoardPanel {
 
         // STRATEGY 3: Fallback to state-based query
         if (allWorkItems.length === 0) {
-            outputChannel.appendLine(`[Board] Using state-based distribution as fallback...`);
+            outputChannel.appendLine(`[Board] Using state-based distribution...`);
+
             const allWorkItemsByState = await this._queryAllWorkItemsByState(
                 columns,
                 workItemTypeFilter,
@@ -662,7 +663,7 @@ export class BoardPanel {
                 config
             );
 
-            outputChannel.appendLine(`[Board] ✓ Loaded ${allWorkItemsByState.length} work items, distributing to columns...`);
+            outputChannel.appendLine(`[Board] ✓ State-based query loaded ${allWorkItemsByState.length} work items, distributing to columns...`);
 
             // DEBUG: Log unique states found in work items
             const uniqueStates = new Set<string>();
@@ -845,26 +846,41 @@ export class BoardPanel {
                       ${workItemTypeFilter}
                       ORDER BY [Microsoft.VSTS.Common.BacklogPriority]`;
 
+        outputChannel.appendLine(`[Board] BoardColumn WIQL query:\n${wiql}`);
+
         try {
             const wiqlResponse = await axiosInstance.post(
                 `/${encodeURIComponent(config.defaultProject || '')}/_apis/wit/wiql`,
-                { query: wiql }
+                { query: wiql },
+                {
+                    params: {
+                        'api-version': '7.1'
+                    }
+                }
             );
 
             const workItemRefs = wiqlResponse.data.workItems || [];
+
+            outputChannel.appendLine(`[Board] BoardColumn query returned ${workItemRefs.length} work item references`);
+
             if (workItemRefs.length === 0) {
+                outputChannel.appendLine('[Board] BoardColumn query returned 0 items - System.BoardColumn field may not be available');
                 return [];
             }
 
             return await this._fetchWorkItemDetails(workItemRefs, axiosInstance, columns[0]);
-        } catch (error) {
-            console.error('BoardColumn query failed:', error);
+        } catch (error: any) {
+            outputChannel.appendLine(`[Board] BoardColumn query failed: ${error?.message || error}`);
+            if (error?.response?.data) {
+                outputChannel.appendLine(`[Board] Error details: ${JSON.stringify(error.response.data)}`);
+            }
             return [];
         }
     }
 
     /**
      * Query ALL work items using State (fallback when BoardColumn not available)
+     * Now supports pagination with $top and $skip parameters
      */
     private async _queryAllWorkItemsByState(
         columns: BoardColumn[],
@@ -918,17 +934,26 @@ export class BoardPanel {
         try {
             const wiqlResponse = await axiosInstance.post(
                 `/${encodeURIComponent(config.defaultProject || '')}/_apis/wit/wiql`,
-                { query: wiql }
+                { query: wiql },
+                {
+                    params: {
+                        'api-version': '7.1'
+                    }
+                }
             );
 
             const workItemRefs = wiqlResponse.data.workItems || [];
+
             outputChannel.appendLine(`[Board] WIQL returned ${workItemRefs.length} work item references`);
 
             if (workItemRefs.length === 0) {
                 return [];
             }
 
-            return await this._fetchWorkItemDetails(workItemRefs, axiosInstance, columns[0]);
+            // Fetch details for the work items
+            const items = await this._fetchWorkItemDetails(workItemRefs, axiosInstance, columns[0]);
+
+            return items;
         } catch (error: any) {
             outputChannel.appendLine(`[Board] WIQL query failed with error: ${error?.message}`);
             if (error?.response?.data) {
@@ -4990,16 +5015,11 @@ export class BoardPanel {
 
         // ========== FILTER FUNCTIONALITY ==========
         let currentUserEmail = ''; // Will be set when user info is available
-        let hideDoneActive = true; // Enable by default for faster initial load
+        let hideDoneActive = false; // Show all items by default
         const currentIterationPath = ${JSON.stringify(this._currentIterationPath || '')};
 
         // Initialize filters on load
         document.addEventListener('DOMContentLoaded', () => {
-            // Set Hide Done toggle as active by default
-            const hideDoneToggle = document.getElementById('hideDoneToggle');
-            if (hideDoneToggle) {
-                hideDoneToggle.classList.add('active');
-            }
             updateFilterCounts();
             // Request current user info from extension
             vscode.postMessage({ command: 'getCurrentUser' });
