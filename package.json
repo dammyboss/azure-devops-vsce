@@ -68,6 +68,12 @@
         "icon": "$(search)"
       },
       {
+        "command": "azureDevOps.quickOpenWorkItem",
+        "title": "Quick Open Work Item",
+        "category": "Azure DevOps",
+        "icon": "$(search)"
+      },
+      {
         "command": "azureDevOps.refresh",
         "title": "Refresh",
         "category": "Azure DevOps",
@@ -375,6 +381,14 @@
         "view": "azureDevOpsQueries",
         "contents": "Not Connected",
         "when": "!azureDevOps.connected"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "azureDevOps.quickOpenWorkItem",
+        "key": "ctrl+shift+o",
+        "mac": "cmd+shift+o",
+        "when": "azureDevOps.connected"
       }
     ],
     "menus": {

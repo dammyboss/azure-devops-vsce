@@ -11,6 +11,7 @@ import { GitIntegration } from './gitIntegration/gitIntegration';
 import { StatusBarManager } from './utils/statusBarManager';
 import { WorkItemLinksManager } from './utils/workItemLinksManager';
 import { WhatsNewPanel } from './views/whatsNewPanel';
+import { SearchService } from './services/searchService';
 // DISABLED: AI Chat features - uncomment to re-enable in future
 // import { AIChatProvider } from './ai/chat-provider';
 // import { ChatEditorProvider, openChatEditor } from './ai/chat-editor';
@@ -27,6 +28,7 @@ export let statusBarManager: StatusBarManager;
 export let workItemLinksManager: WorkItemLinksManager;
 export let connectionStatusProvider: ConnectionStatusProvider;
 export let outputChannel: vscode.OutputChannel;
+export let searchService: SearchService;
 // DISABLED: AI Chat features - uncomment to re-enable in future
 // export let aiChatProvider: AIChatProvider;
 
@@ -47,6 +49,7 @@ export async function activate(context: vscode.ExtensionContext) {
     gitIntegration = new GitIntegration();
     workItemLinksManager = new WorkItemLinksManager(authenticationManager);
     connectionStatusProvider = new ConnectionStatusProvider(authenticationManager, context);
+    searchService = new SearchService(context, authenticationManager);
 
     // DISABLED: AI Chat features - uncomment to re-enable in future
     // // Initialize AI output channel
@@ -145,7 +148,8 @@ export async function activate(context: vscode.ExtensionContext) {
         statusBarManager,
         extensionUri: context.extensionUri,
         workItemLinksManager,
-        connectionStatusProvider
+        connectionStatusProvider,
+        searchService
     });
 
     // Register configuration change listener

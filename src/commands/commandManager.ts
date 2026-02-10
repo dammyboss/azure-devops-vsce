@@ -18,6 +18,8 @@ import { ConnectionStatusProvider } from '../authentication/connectionStatusProv
 import { WorkItemLinksManager } from '../utils/workItemLinksManager';
 import { SettingsUIProvider } from '../ai/settings-ui';
 import { WorkItemEventManager } from '../events/workItemEventManager';
+import { SearchService } from '../services/searchService';
+import { WorkItemQuickPick } from '../views/workItemQuickPick';
 
 interface ExtensionComponents {
     authenticationManager: AuthenticationManager;
@@ -31,6 +33,7 @@ interface ExtensionComponents {
     extensionUri: vscode.Uri;
     workItemLinksManager: WorkItemLinksManager;
     connectionStatusProvider: any;
+    searchService: SearchService;
 }
 
 interface WorkItemQuickPickItem extends vscode.QuickPickItem {
@@ -347,6 +350,22 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
             } catch (error) {
                 vscode.window.showErrorMessage(`Search failed: ${error}`);
             }
+        })
+    );
+
+    // Quick Open Work Item command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.quickOpenWorkItem', async () => {
+            if (!components.authenticationManager.isConnected()) {
+                vscode.window.showErrorMessage('Please connect to Azure DevOps first');
+                return;
+            }
+
+            const quickPick = new WorkItemQuickPick(
+                components.authenticationManager,
+                components.searchService
+            );
+            await quickPick.show();
         })
     );
 
