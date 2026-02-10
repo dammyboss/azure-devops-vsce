@@ -61,11 +61,17 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
                 return [];
             }
 
+            // Fetch full board details (includes columns with state mappings)
+            // API Reference: https://learn.microsoft.com/en-us/rest/api/azure/devops/work/boards/get
             const response = await axiosInstance.get(
-                `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/boards/${boardId}/columns`
+                `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/boards/${boardId}`
             );
 
-            const columns = response.data.value || [];
+            // Extract columns from board response (includes id, name, columnType, itemLimit, stateMappings)
+            const columns = response.data.columns || [];
+
+            console.log('[BoardProvider] Loaded', columns.length, 'columns for board', boardId);
+
             this.boardColumns.set(boardId, columns);
             return columns;
         } catch (error: any) {
@@ -88,9 +94,12 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
                 return [];
             }
 
-            // Find the board to get its work item type
+            // Find the board and column to get state mappings
             const board = this.boards.find(b => b.id === boardId);
             if (!board) return [];
+
+            const columns = this.boardColumns.get(boardId) || [];
+            const column = columns.find(c => c.name === columnName);
 
             // Get backlog work item types for this specific board
             let allowedWorkItemTypes: string[] = [];
@@ -120,20 +129,54 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
                 workItemTypeFilter = `AND (${typeConditions})`;
             }
 
-            // Query work items in this column using WIQL with type filter
-            const wiql = `SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo]
-                          FROM WorkItems
-                          WHERE [System.TeamProject] = @project
-                          AND [System.BoardColumn] = '${columnName}'
-                          ${workItemTypeFilter}
-                          ORDER BY [Microsoft.VSTS.Common.BacklogPriority]`;
+            // Strategy 1: Try querying by System.BoardColumn first
+            let wiql = `SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo]
+                        FROM WorkItems
+                        WHERE [System.TeamProject] = @project
+                        AND [System.BoardColumn] = '${columnName.replace(/'/g, "''")}'
+                        ${workItemTypeFilter}
+                        ORDER BY [Microsoft.VSTS.Common.BacklogPriority]`;
 
-            const response = await axiosInstance.post(
+            console.log('[BoardProvider] Trying System.BoardColumn query for column:', columnName);
+
+            let response = await axiosInstance.post(
                 `/${encodeURIComponent(config.defaultProject)}/_apis/wit/wiql`,
                 { query: wiql }
             );
 
-            const workItemRefs = response.data.workItems || [];
+            let workItemRefs = response.data.workItems || [];
+
+            // Strategy 2: If no results and column has state mappings, fall back to state-based query
+            if (workItemRefs.length === 0 && column?.stateMappings) {
+                console.log('[BoardProvider] System.BoardColumn returned 0 results, trying state-based query');
+
+                const states = Object.values(column.stateMappings);
+
+                if (states.length > 0) {
+                    // Build state filter
+                    const stateConditions = states
+                        .map((state: any) => `[System.State] = '${state.replace(/'/g, "''")}'`)
+                        .join(' OR ');
+
+                    wiql = `SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo]
+                            FROM WorkItems
+                            WHERE [System.TeamProject] = @project
+                            AND (${stateConditions})
+                            ${workItemTypeFilter}
+                            ORDER BY [Microsoft.VSTS.Common.BacklogPriority]`;
+
+                    console.log('[BoardProvider] Using state-based query with states:', states);
+
+                    response = await axiosInstance.post(
+                        `/${encodeURIComponent(config.defaultProject)}/_apis/wit/wiql`,
+                        { query: wiql }
+                    );
+
+                    workItemRefs = response.data.workItems || [];
+                    console.log('[BoardProvider] State-based query returned', workItemRefs.length, 'work items');
+                }
+            }
+
             if (workItemRefs.length === 0) {
                 this.columnWorkItems.set(key, []);
                 return [];
