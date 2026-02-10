@@ -52,9 +52,17 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
             // Load iterations and team members on first load
             if (this.teamIterations.length === 0) {
                 await this.loadTeamIterations();
+                // Set default filter to current sprint on first load
+                if (this.selectedIterationFilter === null && this.currentIterationPath) {
+                    this.selectedIterationFilter = '@current';
+                }
             }
             if (this.teamMembers.length === 0) {
                 await this.loadTeamMembers();
+                // Set default filter to current user on first load
+                if (this.selectedAssigneeFilter === null) {
+                    this.selectedAssigneeFilter = '@me';
+                }
             }
         } catch (error: any) {
             console.error('Failed to load boards:', error?.message || error);
