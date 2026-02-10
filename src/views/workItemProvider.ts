@@ -60,6 +60,14 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
         this.refresh();
     }
 
+    getCurrentFilters(): { state: string | null; type: string | null; assignedToMe: boolean } {
+        return {
+            state: this.filterState,
+            type: this.filterType,
+            assignedToMe: this.filterAssignedToMe
+        };
+    }
+
     setGroupBy(groupBy: GroupByOption): void {
         this.groupBy = groupBy;
         this.refresh();
@@ -164,25 +172,30 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
             let wiql = `SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo], [System.CreatedDate] FROM WorkItems WHERE [System.TeamProject] = @project`;
 
             if (this.filterState) {
-                wiql += ` AND [System.State] = '${this.filterState}'`;
+                // Escape single quotes in filter values
+                const escapedState = this.filterState.replace(/'/g, "''");
+                wiql += ` AND [System.State] = '${escapedState}'`;
             }
 
             if (this.filterType) {
-                wiql += ` AND [System.WorkItemType] = '${this.filterType}'`;
+                // Escape single quotes in filter values
+                const escapedType = this.filterType.replace(/'/g, "''");
+                wiql += ` AND [System.WorkItemType] = '${escapedType}'`;
             }
 
             if (this.filterAssignedToMe) {
-                try {
-                    const currentUser = await this.authenticationManager.getCurrentUser();
-                    if (currentUser?.uniqueName) {
-                        wiql += ` AND [System.AssignedTo] = '${currentUser.uniqueName}'`;
-                    }
-                } catch (e) {
-                    // If we can't get current user, skip this filter
-                }
+                // Use @Me macro which Azure DevOps resolves to the current authenticated user
+                wiql += ` AND [System.AssignedTo] = @Me`;
             }
 
             wiql += ` ORDER BY [System.ChangedDate] DESC`;
+
+            try {
+                console.log('[WorkItemProvider] WIQL Query:', wiql);
+                console.log('[WorkItemProvider] Filters - State:', this.filterState, 'Type:', this.filterType, 'AssignedToMe:', this.filterAssignedToMe);
+            } catch (e) {
+                // Ignore console logging errors
+            }
 
             const response = await axiosInstance.post(
                 `/${encodeURIComponent(config.defaultProject)}/_apis/wit/wiql`,
@@ -196,15 +209,43 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
             }
 
             // Get detailed work item information (limit to maxItems)
-            const workItemIds = workItemRefs.slice(0, maxItems).map((item: any) => item.id).join(',');
-            const detailsResponse = await axiosInstance.get('/_apis/wit/workitems', {
-                params: {
-                    'ids': workItemIds,
-                    '$expand': 'all'
-                }
-            });
+            const workItemIdsToLoad = workItemRefs.slice(0, maxItems).map((item: any) => item.id);
 
-            this.workItems = detailsResponse.data.value || [];
+            // Load in batches of 200 (Azure DevOps API limit) with limited concurrency
+            const BATCH_SIZE = 200;
+            const MAX_CONCURRENT_BATCHES = 3;
+            const batches: number[][] = [];
+
+            for (let i = 0; i < workItemIdsToLoad.length; i += BATCH_SIZE) {
+                batches.push(workItemIdsToLoad.slice(i, i + BATCH_SIZE));
+            }
+
+            const allWorkItems: any[] = [];
+
+            // Process batches in groups of MAX_CONCURRENT_BATCHES
+            for (let i = 0; i < batches.length; i += MAX_CONCURRENT_BATCHES) {
+                const batchGroup = batches.slice(i, i + MAX_CONCURRENT_BATCHES);
+
+                const batchPromises = batchGroup.map(async (batch) => {
+                    try {
+                        const detailsResponse = await axiosInstance.get('/_apis/wit/workitems', {
+                            params: {
+                                'ids': batch.join(','),
+                                '$expand': 'all'
+                            }
+                        });
+                        return detailsResponse.data.value || [];
+                    } catch (error: any) {
+                        console.error(`Failed to load work items batch:`, error?.message || error);
+                        return [];
+                    }
+                });
+
+                const batchResults = await Promise.all(batchPromises);
+                allWorkItems.push(...batchResults.flat());
+            }
+
+            this.workItems = allWorkItems;
 
             // Prefetch state categories for all unique work item types
             await this.prefetchStateCategoriesForWorkItems();
@@ -222,20 +263,27 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
     }
 
     async getChildren(element?: WorkItemTreeItem): Promise<WorkItemTreeItem[]> {
-        if (!this.authenticationManager.isConnected()) {
-            return [];
-        }
-
-        if (!element) {
-            await this.loadWorkItems();
-
-            if (this.workItems.length === 0) {
-                return [new WorkItemTreeItem('No work items found', vscode.TreeItemCollapsibleState.None)];
+        try {
+            if (!this.authenticationManager.isConnected()) {
+                console.log('[WorkItemProvider] Not connected to Azure DevOps');
+                return [];
             }
 
-            // Group based on selected option
-            return this.groupWorkItems();
-        } else if (element.contextValue === 'workItemGroup') {
+            if (!element) {
+                console.log('[WorkItemProvider] Loading root work items...');
+                await this.loadWorkItems();
+
+                console.log('[WorkItemProvider] Loaded', this.workItems.length, 'work items');
+
+                if (this.workItems.length === 0) {
+                    return [new WorkItemTreeItem('No work items found', vscode.TreeItemCollapsibleState.None)];
+                }
+
+                // Group based on selected option
+                const grouped = this.groupWorkItems();
+                console.log('[WorkItemProvider] Created', grouped.length, 'groups');
+                return grouped;
+            } else if (element.contextValue === 'workItemGroup') {
             // Show work items in this group
             const items = this.getWorkItemsForGroup(element);
 
@@ -269,12 +317,16 @@ export class WorkItemProvider implements vscode.TreeDataProvider<WorkItemTreeIte
 
                 return treeItem;
             });
-        } else if (element.contextValue === 'workItem' && element.workItemId) {
-            // Show child work items
-            return await this.getChildWorkItems(element.workItemId);
-        }
+            } else if (element.contextValue === 'workItem' && element.workItemId) {
+                // Show child work items
+                return await this.getChildWorkItems(element.workItemId);
+            }
 
-        return [];
+            return [];
+        } catch (error: any) {
+            console.error('[WorkItemProvider] Error in getChildren:', error);
+            return [new WorkItemTreeItem(`Error: ${error?.message || error}`, vscode.TreeItemCollapsibleState.None)];
+        }
     }
 
     private groupWorkItems(): WorkItemTreeItem[] {

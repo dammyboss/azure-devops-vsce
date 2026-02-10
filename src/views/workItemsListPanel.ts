@@ -573,15 +573,43 @@ export class WorkItemsListPanel {
             }
 
             // Get detailed work item information
-            const workItemIds = workItemRefs.slice(0, maxItems).map((item: any) => item.id).join(',');
-            const detailsResponse = await axiosInstance.get('/_apis/wit/workitems', {
-                params: {
-                    'ids': workItemIds,
-                    'fields': 'System.Id,System.Title,System.State,System.WorkItemType,System.AssignedTo,System.AreaPath,System.Tags,Microsoft.VSTS.Common.Priority,System.ChangedDate,System.CommentCount'
-                }
-            });
+            const workItemIdsToLoad = workItemRefs.slice(0, maxItems).map((item: any) => item.id);
 
-            this.workItems = detailsResponse.data.value || [];
+            // Load in batches of 200 (Azure DevOps API limit) with limited concurrency
+            const BATCH_SIZE = 200;
+            const MAX_CONCURRENT_BATCHES = 3;
+            const batches: number[][] = [];
+
+            for (let i = 0; i < workItemIdsToLoad.length; i += BATCH_SIZE) {
+                batches.push(workItemIdsToLoad.slice(i, i + BATCH_SIZE));
+            }
+
+            const allWorkItems: any[] = [];
+
+            // Process batches in groups of MAX_CONCURRENT_BATCHES
+            for (let i = 0; i < batches.length; i += MAX_CONCURRENT_BATCHES) {
+                const batchGroup = batches.slice(i, i + MAX_CONCURRENT_BATCHES);
+
+                const batchPromises = batchGroup.map(async (batch) => {
+                    try {
+                        const detailsResponse = await axiosInstance.get('/_apis/wit/workitems', {
+                            params: {
+                                'ids': batch.join(','),
+                                'fields': 'System.Id,System.Title,System.State,System.WorkItemType,System.AssignedTo,System.AreaPath,System.Tags,Microsoft.VSTS.Common.Priority,System.ChangedDate,System.CommentCount'
+                            }
+                        });
+                        return detailsResponse.data.value || [];
+                    } catch (error: any) {
+                        console.error(`Failed to load work items batch:`, error?.message || error);
+                        return [];
+                    }
+                });
+
+                const batchResults = await Promise.all(batchPromises);
+                allWorkItems.push(...batchResults.flat());
+            }
+
+            this.workItems = allWorkItems;
         } catch (error: any) {
             console.error('Failed to load work items:', error?.message || error);
             this.workItems = [];

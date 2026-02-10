@@ -1345,6 +1345,7 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
             // Get dynamic types and states from actual work items
             const uniqueTypes = components.workItemProvider.getUniqueTypes();
             const uniqueStates = components.workItemProvider.getUniqueStates();
+            const currentFilters = components.workItemProvider.getCurrentFilters();
 
             // Icon mapping for states
             const stateIcons: Record<string, string> = {
@@ -1375,50 +1376,78 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
                 'Risk': '$(alert)'
             };
 
-            // Build filter options dynamically
-            const filterOptions: Array<{ label: string; description?: string; state: string | null; type: string | null; assignedToMe: boolean; kind?: vscode.QuickPickItemKind }> = [
-                { label: '$(list-flat) Show All', description: 'Clear all filters', state: null, type: null, assignedToMe: false },
-                { label: '$(person) Assigned to Me', description: 'Show only my items', state: null, type: null, assignedToMe: true },
-                { label: '', state: null, type: null, assignedToMe: false, kind: vscode.QuickPickItemKind.Separator }
+            // Build filter options dynamically with toggle support
+            const filterOptions: Array<{ label: string; description?: string; action: string; value?: string; kind?: vscode.QuickPickItemKind }> = [
+                { label: '$(list-flat) Clear All Filters', description: 'Show all work items', action: 'clear' },
+                { label: '', action: '', kind: vscode.QuickPickItemKind.Separator }
             ];
+
+            // Assigned to Me toggle
+            const assignedToMeActive = currentFilters.assignedToMe;
+            filterOptions.push({
+                label: `$(person) Assigned to Me`,
+                description: assignedToMeActive ? '✓ Active - Click to remove' : 'Click to activate',
+                action: 'toggleAssignedToMe'
+            });
 
             // Add state filters dynamically
             if (uniqueStates.length > 0) {
-                filterOptions.push({ label: 'Filter by State', state: null, type: null, assignedToMe: false, kind: vscode.QuickPickItemKind.Separator });
+                filterOptions.push({ label: 'Filter by State', action: '', kind: vscode.QuickPickItemKind.Separator });
                 uniqueStates.forEach(state => {
                     const icon = stateIcons[state] || '$(circle)';
+                    const isActive = currentFilters.state === state;
                     filterOptions.push({
                         label: `${icon} ${state}`,
-                        description: 'State filter',
-                        state: state,
-                        type: null,
-                        assignedToMe: false
+                        description: isActive ? '✓ Active - Click to remove' : 'State filter',
+                        action: 'state',
+                        value: state
                     });
                 });
             }
 
             // Add type filters dynamically
             if (uniqueTypes.length > 0) {
-                filterOptions.push({ label: 'Filter by Type', state: null, type: null, assignedToMe: false, kind: vscode.QuickPickItemKind.Separator });
+                filterOptions.push({ label: 'Filter by Type', action: '', kind: vscode.QuickPickItemKind.Separator });
                 uniqueTypes.forEach(type => {
                     const icon = typeIcons[type] || '$(circle)';
+                    const isActive = currentFilters.type === type;
                     filterOptions.push({
                         label: `${icon} ${type}`,
-                        description: 'Type filter',
-                        state: null,
-                        type: type,
-                        assignedToMe: false
+                        description: isActive ? '✓ Active - Click to remove' : 'Type filter',
+                        action: 'type',
+                        value: type
                     });
                 });
             }
 
             const selected = await vscode.window.showQuickPick(filterOptions, {
-                placeHolder: 'Select filter',
+                placeHolder: 'Select filter (filters can be combined)',
                 title: 'Filter Work Items'
             });
 
             if (selected && selected.kind !== vscode.QuickPickItemKind.Separator) {
-                components.workItemProvider.setFilter(selected.state, selected.type, selected.assignedToMe);
+                let newState = currentFilters.state;
+                let newType = currentFilters.type;
+                let newAssignedToMe = currentFilters.assignedToMe;
+
+                switch (selected.action) {
+                    case 'clear':
+                        newState = null;
+                        newType = null;
+                        newAssignedToMe = false;
+                        break;
+                    case 'toggleAssignedToMe':
+                        newAssignedToMe = !currentFilters.assignedToMe;
+                        break;
+                    case 'state':
+                        newState = currentFilters.state === selected.value ? null : selected.value || null;
+                        break;
+                    case 'type':
+                        newType = currentFilters.type === selected.value ? null : selected.value || null;
+                        break;
+                }
+
+                components.workItemProvider.setFilter(newState, newType, newAssignedToMe);
             }
         })
     );
