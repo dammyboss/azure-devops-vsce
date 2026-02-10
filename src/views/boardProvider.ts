@@ -228,6 +228,17 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
             const columns = this.boardColumns.get(boardId) || [];
             const column = columns.find(c => c.name === columnName);
 
+            // Debug: Log column details
+            console.log('[BoardProvider] Loading work items for column:', columnName);
+            if (column) {
+                console.log('[BoardProvider] Column details:', {
+                    id: column.id,
+                    name: column.name,
+                    columnType: column.columnType,
+                    stateMappings: column.stateMappings
+                });
+            }
+
             // Get backlog work item types for this specific board
             let allowedWorkItemTypes: string[] = [];
             try {
@@ -293,6 +304,7 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
                         ORDER BY [Microsoft.VSTS.Common.BacklogPriority]`;
 
             console.log('[BoardProvider] Trying System.BoardColumn query for column:', columnName);
+            console.log('[BoardProvider] WIQL Query:', wiql);
             if (iterationFilter) {
                 console.log('[BoardProvider] With iteration filter:', this.selectedIterationFilter);
             }
@@ -306,12 +318,15 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
             );
 
             let workItemRefs = response.data.workItems || [];
+            console.log('[BoardProvider] System.BoardColumn query returned', workItemRefs.length, 'work items');
 
             // Strategy 2: If no results and column has state mappings, fall back to state-based query
             if (workItemRefs.length === 0 && column?.stateMappings) {
                 console.log('[BoardProvider] System.BoardColumn returned 0 results, trying state-based query');
+                console.log('[BoardProvider] stateMappings structure:', JSON.stringify(column.stateMappings, null, 2));
 
                 const states = Object.values(column.stateMappings);
+                console.log('[BoardProvider] Extracted states:', states);
 
                 if (states.length > 0) {
                     // Build state filter
@@ -328,7 +343,7 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
                             ${assigneeFilter}
                             ORDER BY [Microsoft.VSTS.Common.BacklogPriority]`;
 
-                    console.log('[BoardProvider] Using state-based query with states:', states);
+                    console.log('[BoardProvider] State-based WIQL Query:', wiql);
 
                     response = await axiosInstance.post(
                         `/${encodeURIComponent(config.defaultProject)}/_apis/wit/wiql`,
@@ -341,6 +356,7 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
             }
 
             if (workItemRefs.length === 0) {
+                console.log('[BoardProvider] No work items found for column:', columnName);
                 this.columnWorkItems.set(key, []);
                 return [];
             }
@@ -351,8 +367,31 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
             });
 
             const workItems = detailsResponse.data.value || [];
-            this.columnWorkItems.set(key, workItems);
-            return workItems;
+
+            // Debug: Log work items with their states and board columns
+            console.log('[BoardProvider] Work items for column', columnName + ':');
+            workItems.forEach((item: any) => {
+                console.log(`  - ID ${item.id}: State="${item.fields['System.State']}", BoardColumn="${item.fields['System.BoardColumn']}"`);
+            });
+
+            // IMPORTANT: Filter out items that don't actually belong to this column
+            // The state-based query can return items from other columns due to overlapping state mappings
+            const filteredWorkItems = workItems.filter((item: any) => {
+                const itemBoardColumn = item.fields['System.BoardColumn'];
+
+                // If BoardColumn is set and doesn't match our target column, exclude it
+                if (itemBoardColumn && itemBoardColumn !== 'undefined' && itemBoardColumn !== columnName) {
+                    console.log(`[BoardProvider] Filtering out item ${item.id}: belongs to column "${itemBoardColumn}", not "${columnName}"`);
+                    return false;
+                }
+
+                return true;
+            });
+
+            console.log(`[BoardProvider] After filtering: ${filteredWorkItems.length} items remain for column "${columnName}"`);
+
+            this.columnWorkItems.set(key, filteredWorkItems);
+            return filteredWorkItems;
         } catch (error: any) {
             console.error('Failed to load column work items:', error?.message || error);
             return [];
