@@ -188,16 +188,22 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
                 return [];
             }
 
-            // Fetch full board details (includes columns with state mappings)
+            // Fetch board columns using the same endpoint as boardPanel.ts
+            // This ensures column names match what System.BoardColumn stores
             // API Reference: https://learn.microsoft.com/en-us/rest/api/azure/devops/work/boards/get
             const response = await axiosInstance.get(
-                `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/boards/${boardId}`
+                `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/boards/${boardId}/columns`
             );
 
-            // Extract columns from board response (includes id, name, columnType, itemLimit, stateMappings)
-            const columns = response.data.columns || [];
+            // Extract columns from response (includes id, name, columnType, itemLimit, stateMappings)
+            const columns = response.data.value || [];
 
             console.log('[BoardProvider] Loaded', columns.length, 'columns for board', boardId);
+            console.log('[BoardProvider] Column details:', columns.map((c: any) => ({
+                id: c.id,
+                name: c.name,
+                columnType: c.columnType
+            })));
 
             this.boardColumns.set(boardId, columns);
             return columns;
@@ -228,55 +234,48 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
             const columns = this.boardColumns.get(boardId) || [];
             const column = columns.find(c => c.name === columnName);
 
-            // Debug: Log column details
             console.log('[BoardProvider] Loading work items for column:', columnName);
-            if (column) {
-                console.log('[BoardProvider] Column details:', {
-                    id: column.id,
-                    name: column.name,
-                    columnType: column.columnType,
-                    stateMappings: column.stateMappings
-                });
+
+            // Official Azure DevOps approach: Query by System.State (not System.BoardColumn)
+            // System.BoardColumn is not documented as a standard queryable field
+            // Reference: https://learn.microsoft.com/en-us/azure/devops/boards/queries/wiql-syntax
+
+            if (!column?.stateMappings) {
+                console.log('[BoardProvider] Column has no state mappings');
+                this.columnWorkItems.set(key, []);
+                return [];
             }
 
-            // Get backlog work item types for this specific board
-            let allowedWorkItemTypes: string[] = [];
-            try {
-                const backlogsResponse = await axiosInstance.get(
-                    `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/backlogs`
-                );
-
-                const backlogs = backlogsResponse.data.value || [];
-                const matchingBacklog = backlogs.find((b: any) =>
-                    b.name === board.name || b.id === boardId
-                );
-
-                if (matchingBacklog && matchingBacklog.workItemTypes) {
-                    allowedWorkItemTypes = matchingBacklog.workItemTypes.map((wit: any) => wit.name);
-                }
-            } catch (error) {
-                console.error('Failed to load backlog configuration:', error);
+            // Build state-based WIQL query using column's state mappings
+            // Extract states from stateMappings (maps work item type -> state)
+            const states = Object.values(column.stateMappings);
+            if (states.length === 0) {
+                console.log('[BoardProvider] No states found in column state mappings');
+                this.columnWorkItems.set(key, []);
+                return [];
             }
 
-            // Build work item type filter
-            let workItemTypeFilter = '';
-            if (allowedWorkItemTypes.length > 0) {
-                const typeConditions = allowedWorkItemTypes
-                    .map(t => `[System.WorkItemType] = '${t.replace(/'/g, "''")}'`)
-                    .join(' OR ');
-                workItemTypeFilter = `AND (${typeConditions})`;
-            }
+            console.log('[BoardProvider] Column state mappings:', column.stateMappings);
+
+            // Build state filter for WIQL
+            const stateConditions = states
+                .map((state: any) => `[System.State] = '${state.replace(/'/g, "''")}'`)
+                .join(' OR ');
+
+            // Build work item type filter from stateMappings keys
+            const workItemTypes = Object.keys(column.stateMappings);
+            const typeConditions = workItemTypes
+                .map(type => `[System.WorkItemType] = '${type.replace(/'/g, "''")}'`)
+                .join(' OR ');
 
             // Build iteration filter
             let iterationFilter = '';
             if (this.selectedIterationFilter) {
                 if (this.selectedIterationFilter === '@current') {
-                    // Filter by current iteration
                     if (this.currentIterationPath) {
                         iterationFilter = `AND [System.IterationPath] = '${this.currentIterationPath.replace(/'/g, "''")}'`;
                     }
                 } else {
-                    // Filter by specific iteration path
                     iterationFilter = `AND [System.IterationPath] = '${this.selectedIterationFilter.replace(/'/g, "''")}'`;
                 }
             }
@@ -285,126 +284,68 @@ export class BoardProvider implements vscode.TreeDataProvider<BoardTreeItem> {
             let assigneeFilter = '';
             if (this.selectedAssigneeFilter) {
                 if (this.selectedAssigneeFilter === '@me') {
-                    // Filter by current user using WIQL @me macro
                     assigneeFilter = `AND [System.AssignedTo] = @me`;
                 } else {
-                    // Filter by specific user
                     assigneeFilter = `AND [System.AssignedTo] = '${this.selectedAssigneeFilter.replace(/'/g, "''")}'`;
                 }
             }
 
-            // Strategy 1: Try querying by System.BoardColumn first
-            let wiql = `SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo]
-                        FROM WorkItems
-                        WHERE [System.TeamProject] = @project
-                        AND [System.BoardColumn] = '${columnName.replace(/'/g, "''")}'
-                        ${workItemTypeFilter}
-                        ${iterationFilter}
-                        ${assigneeFilter}
-                        ORDER BY [Microsoft.VSTS.Common.BacklogPriority]`;
+            // Build WIQL query using official Azure DevOps syntax
+            const wiql = `SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo], [System.IterationPath]
+                          FROM WorkItems
+                          WHERE [System.TeamProject] = @project
+                          AND (${stateConditions})
+                          AND (${typeConditions})
+                          ${iterationFilter}
+                          ${assigneeFilter}
+                          ORDER BY [Microsoft.VSTS.Common.BacklogPriority] ASC`;
 
-            console.log('[BoardProvider] Trying System.BoardColumn query for column:', columnName);
-            console.log('[BoardProvider] WIQL Query:', wiql);
-            if (iterationFilter) {
-                console.log('[BoardProvider] With iteration filter:', this.selectedIterationFilter);
-            }
-            if (assigneeFilter) {
-                console.log('[BoardProvider] With assignee filter:', this.selectedAssigneeFilter);
-            }
+            console.log('[BoardProvider] WIQL query:', wiql);
 
-            let response = await axiosInstance.post(
+            // Execute WIQL query
+            const wiqlResponse = await axiosInstance.post(
                 `/${encodeURIComponent(config.defaultProject)}/_apis/wit/wiql`,
-                { query: wiql }
+                { query: wiql },
+                { params: { 'api-version': '7.1' } }
             );
 
-            let workItemRefs = response.data.workItems || [];
-            console.log('[BoardProvider] System.BoardColumn query returned', workItemRefs.length, 'work items');
-
-            // Strategy 2: If no results and column has state mappings, fall back to state-based query
-            if (workItemRefs.length === 0 && column?.stateMappings) {
-                console.log('[BoardProvider] System.BoardColumn returned 0 results, trying state-based query');
-                console.log('[BoardProvider] stateMappings structure:', JSON.stringify(column.stateMappings, null, 2));
-
-                const states = Object.values(column.stateMappings);
-                console.log('[BoardProvider] Extracted states:', states);
-
-                if (states.length > 0) {
-                    // Build state filter
-                    const stateConditions = states
-                        .map((state: any) => `[System.State] = '${state.replace(/'/g, "''")}'`)
-                        .join(' OR ');
-
-                    wiql = `SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo]
-                            FROM WorkItems
-                            WHERE [System.TeamProject] = @project
-                            AND (${stateConditions})
-                            ${workItemTypeFilter}
-                            ${iterationFilter}
-                            ${assigneeFilter}
-                            ORDER BY [Microsoft.VSTS.Common.BacklogPriority]`;
-
-                    console.log('[BoardProvider] State-based WIQL Query:', wiql);
-
-                    response = await axiosInstance.post(
-                        `/${encodeURIComponent(config.defaultProject)}/_apis/wit/wiql`,
-                        { query: wiql }
-                    );
-
-                    workItemRefs = response.data.workItems || [];
-                    console.log('[BoardProvider] State-based query returned', workItemRefs.length, 'work items');
-                }
-            }
+            const workItemRefs = wiqlResponse.data.workItems || [];
+            console.log('[BoardProvider] WIQL query returned', workItemRefs.length, 'work item references');
 
             if (workItemRefs.length === 0) {
-                console.log('[BoardProvider] No work items found for column:', columnName);
                 this.columnWorkItems.set(key, []);
                 return [];
             }
 
-            const workItemIds = workItemRefs.slice(0, 50).map((item: any) => item.id).join(',');
-            const detailsResponse = await axiosInstance.get('/_apis/wit/workitems', {
-                params: { 'ids': workItemIds }
+            // Fetch work item details (max 200 per request as per Azure DevOps limits)
+            const workItemIds = workItemRefs.slice(0, 200).map((ref: any) => ref.id).join(',');
+            const detailsResponse = await axiosInstance.get(`/${encodeURIComponent(config.defaultProject)}/_apis/wit/workitems`, {
+                params: {
+                    'ids': workItemIds,
+                    'api-version': '7.1'
+                }
             });
 
-            const workItems = detailsResponse.data.value || [];
+            let filteredWorkItems = detailsResponse.data.value || [];
+            console.log('[BoardProvider] Fetched details for', filteredWorkItems.length, 'work items');
 
-            // Debug: Log work items with their states and board columns
-            console.log('[BoardProvider] Work items for column', columnName + ':');
-            workItems.forEach((item: any) => {
-                console.log(`  - ID ${item.id}: State="${item.fields['System.State']}", BoardColumn="${item.fields['System.BoardColumn']}"`);
-            });
-
-            // IMPORTANT: Filter out items that don't actually belong to this column
-            // The state-based query can return items from other columns due to overlapping state mappings
-            const filteredWorkItems = workItems.filter((item: any) => {
-                const itemBoardColumn = item.fields['System.BoardColumn'];
-                const itemState = item.fields['System.State'];
+            // Filter to match exact type+state combination for this column
+            // This prevents showing items from other columns with overlapping states
+            filteredWorkItems = filteredWorkItems.filter((item: any) => {
                 const itemType = item.fields['System.WorkItemType'];
+                const itemState = item.fields['System.State'];
+                const expectedState = column.stateMappings[itemType];
 
-                // Strategy 1: If BoardColumn is set and valid, use it
-                if (itemBoardColumn && itemBoardColumn !== 'undefined') {
-                    if (itemBoardColumn !== columnName) {
-                        console.log(`[BoardProvider] Filtering out item ${item.id}: belongs to column "${itemBoardColumn}", not "${columnName}"`);
-                        return false;
-                    }
-                    return true;
+                const matches = expectedState === itemState;
+                if (!matches) {
+                    console.log(`[BoardProvider] Filtered out item ${item.id}: type="${itemType}", state="${itemState}", expected="${expectedState}"`);
                 }
-
-                // Strategy 2: If BoardColumn is not set, check type+state against column's stateMappings
-                // This matches the logic used in boardPanel.ts _findColumnForWorkItem
-                if (column?.stateMappings) {
-                    const expectedState = column.stateMappings[itemType];
-                    if (expectedState !== itemState) {
-                        console.log(`[BoardProvider] Filtering out item ${item.id}: type="${itemType}", state="${itemState}" doesn't match column "${columnName}" mapping (expects "${expectedState}")`);
-                        return false;
-                    }
-                }
-
-                return true;
+                return matches;
             });
 
-            console.log(`[BoardProvider] After filtering: ${filteredWorkItems.length} items remain for column "${columnName}"`);
+            console.log(`[BoardProvider] After type+state filtering: ${filteredWorkItems.length} work items for column "${columnName}"`);
 
+            // Filters are already applied in the WIQL query
             this.columnWorkItems.set(key, filteredWorkItems);
             return filteredWorkItems;
         } catch (error: any) {
