@@ -20,6 +20,7 @@ import { SettingsUIProvider } from '../ai/settings-ui';
 import { WorkItemEventManager } from '../events/workItemEventManager';
 import { SearchService } from '../services/searchService';
 import { WorkItemQuickPick } from '../views/workItemQuickPick';
+import { ActiveWorkItemService } from '../services/activeWorkItemService';
 
 interface ExtensionComponents {
     authenticationManager: AuthenticationManager;
@@ -34,6 +35,7 @@ interface ExtensionComponents {
     workItemLinksManager: WorkItemLinksManager;
     connectionStatusProvider: any;
     searchService: SearchService;
+    activeWorkItemService: ActiveWorkItemService;
 }
 
 interface WorkItemQuickPickItem extends vscode.QuickPickItem {
@@ -369,6 +371,88 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
         })
     );
 
+    // Show active work item actions menu
+    context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.showActiveWorkItemActions', async () => {
+            const activeWorkItem = components.activeWorkItemService.getActive();
+            if (!activeWorkItem) {
+                vscode.window.showInformationMessage('No active work item');
+                return;
+            }
+
+            const actions = [
+                { label: '$(eye) View Details', action: 'view' },
+                { label: '$(edit) Change State', action: 'changeState' },
+                { label: '$(git-branch) Create Branch', action: 'createBranch' },
+                { label: '$(chrome-close) Stop Working', action: 'stop' }
+            ];
+
+            const selected = await vscode.window.showQuickPick(actions, {
+                placeHolder: `Work Item #${activeWorkItem.id}: ${activeWorkItem.fields['System.Title']}`
+            });
+
+            if (!selected) {
+                return;
+            }
+
+            switch (selected.action) {
+                case 'view':
+                    vscode.commands.executeCommand('azureDevOps.viewWorkItemDetails', activeWorkItem.id);
+                    break;
+                case 'changeState':
+                    vscode.commands.executeCommand('azureDevOps.changeWorkItemState', activeWorkItem);
+                    break;
+                case 'createBranch':
+                    vscode.commands.executeCommand('azureDevOps.createBranch', activeWorkItem);
+                    break;
+                case 'stop':
+                    await components.activeWorkItemService.clearActive();
+                    vscode.window.showInformationMessage(`Stopped working on #${activeWorkItem.id}`);
+                    break;
+            }
+        })
+    );
+
+    // Start working on a work item
+    context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.startWorking', async (item: any) => {
+            // Handle both TreeItem (from context menu) and WorkItem (from other sources)
+            let workItem: any;
+
+            if (item?.workItem) {
+                // TreeItem with workItem property
+                workItem = item.workItem;
+            } else if (item?.id && item?.fields) {
+                // Direct WorkItem object
+                workItem = item;
+            } else {
+                vscode.window.showErrorMessage('Invalid work item');
+                return;
+            }
+
+            await components.activeWorkItemService.setActive(workItem);
+            const title = workItem.fields['System.Title'];
+            vscode.window.showInformationMessage(`Started working on #${workItem.id}: ${title}`);
+        })
+    );
+
+    // Stop working on the current work item
+    context.subscriptions.push(
+        vscode.commands.registerCommand('azureDevOps.stopWorking', async () => {
+            const activeWorkItem = components.activeWorkItemService.getActive();
+            if (!activeWorkItem) {
+                vscode.window.showInformationMessage('No active work item');
+                return;
+            }
+
+            const timeSpent = components.activeWorkItemService.getTimeSpent();
+            await components.activeWorkItemService.clearActive();
+            vscode.window.showInformationMessage(
+                `Stopped working on #${activeWorkItem.id}. Time spent: ${timeSpent}`
+            );
+        })
+    );
+
     // Refresh commands
     context.subscriptions.push(
         vscode.commands.registerCommand('azureDevOps.refresh', () => {
@@ -606,120 +690,6 @@ export function registerCommands(context: vscode.ExtensionContext, components: E
 
             const sprintUrl = `${config.organizationUrl}/${config.defaultProject}/_sprints/taskboard/${config.defaultTeam}/${encodeURIComponent(sprintPath)}`;
             vscode.env.openExternal(vscode.Uri.parse(sprintUrl));
-        })
-    );
-
-    // Start working command
-    context.subscriptions.push(
-        vscode.commands.registerCommand('azureDevOps.startWorking', async (item?: any) => {
-            if (!components.authenticationManager.isConnected()) {
-                vscode.window.showErrorMessage('Please connect to Azure DevOps first');
-                return;
-            }
-
-            let workItemId: number | undefined;
-
-            // If called from context menu with a work item
-            if (item?.workItemId) {
-                workItemId = item.workItemId;
-            } else if (typeof item === 'number') {
-                workItemId = item;
-            }
-
-            if (!workItemId) {
-                // Get work items assigned to current user
-                const axiosInstance = components.authenticationManager.getAxiosInstance();
-                const config = components.authenticationManager.getConfig();
-
-                if (!axiosInstance || !config?.defaultProject) {
-                    return;
-                }
-
-                try {
-                    const currentUser = await components.authenticationManager.getCurrentUser();
-                    const wiql = `SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType]
-                                  FROM WorkItems
-                                  WHERE [System.TeamProject] = @project
-                                  AND [System.AssignedTo] = '${currentUser.uniqueName}'
-                                  AND [System.State] <> 'Closed'
-                                  AND [System.State] <> 'Done'
-                                  AND [System.State] <> 'Removed'
-                                  ORDER BY [Microsoft.VSTS.Common.Priority], [System.ChangedDate] DESC`;
-
-                    const response = await axiosInstance.post(`/${config.defaultProject}/_apis/wit/wiql`, {
-                        query: wiql
-                    });
-
-                    const workItemRefs = response.data.workItems || [];
-
-                    if (workItemRefs.length === 0) {
-                        vscode.window.showInformationMessage('No active work items assigned to you');
-                        return;
-                    }
-
-                    // Get detailed info
-                    const workItemIds = workItemRefs.slice(0, 20).map((item: any) => item.id).join(',');
-                    const detailsResponse = await axiosInstance.get(`/_apis/wit/workitems?ids=${workItemIds}`);
-                    const workItems = detailsResponse.data.value || [];
-
-                    const items: WorkItemQuickPickItem[] = workItems.map((wi: any) => ({
-                        label: `#${wi.id}: ${wi.fields['System.Title']}`,
-                        description: `${wi.fields['System.WorkItemType']} • ${wi.fields['System.State']}`,
-                        id: wi.id
-                    }));
-
-                    const selected = await vscode.window.showQuickPick(items, {
-                        placeHolder: 'Select work item to start working on'
-                    });
-
-                    if (selected) {
-                        workItemId = selected.id;
-                    }
-                } catch (error) {
-                    vscode.window.showErrorMessage(`Failed to get work items: ${error}`);
-                    return;
-                }
-            }
-
-            if (workItemId) {
-                components.statusBarManager.updateStatus('working', workItemId.toString());
-
-                // Optionally update work item state to "In Progress" or "Active"
-                const shouldUpdateState = await vscode.window.showQuickPick(
-                    ['Yes', 'No'],
-                    { placeHolder: 'Update work item state to "Active" or "In Progress"?' }
-                );
-
-                if (shouldUpdateState === 'Yes') {
-                    try {
-                        const axiosInstance = components.authenticationManager.getAxiosInstance();
-                        if (axiosInstance) {
-                            await axiosInstance.patch(
-                                `/_apis/wit/workitems/${workItemId}`,
-                                [{ op: 'replace', path: '/fields/System.State', value: 'Active' }],
-                                { headers: { 'Content-Type': 'application/json-patch+json' } }
-                            );
-                        }
-                    } catch (error) {
-                        // State transition might fail if not valid, that's okay
-                        console.log('Could not update state:', error);
-                    }
-                }
-
-                vscode.window.showInformationMessage(`Started working on #${workItemId}`);
-            }
-        })
-    );
-
-    // Stop working command
-    context.subscriptions.push(
-        vscode.commands.registerCommand('azureDevOps.stopWorking', () => {
-            const currentWorkItemId = components.statusBarManager.getCurrentWorkItemId();
-            components.statusBarManager.updateStatus('connected');
-
-            if (currentWorkItemId) {
-                vscode.window.showInformationMessage(`Stopped working on #${currentWorkItemId}`);
-            }
         })
     );
 

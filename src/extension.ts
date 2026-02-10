@@ -12,6 +12,7 @@ import { StatusBarManager } from './utils/statusBarManager';
 import { WorkItemLinksManager } from './utils/workItemLinksManager';
 import { WhatsNewPanel } from './views/whatsNewPanel';
 import { SearchService } from './services/searchService';
+import { ActiveWorkItemService } from './services/activeWorkItemService';
 // DISABLED: AI Chat features - uncomment to re-enable in future
 // import { AIChatProvider } from './ai/chat-provider';
 // import { ChatEditorProvider, openChatEditor } from './ai/chat-editor';
@@ -29,6 +30,7 @@ export let workItemLinksManager: WorkItemLinksManager;
 export let connectionStatusProvider: ConnectionStatusProvider;
 export let outputChannel: vscode.OutputChannel;
 export let searchService: SearchService;
+export let activeWorkItemService: ActiveWorkItemService;
 // DISABLED: AI Chat features - uncomment to re-enable in future
 // export let aiChatProvider: AIChatProvider;
 
@@ -50,6 +52,10 @@ export async function activate(context: vscode.ExtensionContext) {
     workItemLinksManager = new WorkItemLinksManager(authenticationManager);
     connectionStatusProvider = new ConnectionStatusProvider(authenticationManager, context);
     searchService = new SearchService(context, authenticationManager);
+    activeWorkItemService = new ActiveWorkItemService(context, authenticationManager);
+
+    // Connect status bar to active work item service
+    statusBarManager.setActiveWorkItemService(activeWorkItemService);
 
     // DISABLED: AI Chat features - uncomment to re-enable in future
     // // Initialize AI output channel
@@ -149,7 +155,8 @@ export async function activate(context: vscode.ExtensionContext) {
         extensionUri: context.extensionUri,
         workItemLinksManager,
         connectionStatusProvider,
-        searchService
+        searchService,
+        activeWorkItemService
     });
 
     // Register configuration change listener

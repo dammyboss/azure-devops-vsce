@@ -74,6 +74,12 @@
         "icon": "$(search)"
       },
       {
+        "command": "azureDevOps.showActiveWorkItemActions",
+        "title": "Show Active Work Item Actions",
+        "category": "Azure DevOps",
+        "icon": "$(list-unordered)"
+      },
+      {
         "command": "azureDevOps.refresh",
         "title": "Refresh",
         "category": "Azure DevOps",
