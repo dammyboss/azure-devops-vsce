@@ -10,7 +10,7 @@ export class WhatsNewPanel {
     private disposables: vscode.Disposable[] = [];
 
     // Current announcement ID - UPDATE THIS FOR EACH NEW RELEASE
-    public static readonly LATEST_ANNOUNCEMENT_ID = 'feb-2026-v0.2.4-session-restore-fix';
+    public static readonly LATEST_ANNOUNCEMENT_ID = 'feb-2026-v0.2.6-board-treeview';
 
     private constructor(
         panel: vscode.WebviewPanel,
@@ -784,7 +784,7 @@ export class WhatsNewPanel {
                             <div class="header-text">
                                 <h1>
                                     Azure DevOps Boards
-                                    <span class="version-badge">v0.2.4</span>
+                                    <span class="version-badge">v0.2.6</span>
                                 </h1>
                                 <p>What's new in this release</p>
                             </div>
@@ -793,6 +793,56 @@ export class WhatsNewPanel {
 
                     <!-- Content -->
                     <div class="modal-content">
+                        <!-- New Features -->
+                        <div class="section s1">
+                            <div class="section-header">
+                                <div class="section-icon features">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
+                                    </svg>
+                                </div>
+                                <span class="section-title">New Features</span>
+                            </div>
+                            <div class="section-content">
+                                <div class="feature-item fi-0">
+                                    <div class="feature-icon">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0112 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25m-17.25 0h7.5c.621 0 1.125.504 1.125 1.125M3.375 8.25c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m17.25-3.75h-7.5c-.621 0-1.125.504-1.125 1.125m8.625-1.125c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125M12 10.875v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 10.875c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125M13.125 12h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125M20.625 12c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5M12 14.625v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 14.625c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125m0 1.5v-1.5m0 0c0-.621.504-1.125 1.125-1.125m0 0h7.5" />
+                                        </svg>
+                                    </div>
+                                    <div class="feature-text">
+                                        <h4>Board TreeView Section</h4>
+                                        <p>New sidebar board view with hierarchical boards → columns → work items structure. Includes sprint and assignee filtering, defaulting to current sprint and current user.</p>
+                                    </div>
+                                    <div class="hover-dot"><div class="hover-dot-inner"></div></div>
+                                </div>
+                                <div class="feature-item fi-1">
+                                    <div class="feature-icon">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                                        </svg>
+                                    </div>
+                                    <div class="feature-text">
+                                        <h4>Quick Open Work Item</h4>
+                                        <p>Fast work item search with Quick Pick interface. Search by ID or title with recently viewed history tracking. Opens directly in board panel.</p>
+                                    </div>
+                                    <div class="hover-dot"><div class="hover-dot-inner"></div></div>
+                                </div>
+                                <div class="feature-item fi-2">
+                                    <div class="feature-icon">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 01-.659 1.591l-5.432 5.432a2.25 2.25 0 00-.659 1.591v2.927a2.25 2.25 0 01-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 00-.659-1.591L3.659 7.409A2.25 2.25 0 013 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0112 3z" />
+                                        </svg>
+                                    </div>
+                                    <div class="feature-text">
+                                        <h4>Collapsible Filters Node</h4>
+                                        <p>Smart filtering UI showing active filter count. Supports sprint (all, current, specific) and assignee (@me, all, specific) with one-click filter changes.</p>
+                                    </div>
+                                    <div class="hover-dot"><div class="hover-dot-inner"></div></div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Critical Fixes -->
                         <div class="section s2">
                             <div class="section-header">
@@ -804,27 +854,15 @@ export class WhatsNewPanel {
                                 <span class="section-title">Critical Fixes</span>
                             </div>
                             <div class="section-content">
-                                <div class="feature-item fi-0">
+                                <div class="feature-item fi-3">
                                     <div class="feature-icon">
                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17L17.25 21A2.652 2.652 0 0021 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 11-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 004.486-6.336l-3.276 3.277a3.004 3.004 0 01-2.25-2.25l3.276-3.276a4.5 4.5 0 00-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437l1.745-1.437m6.615 8.206L15.75 15.75M4.867 19.125h.008v.008h-.008v-.008z" />
                                         </svg>
                                     </div>
                                     <div class="feature-text">
-                                        <h4>Extension Activation Fixed</h4>
-                                        <p>Resolved "command not found" error that prevented extension from loading after marketplace install. Production dependencies now properly bundled.</p>
-                                    </div>
-                                    <div class="hover-dot"><div class="hover-dot-inner"></div></div>
-                                </div>
-                                <div class="feature-item fi-1">
-                                    <div class="feature-icon">
-                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-                                        </svg>
-                                    </div>
-                                    <div class="feature-text">
-                                        <h4>Session Restoration Fixed</h4>
-                                        <p>Fixed session restoration to include stored tenant scope. Multi-tenant users now stay connected across VS Code restarts without losing organization access.</p>
+                                        <h4>Board TreeView WIQL Fix</h4>
+                                        <p>Fixed work item loading using official Azure DevOps WIQL API. Query by System.State instead of undocumented System.BoardColumn with exact type+state matching.</p>
                                     </div>
                                     <div class="hover-dot"><div class="hover-dot-inner"></div></div>
                                 </div>
@@ -842,27 +880,28 @@ export class WhatsNewPanel {
                                 <span class="section-title">Improvements</span>
                             </div>
                             <div class="section-content">
-                                <div class="feature-item fi-2">
-                                    <div class="feature-icon">
-                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-                                        </svg>
-                                    </div>
-                                    <div class="feature-text">
-                                        <h4>Optimized Package Size</h4>
-                                        <p>Extension package optimized to 8.8MB (down from 41MB) by excluding media files while maintaining full functionality.</p>
-                                    </div>
-                                    <div class="hover-dot"><div class="hover-dot-inner"></div></div>
-                                </div>
-                                <div class="feature-item fi-3">
+                                <div class="feature-item fi-4">
                                     <div class="feature-icon">
                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
                                         </svg>
                                     </div>
                                     <div class="feature-text">
-                                        <h4>Enhanced Reliability</h4>
-                                        <p>Improved error handling and session management for more stable connections across different Azure DevOps tenants.</p>
+                                        <h4>Enhanced Status Bar</h4>
+                                        <p>Status bar now shows active work item tracking and Quick Open integration. Click to quickly access and search work items.</p>
+                                    </div>
+                                    <div class="hover-dot"><div class="hover-dot-inner"></div></div>
+                                </div>
+                                <div class="feature-item fi-5">
+                                    <div class="feature-icon">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                        </svg>
+                                    </div>
+                                    <div class="feature-text">
+                                        <h4>Automatic Smart Filtering</h4>
+                                        <p>Board TreeView automatically filters to show current sprint items assigned to you on first load. Better focus on your immediate work.</p>
                                     </div>
                                     <div class="hover-dot"><div class="hover-dot-inner"></div></div>
                                 </div>
