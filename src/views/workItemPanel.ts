@@ -868,10 +868,89 @@ export class WorkItemPanel {
             }
 
             console.log(`Total unique members: ${members.length}`);
-            return members.sort((a, b) => a.displayName.localeCompare(b.displayName));
+
+            // Filter to only show team members who have work items assigned to them
+            const filteredMembers = await this.filterTeamMembersWithWorkItems(members, axiosInstance, config);
+            console.log(`Filtered to ${filteredMembers.length} members with work items`);
+
+            return filteredMembers.sort((a, b) => a.displayName.localeCompare(b.displayName));
         } catch (error) {
             console.error('Failed to get team members:', error);
             return [];
+        }
+    }
+
+    private async filterTeamMembersWithWorkItems(
+        members: TeamMemberInfo[],
+        axiosInstance: any,
+        config: any
+    ): Promise<TeamMemberInfo[]> {
+        try {
+            // Get the team's area path to filter work items
+            let teamAreaPath = '';
+            try {
+                const teamFieldValues = await axiosInstance.get(
+                    `/${encodeURIComponent(config.defaultProject)}/${encodeURIComponent(config.defaultTeam)}/_apis/work/teamsettings/teamfieldvalues`,
+                    { params: { 'api-version': '7.1' } }
+                );
+                teamAreaPath = teamFieldValues.data?.defaultValue || '';
+            } catch (error) {
+                console.log('Could not get team area path, will not filter by area');
+            }
+
+            // Query for work items assigned to team members
+            let areaFilter = '';
+            if (teamAreaPath) {
+                areaFilter = `AND [System.AreaPath] UNDER '${teamAreaPath.replace(/'/g, "''")}'`;
+            }
+
+            const wiql = `SELECT [System.Id], [System.AssignedTo]
+                          FROM WorkItems
+                          WHERE [System.TeamProject] = @project
+                          AND [System.AssignedTo] <> ''
+                          ${areaFilter}`;
+
+            const wiqlResponse = await axiosInstance.post(
+                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/wiql`,
+                { query: wiql },
+                { params: { 'api-version': '7.1' } }
+            );
+
+            const workItemRefs = wiqlResponse.data.workItems || [];
+
+            if (workItemRefs.length === 0) {
+                console.log('No work items found, showing all team members');
+                return members;
+            }
+
+            // Fetch work item details to get assignees
+            const workItemIds = workItemRefs.map((ref: any) => ref.id).slice(0, 200); // Limit to 200 for performance
+            const detailsResponse = await axiosInstance.get(
+                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workitems`,
+                {
+                    params: {
+                        'ids': workItemIds.join(','),
+                        'fields': 'System.AssignedTo',
+                        'api-version': '7.1'
+                    }
+                }
+            );
+
+            // Collect unique assignees
+            const uniqueAssignees = new Set<string>();
+            (detailsResponse.data.value || []).forEach((item: any) => {
+                const assignedTo = item.fields?.['System.AssignedTo'];
+                if (assignedTo?.uniqueName) {
+                    uniqueAssignees.add(assignedTo.uniqueName);
+                }
+            });
+
+            // Filter team members to only those with work items
+            return members.filter(member => uniqueAssignees.has(member.uniqueName));
+        } catch (error) {
+            console.error('Failed to filter team members:', error);
+            // Return all members if filtering fails
+            return members;
         }
     }
 
