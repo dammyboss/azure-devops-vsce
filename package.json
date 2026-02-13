@@ -2,7 +2,7 @@
   "name": "azure-devops-boards",
   "displayName": "Azure DevOps Boards",
   "description": "Azure DevOps Boards integration for Visual Studio Code - Manage work items, boards, sprints, and more without leaving your editor",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "publisher": "Damilola",
   "engines": {
     "vscode": "^1.85.0"
