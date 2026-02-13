@@ -5,6 +5,13 @@ All notable changes to the Azure DevOps Boards extension will be documented in t
 ## [0.2.6] - 2026-02-10
 
 ### Added
+- **Automatic Tenant Detection**: Intelligent multi-tenant authentication with auto-discovery
+  - Automatically detects all Azure AD tenants the user has access to
+  - Shows tenant picker with friendly names and domains instead of manual GUID entry
+  - Uses Microsoft Graph API and Azure Management API for comprehensive tenant discovery
+  - Loading indicator with progress notification during tenant discovery
+  - Graceful fallback to manual tenant ID entry if auto-detection fails
+  - Eliminates need to copy/paste tenant IDs from Azure Portal
 - **Board TreeView Section**: New sidebar board view with sprint and assignee filtering
   - Hierarchical view showing boards → columns → work items
   - Sprint/iteration filter with current, all, and specific sprint options
