@@ -255,6 +255,9 @@ export class BoardPanel {
                     case 'addChildWorkItem':
                         await this._addChildWorkItem(message.workItemId, message.workItemType);
                         break;
+                    case 'updateChildWorkItemState':
+                        await this._updateChildWorkItemState(message.workItemId, message.state);
+                        break;
                 }
             },
             null,
@@ -703,17 +706,13 @@ export class BoardPanel {
 
         outputChannel.appendLine(`[Board] Loaded ${columns.length} columns in ${Date.now() - loadStartTime}ms`);
 
-        // Skip loading child work items by default for better performance
-        // Child work items can be loaded on-demand when parent cards are expanded
-        // Uncomment below to re-enable child work item loading:
-        /*
+        // Load child work items for parent work items
         try {
             await this._loadChildWorkItems(workItemsMap, axiosInstance);
         } catch (error) {
             outputChannel.appendLine(`[Board] Failed to load child work items: ${error}`);
             console.error('Failed to load child work items:', error);
         }
-        */
 
         this.currentBoard = {
             id: this.boardId,
@@ -777,21 +776,27 @@ export class BoardPanel {
             const workItems = detailsResponse.data.value || [];
             outputChannel.appendLine(`[Board] Fetched details for ${workItems.length} work items`);
 
-            // Convert to BoardWorkItem format
-            return workItems.map((item: any) => ({
-                id: item.id,
-                title: item.fields['System.Title'] || '',
-                state: item.fields['System.State'] || '',
-                assignedTo: item.fields['System.AssignedTo']?.displayName || null,
-                workItemType: item.fields['System.WorkItemType'] || '',
-                priority: item.fields['Microsoft.VSTS.Common.Priority'] || 0,
-                tags: item.fields['System.Tags'] || '',
-                areaPath: item.fields['System.AreaPath'] || '',
-                iterationPath: item.fields['System.IterationPath'] || '',
-                boardColumn: item.fields['System.BoardColumn'] || null,
-                children: [],
-                relations: item.relations || []
-            }));
+            // Convert to BoardWorkItem format and store relations for child loading
+            return workItems.map((item: any) => {
+                const workItem: any = {
+                    id: item.id,
+                    title: item.fields['System.Title'] || '',
+                    state: item.fields['System.State'] || '',
+                    type: item.fields['System.WorkItemType'] || '',
+                    assignedTo: item.fields['System.AssignedTo'],
+                    priority: item.fields['Microsoft.VSTS.Common.Priority'],
+                    tags: item.fields['System.Tags'],
+                    areaPath: item.fields['System.AreaPath'],
+                    iterationPath: item.fields['System.IterationPath'],
+                    boardColumn: item.fields['System.BoardColumn'] || null,
+                    effort: item.fields['Microsoft.VSTS.Scheduling.Effort'] || (item.fields as any)['Microsoft.VSTS.Scheduling.StoryPoints']
+                };
+                // Store relations temporarily for child work items loading
+                if (item.relations) {
+                    workItem._tempRelations = item.relations;
+                }
+                return workItem;
+            });
         } catch (error: any) {
             outputChannel.appendLine(`[Board] Board Items API error: ${error?.message || error}`);
             if (error?.response?.status) {
@@ -1140,7 +1145,7 @@ export class BoardPanel {
                             areaPath: item.fields['System.AreaPath'],
                             iterationPath: item.fields['System.IterationPath'],
                             boardColumn: item.fields['System.BoardColumn'] || column.name,
-                            effort: item.fields['Microsoft.VSTS.Scheduling.Effort']
+                            effort: item.fields['Microsoft.VSTS.Scheduling.Effort'] || (item.fields as any)['Microsoft.VSTS.Scheduling.StoryPoints']
                         };
                         // Store relations temporarily for child work items loading
                         if (item.relations) {
@@ -1210,7 +1215,7 @@ export class BoardPanel {
                 const childrenResponse = await axiosInstance.get(`/${encodeURIComponent(config.defaultProject || '')}/_apis/wit/workitems`, {
                     params: {
                         'ids': childIdsString,
-                        'fields': 'System.Id,System.Title,System.State,System.WorkItemType',
+                        'fields': 'System.Id,System.Title,System.State,System.WorkItemType,System.AssignedTo',
                         'api-version': '7.1'
                     }
                 });
@@ -1221,11 +1226,16 @@ export class BoardPanel {
                 const childDataMap = new Map<number, any>();
                 if (childrenResponse.data.value) {
                     for (const child of childrenResponse.data.value) {
+                        const assignedToField = child.fields['System.AssignedTo'];
                         childDataMap.set(child.id, {
                             id: child.id,
                             title: child.fields['System.Title'],
                             state: child.fields['System.State'],
-                            type: child.fields['System.WorkItemType']
+                            type: child.fields['System.WorkItemType'],
+                            assignedTo: assignedToField ? {
+                                displayName: assignedToField.displayName || assignedToField,
+                                uniqueName: assignedToField.uniqueName || ''
+                            } : null
                         });
                     }
                 }
@@ -1745,6 +1755,38 @@ export class BoardPanel {
 
         } catch (error: any) {
             vscode.window.showErrorMessage(`Failed to create child work item: ${error?.message || error}`);
+        }
+    }
+
+    private async _updateChildWorkItemState(workItemId: number, state: string): Promise<void> {
+        try {
+            const axiosInstance = this.authenticationManager.getAxiosInstance();
+            const config = this.authenticationManager.getConfig();
+
+            if (!axiosInstance || !config?.defaultProject) {
+                throw new Error('Not connected');
+            }
+
+            // Update the work item state
+            await axiosInstance.patch(
+                `/${encodeURIComponent(config.defaultProject)}/_apis/wit/workitems/${workItemId}`,
+                [
+                    { op: 'add', path: '/fields/System.State', value: state }
+                ],
+                {
+                    headers: { 'Content-Type': 'application/json-patch+json' },
+                    params: { 'api-version': '7.1' }
+                }
+            );
+
+            outputChannel.appendLine(`[Board] Updated work item #${workItemId} state to ${state}`);
+
+            // Refresh the board to reflect the changes
+            await this._loadAndRender();
+
+        } catch (error: any) {
+            outputChannel.appendLine(`[Board] Failed to update work item state: ${error?.message || error}`);
+            vscode.window.showErrorMessage(`Failed to update work item state: ${error?.message || error}`);
         }
     }
 
@@ -3170,6 +3212,14 @@ export class BoardPanel {
             font-size: 11px;
             color: #ffffff;
             font-weight: 500;
+            cursor: pointer;
+            padding: 4px 6px;
+            border-radius: 4px;
+            transition: background-color 0.2s;
+        }
+
+        .child-indicator-item:hover {
+            background-color: rgba(255, 255, 255, 0.1);
         }
 
         .child-indicator-item svg {
@@ -3178,10 +3228,182 @@ export class BoardPanel {
 
         .child-indicator-item.completed {
             text-decoration: line-through;
+            opacity: 0.7;
         }
 
         .child-count {
             line-height: 1;
+        }
+
+        /* Expandable checklist styles - Match Azure DevOps browser exactly */
+        .child-checklist {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.35s ease-in-out, opacity 0.25s ease-in-out, margin-top 0.35s ease-in-out;
+            opacity: 0;
+            margin-top: 0;
+        }
+
+        .child-checklist.expanded {
+            max-height: 1200px;
+            opacity: 1;
+            margin-top: 8px;
+        }
+
+        .checklist-content {
+            padding: 4px 0 0 0;
+        }
+
+        /* "Add Bug/Task" button - appears first, subtle styling */
+        .checklist-add-item {
+            margin-bottom: 6px;
+            padding: 0;
+        }
+
+        .checklist-add-button {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255, 255, 255, 0.03);
+            border: none;
+            color: var(--vscode-foreground, #ffffff);
+            padding: 5px 8px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 400;
+            width: 100%;
+            text-align: left;
+            transition: all 0.2s;
+        }
+
+        .checklist-add-button:hover {
+            background-color: rgba(255, 255, 255, 0.08);
+        }
+
+        .add-icon {
+            font-size: 14px;
+            font-weight: bold;
+            line-height: 1;
+        }
+
+        /* Bug/Task item row - [checkbox][icon][avatar][title] */
+        .checklist-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 4px;
+            transition: background-color 0.2s;
+            min-height: 28px;
+        }
+
+        .checklist-item:hover {
+            background-color: rgba(255, 255, 255, 0.05);
+            border-radius: 3px;
+        }
+
+        .checklist-item.done .checklist-title {
+            text-decoration: line-through;
+            opacity: 0.5;
+        }
+
+        /* Checkbox - 16x16px, matches filter checkboxes */
+        .checklist-checkbox {
+            flex-shrink: 0;
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+            margin: 0;
+            /* Custom checkbox styling to match filter checkboxes */
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            border: 1.5px solid var(--vscode-foreground, #cccccc);
+            border-radius: 3px;
+            background: var(--vscode-checkbox-background, transparent);
+            position: relative;
+            vertical-align: middle;
+        }
+
+        .checklist-checkbox:hover {
+            border-color: var(--vscode-focusBorder, #007acc);
+        }
+
+        .checklist-checkbox:checked {
+            background: var(--vscode-button-background, #0e639c);
+            border-color: var(--vscode-button-background, #0e639c);
+        }
+
+        .checklist-checkbox:checked::after {
+            content: '';
+            position: absolute;
+            left: 4px;
+            top: 1px;
+            width: 5px;
+            height: 9px;
+            border: solid var(--vscode-button-foreground, #ffffff);
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
+        }
+
+        .checklist-checkbox:focus {
+            outline: 1px solid var(--vscode-focusBorder, #007acc);
+            outline-offset: 1px;
+        }
+
+        /* Work item type icon - 12x12px */
+        .checklist-icon {
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            width: 12px;
+            height: 12px;
+        }
+
+        .checklist-icon svg {
+            width: 12px;
+            height: 12px;
+        }
+
+        /* Avatar - 18x18px, appears AFTER icon, BEFORE title - uses same colors as card avatars */
+        .checklist-avatar {
+            flex-shrink: 0;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 8px;
+            font-weight: 600;
+            letter-spacing: -0.5px;
+            /* Color will be set dynamically by applyAvatarColors() function */
+        }
+
+        .checklist-avatar.unassigned {
+            background-color: var(--vscode-input-background);
+            color: var(--vscode-descriptionForeground);
+            border: 1px solid var(--vscode-input-border);
+        }
+
+        /* Title - clickable, underlined, flex fills remaining space */
+        .checklist-title {
+            flex: 1;
+            font-size: 13px;
+            color: var(--vscode-foreground, #ffffff);
+            cursor: pointer;
+            user-select: none;
+            text-decoration: underline;
+            line-height: 1.4;
+            font-weight: 400;
+        }
+
+        .checklist-title:hover {
+            color: var(--vscode-textLink-activeForeground, #ffffff);
+        }
+
+        .checklist-title.done {
+            color: var(--vscode-descriptionForeground, rgba(255, 255, 255, 0.5));
         }
 
         .card-effort-toggle {
@@ -4105,14 +4327,21 @@ export class BoardPanel {
         // Apply avatar colors after DOM is loaded
         function applyAvatarColors() {
             document.querySelectorAll('.card-avatar').forEach(avatar => {
+                // Check if it's a main card avatar or a checklist avatar
                 const card = avatar.closest('.card');
+                const checklistItem = avatar.closest('.checklist-item');
+
+                let displayName = '';
                 if (card) {
-                    const displayName = card.getAttribute('data-assignee-name');
-                    if (!avatar.classList.contains('unassigned')) {
-                        const color = getAvatarColor(displayName);
-                        avatar.style.background = color.bg;
-                        avatar.style.color = color.fg;
-                    }
+                    displayName = card.getAttribute('data-assignee-name');
+                } else if (checklistItem) {
+                    displayName = checklistItem.getAttribute('data-assignee-name');
+                }
+
+                if (!avatar.classList.contains('unassigned') && displayName) {
+                    const color = getAvatarColor(displayName);
+                    avatar.style.background = color.bg;
+                    avatar.style.color = color.fg;
                 }
             });
         }
@@ -4815,6 +5044,70 @@ export class BoardPanel {
             });
         }
 
+        // Checklist functions
+        function toggleChildChecklist(parentWorkItemId, typeId) {
+            const checklistId = 'checklist-' + parentWorkItemId + '-' + typeId;
+            const checklist = document.getElementById(checklistId);
+
+            if (checklist) {
+                const isExpanded = checklist.classList.contains('expanded');
+
+                // Close all other checklists for this parent
+                const allChecklists = document.querySelectorAll('[id^="checklist-' + parentWorkItemId + '-"]');
+                allChecklists.forEach(function(cl) {
+                    if (cl.id !== checklistId) {
+                        cl.classList.remove('expanded');
+                    }
+                });
+
+                if (isExpanded) {
+                    // Collapse this checklist
+                    checklist.classList.remove('expanded');
+                } else {
+                    // Expand this checklist
+                    checklist.classList.add('expanded');
+                    // Apply avatar colors to newly visible avatars
+                    setTimeout(function() {
+                        applyAvatarColors();
+                    }, 50);
+                }
+            }
+        }
+
+        function toggleChildState(childWorkItemId, parentWorkItemId, isChecked) {
+            // Update the visual state immediately
+            const checklistItem = document.querySelector('.checklist-item input[data-child-id="' + childWorkItemId + '"]')?.closest('.checklist-item');
+            const titleElement = checklistItem?.querySelector('.checklist-title');
+
+            if (checklistItem && titleElement) {
+                if (isChecked) {
+                    checklistItem.classList.add('done');
+                    titleElement.classList.add('done');
+                } else {
+                    checklistItem.classList.remove('done');
+                    titleElement.classList.remove('done');
+                }
+            }
+
+            // Send command to update work item state
+            const newState = isChecked ? 'Closed' : 'Active';
+            vscode.postMessage({
+                command: 'updateChildWorkItemState',
+                workItemId: childWorkItemId,
+                parentWorkItemId: parentWorkItemId,
+                state: newState,
+                isChecked: isChecked
+            });
+        }
+
+        function addChildWorkItem(parentWorkItemId, childType) {
+            vscode.postMessage({
+                command: 'addChildWorkItem',
+                parentWorkItemId: parentWorkItemId,
+                childType: childType
+            });
+        }
+
         function assignToMe(workItemId, event) {
             event.stopPropagation();
             vscode.postMessage({ command: 'assignToMe', workItemId: workItemId });
@@ -5466,7 +5759,7 @@ export class BoardPanel {
         }
 
         // Group children by work item type
-        const childrenByType = new Map<string, {id: number, title: string, state: string, type: string}[]>();
+        const childrenByType = new Map<string, {id: number, title: string, state: string, type: string, assignedTo?: any}[]>();
         item.children.forEach(child => {
             const type = child.type || 'Unknown';
             if (!childrenByType.has(type)) {
@@ -5475,8 +5768,10 @@ export class BoardPanel {
             childrenByType.get(type)!.push(child);
         });
 
-        // Render indicator for each work item type
+        // Render indicator for each work item type (clickable) - each type has its own checklist
         const indicators: string[] = [];
+        const checklists: string[] = [];
+
         childrenByType.forEach((children, type) => {
             const totalChildren = children.length;
             const closedChildren = children.filter(child => {
@@ -5485,16 +5780,75 @@ export class BoardPanel {
             }).length;
             const allClosed = closedChildren === totalChildren;
             const childIcon = this._getChildTypeIcon(type);
+            const typeId = type.replace(/\s+/g, '-').toLowerCase();
 
+            // Each indicator toggles its own type-specific checklist
             indicators.push(`
-                <div class="child-indicator-item ${allClosed ? 'completed' : ''}" title="${closedChildren} of ${totalChildren} ${this._escapeHtml(type)} child work items completed">
+                <div class="child-indicator-item ${allClosed ? 'completed' : ''}"
+                     onclick="event.stopPropagation(); toggleChildChecklist(${item.id}, '${typeId}')"
+                     title="Click to expand/collapse ${this._escapeHtml(type)} checklist">
                     ${childIcon}
                     <span class="child-count">${closedChildren}/${totalChildren}</span>
                 </div>
             `);
+
+            // Build the checklist content in correct order to match browser
+            const checklistContent: string[] = [];
+
+            // 1. Add "Add [Type]" button FIRST (appears at top in browser)
+            checklistContent.push(`
+                <div class="checklist-add-item">
+                    <button class="checklist-add-button"
+                            onclick="event.stopPropagation(); addChildWorkItem(${item.id}, '${this._escapeHtml(type)}')"
+                            title="Add new ${this._escapeHtml(type)}">
+                        <span class="add-icon">+</span> Add ${this._escapeHtml(type)}
+                    </button>
+                </div>
+            `);
+
+            // 2. Render each child item row
+            children.forEach(child => {
+                const isDone = ['closed', 'done', 'completed'].includes(child.state?.toLowerCase() || '');
+                const initials = child.assignedTo?.displayName
+                    ? child.assignedTo.displayName.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase()
+                    : '?';
+
+                // CRITICAL: Avatar goes IMMEDIATELY after the icon, before the title
+                const assigneeName = child.assignedTo?.displayName || '';
+                checklistContent.push(`
+                    <div class="checklist-item ${isDone ? 'done' : ''}" data-assignee-name="${this._escapeHtml(assigneeName)}">
+                        <input type="checkbox"
+                               class="checklist-checkbox"
+                               ${isDone ? 'checked' : ''}
+                               data-child-id="${child.id}"
+                               onclick="event.stopPropagation(); toggleChildState(${child.id}, ${item.id}, this.checked)"
+                               title="Mark as ${isDone ? 'not done' : 'done'}">
+                        <span class="checklist-icon">${this._getChildTypeIcon(child.type)}</span>
+                        <div class="checklist-avatar card-avatar ${!child.assignedTo ? 'unassigned' : ''}"
+                             title="${child.assignedTo ? this._escapeHtml(child.assignedTo.displayName) : 'Unassigned'}">${initials}</div>
+                        <span class="checklist-title ${isDone ? 'done' : ''}"
+                              onclick="event.stopPropagation(); openWorkItem(${child.id})"
+                              title="Click to open ${this._escapeHtml(child.title)}">${this._escapeHtml(child.title)}</span>
+                    </div>
+                `);
+            });
+
+            // Create a separate checklist div for each type
+            checklists.push(`
+                <div class="child-checklist" id="checklist-${item.id}-${typeId}">
+                    <div class="checklist-content">
+                        ${checklistContent.join('')}
+                    </div>
+                </div>
+            `);
         });
 
-        return `<div class="child-indicators-container">${indicators.join('')}</div>`;
+        return `
+            <div class="child-indicators-container">
+                ${indicators.join('')}
+            </div>
+            ${checklists.join('')}
+        `;
     }
 
     private _getChildTypeIcon(type: string): string {

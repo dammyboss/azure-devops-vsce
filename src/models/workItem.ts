@@ -25,6 +25,7 @@ export interface WorkItemFields {
     'Microsoft.VSTS.Common.Priority'?: number;
     'Microsoft.VSTS.Common.Severity'?: string;
     'Microsoft.VSTS.Scheduling.Effort'?: number;
+    'Microsoft.VSTS.Scheduling.StoryPoints'?: number;
     'System.Description'?: string;
     'System.History'?: string;
     'Microsoft.VSTS.Common.Activity'?: string;

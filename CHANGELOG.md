@@ -2,6 +2,39 @@
 
 All notable changes to the Azure DevOps Boards extension will be documented in this file.
 
+## [0.2.8] - 2026-02-25
+
+### Added
+- **Expandable Child Work Items Checklist**: Interactive checklist for managing child work items directly from board cards
+  - Click child indicators (bug/task icons) to expand and view all child items
+  - Smooth animation effects for expand/collapse transitions
+  - Type-specific expansion: Bug and Task indicators expand their own separate lists
+  - Checkbox support to mark child items as Done/Active with instant visual feedback
+  - Clickable child item titles to open detailed work item views
+  - "Add Bug" / "Add Task" buttons to create new child work items inline
+  - Child work items display assignee avatars with consistent color coding
+  - Compact layout matching Azure DevOps browser UI exactly
+
+### Improved
+- Enhanced board card interactions with expandable child work item management
+- Child work item state changes sync immediately to Azure DevOps
+- Avatar colors now consistent across main cards and child work item checklists
+- Checkbox styling matches filter dropdowns for visual consistency
+- Text colors optimized for better readability (white text throughout)
+- Compact and pixel-perfect layout matching Azure DevOps browser experience
+
+### Fixed
+- Story Points now display correctly on User Story board cards
+- Child work items now load and display properly on all board types
+- Child work item assignee information now included in API requests
+
+### Technical Changes
+- Implemented type-specific checklist expansion with separate state management
+- Added smooth CSS animations for checklist expand/collapse (0.35s ease-in-out)
+- Enhanced child work item loading to include assignee information
+- Integrated avatar color algorithm for consistent user identification
+- Added support for both Story Points and Effort fields across work item types
+
 ## [0.2.7] - 2026-02-13
 
 ### Added

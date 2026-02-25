@@ -10,7 +10,7 @@ export class WhatsNewPanel {
     private disposables: vscode.Disposable[] = [];
 
     // Current announcement ID - UPDATE THIS FOR EACH NEW RELEASE
-    public static readonly LATEST_ANNOUNCEMENT_ID = 'feb-2026-v0.2.7-tenant-auto-detect';
+    public static readonly LATEST_ANNOUNCEMENT_ID = 'feb-2026-v0.2.8-expandable-checklist';
 
     private constructor(
         panel: vscode.WebviewPanel,
@@ -784,7 +784,7 @@ export class WhatsNewPanel {
                             <div class="header-text">
                                 <h1>
                                     Azure DevOps Boards
-                                    <span class="version-badge">v0.2.7</span>
+                                    <span class="version-badge">v0.2.8</span>
                                 </h1>
                                 <p>What's new in this release</p>
                             </div>
@@ -807,36 +807,36 @@ export class WhatsNewPanel {
                                 <div class="feature-item fi-0">
                                     <div class="feature-icon">
                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0112 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25m-17.25 0h7.5c.621 0 1.125.504 1.125 1.125M3.375 8.25c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m17.25-3.75h-7.5c-.621 0-1.125.504-1.125 1.125m8.625-1.125c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125M12 10.875v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 10.875c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125M13.125 12h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125M20.625 12c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5M12 14.625v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 14.625c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125m0 1.5v-1.5m0 0c0-.621.504-1.125 1.125-1.125m0 0h7.5" />
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                         </svg>
                                     </div>
                                     <div class="feature-text">
-                                        <h4>Board TreeView Section</h4>
-                                        <p>New sidebar board view with hierarchical boards → columns → work items structure. Includes sprint and assignee filtering, defaulting to current sprint and current user.</p>
+                                        <h4>Expandable Child Work Items Checklist</h4>
+                                        <p>Interactive checklists for managing child items directly on board cards. Click bug/task indicators to expand, check off completed items, and add new children inline. Smooth animations and type-specific expansion.</p>
                                     </div>
                                     <div class="hover-dot"><div class="hover-dot-inner"></div></div>
                                 </div>
                                 <div class="feature-item fi-1">
                                     <div class="feature-icon">
                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
                                         </svg>
                                     </div>
                                     <div class="feature-text">
-                                        <h4>Quick Open Work Item</h4>
-                                        <p>Fast work item search with Quick Pick interface. Search by ID or title with recently viewed history tracking. Opens directly in board panel.</p>
+                                        <h4>Consistent Avatar Colors</h4>
+                                        <p>Avatar colors now consistent across main cards and child work item checklists. Each user gets a unique color based on their name with improved 18px sizing for child items.</p>
                                     </div>
                                     <div class="hover-dot"><div class="hover-dot-inner"></div></div>
                                 </div>
                                 <div class="feature-item fi-2">
                                     <div class="feature-icon">
                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 01-.659 1.591l-5.432 5.432a2.25 2.25 0 00-.659 1.591v2.927a2.25 2.25 0 01-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 00-.659-1.591L3.659 7.409A2.25 2.25 0 013 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0112 3z" />
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
                                         </svg>
                                     </div>
                                     <div class="feature-text">
-                                        <h4>Collapsible Filters Node</h4>
-                                        <p>Smart filtering UI showing active filter count. Supports sprint (all, current, specific) and assignee (@me, all, specific) with one-click filter changes.</p>
+                                        <h4>Story Points & Child Items Fixed</h4>
+                                        <p>Story Points now display correctly on User Story cards. Child work items load properly with assignee information. Checkbox styling matches filter dropdowns perfectly.</p>
                                     </div>
                                     <div class="hover-dot"><div class="hover-dot-inner"></div></div>
                                 </div>
