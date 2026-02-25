@@ -792,8 +792,9 @@ export class BoardPanel {
                     effort: item.fields['Microsoft.VSTS.Scheduling.Effort'] || (item.fields as any)['Microsoft.VSTS.Scheduling.StoryPoints']
                 };
                 // Store relations temporarily for child work items loading
-                if (item.relations) {
+                if (item.relations && item.relations.length > 0) {
                     workItem._tempRelations = item.relations;
+                    outputChannel.appendLine(`[Board] Stored ${item.relations.length} relations for work item #${item.id}`);
                 }
                 return workItem;
             });
@@ -1148,8 +1149,9 @@ export class BoardPanel {
                             effort: item.fields['Microsoft.VSTS.Scheduling.Effort'] || (item.fields as any)['Microsoft.VSTS.Scheduling.StoryPoints']
                         };
                         // Store relations temporarily for child work items loading
-                        if (item.relations) {
+                        if (item.relations && item.relations.length > 0) {
                             workItem._tempRelations = item.relations;
+                            outputChannel.appendLine(`[Board] Stored ${item.relations.length} relations for work item #${item.id}`);
                         }
                         return workItem;
                     });
@@ -1183,29 +1185,58 @@ export class BoardPanel {
             const parentToChildMap = new Map<number, string[]>(); // Maps parent ID to array of child IDs
 
             // Iterate through all work items to find children
+            let totalWorkItems = 0;
+            let workItemsWithRelations = 0;
+            let workItemsWithChildren = 0;
+
             for (const [, workItems] of workItemsMap.entries()) {
                 for (const workItem of workItems) {
+                    totalWorkItems++;
                     const relations = (workItem as any)._tempRelations || [];
+
+                    if (relations.length > 0) {
+                        workItemsWithRelations++;
+                        outputChannel.appendLine(`[Board] Work item #${workItem.id} has ${relations.length} relations`);
+                    }
+
+                    // Log all relation types for debugging
+                    if (relations.length > 0) {
+                        const relTypes = relations.map((r: any) => r.rel).join(', ');
+                        outputChannel.appendLine(`[Board] Work item #${workItem.id} relation types: ${relTypes}`);
+                    }
+
                     const childRelations = relations.filter((rel: any) =>
                         rel.rel === 'System.LinkTypes.Hierarchy-Forward' && rel.url
                     );
 
                     if (childRelations.length > 0) {
+                        workItemsWithChildren++;
                         const childIds: string[] = [];
                         for (const rel of childRelations) {
-                            const match = rel.url.match(/\/(\d+)$/);
+                            outputChannel.appendLine(`[Board] Processing child relation URL: ${rel.url}`);
+
+                            // More robust URL parsing - handles both dev.azure.com and visualstudio.com
+                            // URLs can be: https://dev.azure.com/org/_apis/wit/workitems/123
+                            //          or: https://org.visualstudio.com/_apis/wit/workitems/123
+                            const match = rel.url.match(/\/workitems\/(\d+)/i) || rel.url.match(/\/(\d+)$/);
                             if (match && match[1]) {
                                 const childId = match[1];
                                 allChildIds.add(childId);
                                 childIds.push(childId);
+                                outputChannel.appendLine(`[Board] ✓ Extracted child ID: ${childId}`);
+                            } else {
+                                outputChannel.appendLine(`[Board] ✗ Failed to extract ID from URL: ${rel.url}`);
                             }
                         }
                         if (childIds.length > 0) {
                             parentToChildMap.set(workItem.id, childIds);
+                            outputChannel.appendLine(`[Board] Work item #${workItem.id} has ${childIds.length} children: ${childIds.join(', ')}`);
                         }
                     }
                 }
             }
+
+            outputChannel.appendLine(`[Board] Child loading summary: ${totalWorkItems} total items, ${workItemsWithRelations} with relations, ${workItemsWithChildren} with children`);
 
             // If we have child IDs, fetch them all in one batch
             if (allChildIds.size > 0) {
@@ -2945,6 +2976,23 @@ export class BoardPanel {
         .card.keyboard-moving {
             outline: 2px solid var(--card-type-color, #4396C2);
             box-shadow: 0 0 0 4px rgba(67, 150, 194, 0.2);
+        }
+
+        /* Card click animation - smooth pulse effect */
+        .card.clicking {
+            animation: cardPulse 200ms ease-out;
+        }
+
+        @keyframes cardPulse {
+            0% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(0.95);
+            }
+            100% {
+                transform: scale(1);
+            }
         }
 
         /* Work Item Type Colors - Azure DevOps Standard */
@@ -4822,6 +4870,16 @@ export class BoardPanel {
 
         // Card actions
         function openWorkItem(workItemId) {
+            // Add pulse animation to the clicked card
+            const card = document.querySelector('.card[data-id="' + workItemId + '"]');
+            if (card) {
+                card.classList.add('clicking');
+                setTimeout(function() {
+                    card.classList.remove('clicking');
+                }, 200);
+            }
+
+            // Open the work item detail
             vscode.postMessage({ command: 'openWorkItem', workItemId: workItemId });
         }
 

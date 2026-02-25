@@ -1113,7 +1113,25 @@ export class WorkItemPanel {
             line-height: 1.6;
             padding: 0;
         }
-        .container { max-width: 1000px; margin: 0 auto; padding: 24px; }
+
+        /* Entrance animation - smooth slide-in from right with fade */
+        @keyframes slideInFromRight {
+            from {
+                opacity: 0;
+                transform: translateX(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 24px;
+            animation: slideInFromRight 300ms ease-out;
+        }
         
         /* HEADER */
         .header {
