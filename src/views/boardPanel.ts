@@ -1243,7 +1243,45 @@ export class BoardPanel {
                 outputChannel.appendLine(`[Board] Loading ${allChildIds.size} child work items...`);
                 const childIdsString = Array.from(allChildIds).join(',');
 
-                const childrenResponse = await axiosInstance.get(`/${encodeURIComponent(config.defaultProject || '')}/_apis/wit/workitems`, {
+                // Get project name from config
+                let projectName = config.defaultProject || '';
+                outputChannel.appendLine(`[Board] config.defaultProject: "${projectName}"`);
+                outputChannel.appendLine(`[Board] Full config: ${JSON.stringify(config)}`);
+
+                // If project name is empty, try to extract from a child work item URL
+                // Child URLs can have project GUID like: https://crate.visualstudio.com/GUID/_apis/wit/workItems/123
+                if (!projectName && allChildIds.size > 0) {
+                    const firstChildRelation = Array.from(workItemsMap.values())
+                        .flatMap(items => items)
+                        .find(item => (item as any)._tempRelations?.some((r: any) => r.rel === 'System.LinkTypes.Hierarchy-Forward'));
+
+                    if (firstChildRelation) {
+                        const rel = (firstChildRelation as any)._tempRelations.find((r: any) => r.rel === 'System.LinkTypes.Hierarchy-Forward');
+                        if (rel && rel.url) {
+                            // Extract project GUID or name from URL
+                            // Format: https://crate.visualstudio.com/0eab1257.../Experian%20Verifications/_apis/wit/workItems/123
+                            // or: https://dev.azure.com/org/Project/_apis/wit/workItems/123
+                            const urlMatch = rel.url.match(/\.com\/([^\/]+)\/([^\/]+)\/_apis/);
+                            if (urlMatch && urlMatch[2]) {
+                                projectName = urlMatch[2];
+                                outputChannel.appendLine(`[Board] Extracted project identifier from child URL: "${projectName}"`);
+                            } else {
+                                // Fallback: single segment before /_apis
+                                const simpleMatch = rel.url.match(/\.com\/([^\/]+)\/_apis/);
+                                if (simpleMatch && simpleMatch[1]) {
+                                    projectName = simpleMatch[1];
+                                    outputChannel.appendLine(`[Board] Extracted project identifier (simple): "${projectName}"`);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (!projectName) {
+                    throw new Error('Project name is not available. Cannot load child work items.');
+                }
+
+                const childrenResponse = await axiosInstance.get(`/${encodeURIComponent(projectName)}/_apis/wit/workitems`, {
                     params: {
                         'ids': childIdsString,
                         'fields': 'System.Id,System.Title,System.State,System.WorkItemType,System.AssignedTo',
