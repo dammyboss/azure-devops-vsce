@@ -1241,7 +1241,6 @@ export class BoardPanel {
             // If we have child IDs, fetch them all in one batch
             if (allChildIds.size > 0) {
                 outputChannel.appendLine(`[Board] Loading ${allChildIds.size} child work items...`);
-                const childIdsString = Array.from(allChildIds).join(',');
 
                 // Get project name from config
                 let projectName = config.defaultProject || '';
@@ -1281,32 +1280,47 @@ export class BoardPanel {
                     throw new Error('Project name is not available. Cannot load child work items.');
                 }
 
-                const childrenResponse = await axiosInstance.get(`/${encodeURIComponent(projectName)}/_apis/wit/workitems`, {
-                    params: {
-                        'ids': childIdsString,
-                        'fields': 'System.Id,System.Title,System.State,System.WorkItemType,System.AssignedTo',
-                        'api-version': '7.1'
-                    }
-                });
+                // Batch child IDs in groups of 200 (API limit)
+                const childIdArray = Array.from(allChildIds);
+                const batchSize = 200;
+                const allChildItems: any[] = [];
 
-                outputChannel.appendLine(`[Board] ✓ Loaded ${childrenResponse.data.value?.length || 0} child work items`);
+                for (let i = 0; i < childIdArray.length; i += batchSize) {
+                    const batchIds = childIdArray.slice(i, i + batchSize).join(',');
+                    const batchNum = Math.floor(i / batchSize) + 1;
+                    const totalBatches = Math.ceil(childIdArray.length / batchSize);
+                    outputChannel.appendLine(`[Board] Loading child batch ${batchNum}/${totalBatches}...`);
+
+                    const batchResponse = await axiosInstance.get(`/${encodeURIComponent(projectName)}/_apis/wit/workitems`, {
+                        params: {
+                            'ids': batchIds,
+                            'fields': 'System.Id,System.Title,System.State,System.WorkItemType,System.AssignedTo',
+                            '$errorPolicy': 'Omit',
+                            'api-version': '7.1'
+                        }
+                    });
+
+                    if (batchResponse.data.value) {
+                        allChildItems.push(...batchResponse.data.value);
+                    }
+                }
+
+                outputChannel.appendLine(`[Board] ✓ Loaded ${allChildItems.length} child work items`);
 
                 // Create a map of child ID to child data for quick lookup
                 const childDataMap = new Map<number, any>();
-                if (childrenResponse.data.value) {
-                    for (const child of childrenResponse.data.value) {
-                        const assignedToField = child.fields['System.AssignedTo'];
-                        childDataMap.set(child.id, {
-                            id: child.id,
-                            title: child.fields['System.Title'],
-                            state: child.fields['System.State'],
-                            type: child.fields['System.WorkItemType'],
-                            assignedTo: assignedToField ? {
-                                displayName: assignedToField.displayName || assignedToField,
-                                uniqueName: assignedToField.uniqueName || ''
-                            } : null
-                        });
-                    }
+                for (const child of allChildItems) {
+                    const assignedToField = child.fields['System.AssignedTo'];
+                    childDataMap.set(child.id, {
+                        id: child.id,
+                        title: child.fields['System.Title'],
+                        state: child.fields['System.State'],
+                        type: child.fields['System.WorkItemType'],
+                        assignedTo: assignedToField ? {
+                            displayName: assignedToField.displayName || assignedToField,
+                            uniqueName: assignedToField.uniqueName || ''
+                        } : null
+                    });
                 }
 
                 // Now assign children back to their parent work items
@@ -3314,7 +3328,6 @@ export class BoardPanel {
 
         .child-indicator-item.completed {
             text-decoration: line-through;
-            opacity: 0.7;
         }
 
         .child-count {
@@ -3352,7 +3365,7 @@ export class BoardPanel {
             gap: 6px;
             background: rgba(255, 255, 255, 0.03);
             border: none;
-            color: var(--vscode-foreground, #ffffff);
+            color: #ffffff;
             padding: 5px 8px;
             border-radius: 3px;
             cursor: pointer;
@@ -3390,7 +3403,6 @@ export class BoardPanel {
 
         .checklist-item.done .checklist-title {
             text-decoration: line-through;
-            opacity: 0.5;
         }
 
         /* Checkbox - 16x16px, matches filter checkboxes */
@@ -3468,7 +3480,7 @@ export class BoardPanel {
 
         .checklist-avatar.unassigned {
             background-color: var(--vscode-input-background);
-            color: var(--vscode-descriptionForeground);
+            color: #ffffff;
             border: 1px solid var(--vscode-input-border);
         }
 
@@ -3476,7 +3488,7 @@ export class BoardPanel {
         .checklist-title {
             flex: 1;
             font-size: 13px;
-            color: var(--vscode-foreground, #ffffff);
+            color: #ffffff;
             cursor: pointer;
             user-select: none;
             text-decoration: underline;
@@ -3485,11 +3497,11 @@ export class BoardPanel {
         }
 
         .checklist-title:hover {
-            color: var(--vscode-textLink-activeForeground, #ffffff);
+            color: #ffffff;
         }
 
         .checklist-title.done {
-            color: var(--vscode-descriptionForeground, rgba(255, 255, 255, 0.5));
+            color: #ffffff;
         }
 
         .card-effort-toggle {
