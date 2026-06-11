@@ -34,7 +34,7 @@ export class AuthenticationManager {
         this.loadConfiguration().catch(() => {});
     }
 
-    private getConfiguredAuthenticationMethod(): 'oauth' | 'pat' {
+    public getConfiguredAuthenticationMethod(): 'oauth' | 'pat' {
         const config = vscode.workspace.getConfiguration('azureDevOps');
         return config.get<'oauth' | 'pat'>('authenticationMethod', 'oauth');
     }

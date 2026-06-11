@@ -328,7 +328,7 @@ export class ConnectionSetupWizard {
 
         // Update auth manager with new config
         const authenticationMethod = this.authManager.getConfig()?.authenticationMethod
-            || vscode.workspace.getConfiguration('azureDevOps').get<'oauth' | 'pat'>('authenticationMethod', 'oauth');
+            || this.authManager.getConfiguredAuthenticationMethod();
         this.authManager.setConfig({
             organizationUrl: org.url,
             personalAccessToken: session.accessToken,
