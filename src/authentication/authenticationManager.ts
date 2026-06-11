@@ -4,6 +4,7 @@ import axios, { AxiosInstance } from 'axios';
 export interface AzureDevOpsConfig {
     organizationUrl: string;
     personalAccessToken: string;
+    authenticationMethod: 'oauth' | 'pat';
     defaultProject?: string;
     defaultTeam?: string;
 }
@@ -33,8 +34,54 @@ export class AuthenticationManager {
         this.loadConfiguration().catch(() => {});
     }
 
+    private getConfiguredAuthenticationMethod(): 'oauth' | 'pat' {
+        const config = vscode.workspace.getConfiguration('azureDevOps');
+        return config.get<'oauth' | 'pat'>('authenticationMethod', 'oauth');
+    }
+
+    private createPatSession(personalAccessToken: string): vscode.AuthenticationSession {
+        return {
+            id: 'azure-devops-pat-session',
+            accessToken: personalAccessToken,
+            account: {
+                id: 'pat',
+                label: 'PAT Authentication'
+            },
+            scopes: ['pat']
+        };
+    }
+
     private async loadConfiguration(): Promise<void> {
         try {
+            const workspaceConfig = vscode.workspace.getConfiguration('azureDevOps');
+            const authenticationMethod = this.getConfiguredAuthenticationMethod();
+            const organizationUrl = workspaceConfig.get<string>('organizationUrl', '').replace(/\/+$/, '');
+            const personalAccessToken = workspaceConfig.get<string>('personalAccessToken', '');
+            const defaultProject = workspaceConfig.get<string>('defaultProject', '');
+            const defaultTeam = workspaceConfig.get<string>('defaultTeam', '');
+
+            if (authenticationMethod === 'pat') {
+                if (personalAccessToken) {
+                    this.session = this.createPatSession(personalAccessToken);
+                    this.onDidChangeSessionEmitter.fire(this.session);
+                }
+
+                if (organizationUrl && personalAccessToken) {
+                    this.config = {
+                        organizationUrl,
+                        personalAccessToken,
+                        authenticationMethod,
+                        defaultProject,
+                        defaultTeam
+                    };
+                    this.createAxiosInstance();
+                } else {
+                    this.config = null;
+                    this.axiosInstance = null;
+                }
+                return;
+            }
+
             const storedSessionId = await this.context.secrets.get('ado-session-id');
             if (storedSessionId) {
                 // Include tenant scope if user previously switched tenants
@@ -51,15 +98,11 @@ export class AuthenticationManager {
 
                 if (session) {
                     this.session = session;
-                    const config = vscode.workspace.getConfiguration('azureDevOps');
-                    const organizationUrl = config.get<string>('organizationUrl', '');
-                    const defaultProject = config.get<string>('defaultProject', '');
-                    const defaultTeam = config.get<string>('defaultTeam', '');
-                    
                     if (organizationUrl) {
                         this.config = {
-                            organizationUrl: organizationUrl.replace(/\/+$/, ''),
+                            organizationUrl,
                             personalAccessToken: session.accessToken,
+                            authenticationMethod,
                             defaultProject,
                             defaultTeam
                         };
@@ -80,7 +123,7 @@ export class AuthenticationManager {
         this.axiosInstance = axios.create({
             baseURL: this.config.organizationUrl,
             headers: {
-                'Authorization': `Bearer ${this.config.personalAccessToken}`,
+                'Authorization': this.getAuthorizationHeader(),
                 'Content-Type': 'application/json'
             }
         });
@@ -109,7 +152,10 @@ export class AuthenticationManager {
             response => response,
             error => {
                 if (error.response?.status === 401) {
-                    vscode.window.showErrorMessage('Azure DevOps authentication failed. Please check your Personal Access Token.');
+                    const message = this.config?.authenticationMethod === 'pat'
+                        ? 'Azure DevOps authentication failed. Please check your Personal Access Token.'
+                        : 'Azure DevOps authentication failed. Please sign in again.';
+                    vscode.window.showErrorMessage(message);
                     this.connectionStatus.isConnected = false;
                 } else if (error.response?.status === 400) {
                     console.error('Bad request:', error.response?.data);
@@ -167,6 +213,54 @@ export class AuthenticationManager {
 
     public async connect(): Promise<boolean> {
         try {
+            const authenticationMethod = this.getConfiguredAuthenticationMethod();
+
+            if (authenticationMethod === 'pat') {
+                const config = vscode.workspace.getConfiguration('azureDevOps');
+                const personalAccessToken = config.get<string>('personalAccessToken', '').trim();
+                let organizationUrl = config.get<string>('organizationUrl', '').trim().replace(/\/+$/, '');
+
+                if (!personalAccessToken) {
+                    vscode.window.showErrorMessage('Set "azureDevOps.personalAccessToken" and retry connecting.');
+                    return false;
+                }
+
+                if (!organizationUrl) {
+                    const input = await vscode.window.showInputBox({
+                        prompt: 'Enter your Azure DevOps organization URL',
+                        placeHolder: 'https://dev.azure.com/your-organization',
+                        validateInput: (value) => {
+                            if (!value || !/^https?:\/\/.+/i.test(value.trim())) {
+                                return 'Please enter a valid URL';
+                            }
+                            return null;
+                        }
+                    });
+
+                    if (!input) {
+                        return false;
+                    }
+
+                    organizationUrl = input.trim().replace(/\/+$/, '');
+                    await config.update('organizationUrl', organizationUrl, vscode.ConfigurationTarget.Global);
+                }
+
+                this.session = this.createPatSession(personalAccessToken);
+                this.onDidChangeSessionEmitter.fire(this.session);
+                this.config = {
+                    organizationUrl,
+                    personalAccessToken,
+                    authenticationMethod,
+                    defaultProject: config.get<string>('defaultProject', ''),
+                    defaultTeam: config.get<string>('defaultTeam', '')
+                };
+                this.createAxiosInstance();
+                vscode.commands.executeCommand('setContext', 'azureDevOps.signedIn', true);
+                vscode.window.showInformationMessage('PAT authentication configured. Opening setup wizard...');
+                await vscode.commands.executeCommand('azureDevOps.setupWizard');
+                return true;
+            }
+
             // Step 1: Get Microsoft session with account picker
             const session = await vscode.authentication.getSession(
                 'microsoft',
@@ -305,6 +399,22 @@ export class AuthenticationManager {
     }
 
     public async getSession(): Promise<vscode.AuthenticationSession | undefined> {
+        if (this.getConfiguredAuthenticationMethod() === 'pat') {
+            const personalAccessToken = vscode.workspace.getConfiguration('azureDevOps')
+                .get<string>('personalAccessToken', '')
+                .trim();
+            if (!personalAccessToken) {
+                this.session = undefined;
+                return undefined;
+            }
+
+            if (!this.session || this.session.id !== 'azure-devops-pat-session' || this.session.accessToken !== personalAccessToken) {
+                this.session = this.createPatSession(personalAccessToken);
+                this.onDidChangeSessionEmitter.fire(this.session);
+            }
+            return this.session;
+        }
+
         if (this.session) {
             return this.session;
         }
@@ -371,6 +481,14 @@ export class AuthenticationManager {
             return undefined;
         }
 
+        if (this.getConfiguredAuthenticationMethod() === 'pat') {
+            return {
+                name: 'PAT Authentication',
+                email: '',
+                id: 'pat'
+            };
+        }
+
         return {
             name: session.account.label,
             email: session.account.id,
@@ -428,7 +546,27 @@ export class AuthenticationManager {
 
     public setConfig(config: AzureDevOpsConfig): void {
         this.config = config;
+        if (config.authenticationMethod === 'pat') {
+            this.session = this.createPatSession(config.personalAccessToken);
+            this.onDidChangeSessionEmitter.fire(this.session);
+        }
         this.createAxiosInstance();
+    }
+
+    public getAuthorizationHeader(accessTokenOverride?: string): string {
+        const method = this.config?.authenticationMethod ?? this.getConfiguredAuthenticationMethod();
+        const token = accessTokenOverride || this.config?.personalAccessToken || '';
+        if (method === 'pat') {
+            return `Basic ${Buffer.from(`:${token}`).toString('base64')}`;
+        }
+        return 'Bearer ' + token;
+    }
+
+    public getAuthHeaders(accessTokenOverride?: string): Record<string, string> {
+        return {
+            Authorization: this.getAuthorizationHeader(accessTokenOverride),
+            'Content-Type': 'application/json'
+        };
     }
 
     private async fetchAvailableTenants(accessToken: string): Promise<Array<{tenantId: string, displayName?: string, defaultDomain?: string}>> {

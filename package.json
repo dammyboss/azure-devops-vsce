@@ -605,6 +605,15 @@
           "description": "Personal Access Token for Azure DevOps",
           "scope": "application"
         },
+        "azureDevOps.authenticationMethod": {
+          "type": "string",
+          "enum": [
+            "oauth",
+            "pat"
+          ],
+          "default": "oauth",
+          "description": "Authentication method to use: OAuth (Microsoft account) or PAT (personal access token)"
+        },
         "azureDevOps.defaultProject": {
           "type": "string",
           "default": "",

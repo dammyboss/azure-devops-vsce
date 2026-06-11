@@ -30,9 +30,10 @@ export class ConnectionSetupWizard {
 
             this.currentSession = session;
             vscode.window.showInformationMessage('✓ Authentication successful!');
+            const authHeader = this.authManager.getAuthorizationHeader(session.accessToken);
 
             // Step 2: Get and select organization
-            const org = await this.selectOrganizationStep(session.accessToken);
+            const org = await this.selectOrganizationStep(authHeader);
             if (!org) {
                 return false;
             }
@@ -40,7 +41,7 @@ export class ConnectionSetupWizard {
             vscode.window.showInformationMessage(`✓ Organization selected: ${org.name}`);
 
             // Step 3: Get and select project
-            const project = await this.selectProjectStep(org, session.accessToken);
+            const project = await this.selectProjectStep(org, authHeader);
             if (!project) {
                 return false;
             }
@@ -48,7 +49,7 @@ export class ConnectionSetupWizard {
             vscode.window.showInformationMessage(`✓ Project selected: ${project.name}`);
 
             // Step 4: Optionally select team
-            const team = await this.selectTeamStep(org, project, session.accessToken);
+            const team = await this.selectTeamStep(org, project, authHeader);
             if (team) {
                 vscode.window.showInformationMessage(`✓ Team selected: ${team.name}`);
             }
@@ -82,7 +83,7 @@ export class ConnectionSetupWizard {
     /**
      * Step 2: Select organization
      */
-    private async selectOrganizationStep(accessToken: string): Promise<Organization | undefined> {
+    private async selectOrganizationStep(authHeader: string): Promise<Organization | undefined> {
         try {
             return await vscode.window.withProgress(
                 {
@@ -92,7 +93,7 @@ export class ConnectionSetupWizard {
                 },
                 async () => {
                     // Auto-discover organizations using profile API
-                    const organizations = await this.discoverOrganizations(accessToken);
+                    const organizations = await this.discoverOrganizations(authHeader);
 
                     if (!organizations || organizations.length === 0) {
                         throw new Error('No Azure DevOps organizations found. Please make sure you have access to at least one organization.');
@@ -123,7 +124,7 @@ export class ConnectionSetupWizard {
     /**
      * Auto-discover organizations using Azure DevOps profile API
      */
-    private async discoverOrganizations(accessToken: string): Promise<Organization[]> {
+    private async discoverOrganizations(authHeader: string): Promise<Organization[]> {
         const axios = require('axios');
         
         try {
@@ -131,7 +132,7 @@ export class ConnectionSetupWizard {
             const profileResponse = await axios.get(
                 'https://app.vssps.visualstudio.com/_apis/profile/profiles/me',
                 {
-                    headers: { 'Authorization': `Bearer ${accessToken}` },
+                    headers: { Authorization: authHeader },
                     params: { 'api-version': '7.1' }
                 }
             );
@@ -142,7 +143,7 @@ export class ConnectionSetupWizard {
             const accountsResponse = await axios.get(
                 'https://app.vssps.visualstudio.com/_apis/accounts',
                 {
-                    headers: { 'Authorization': `Bearer ${accessToken}` },
+                    headers: { Authorization: authHeader },
                     params: {
                         'memberId': memberId,
                         'api-version': '7.1'
@@ -182,7 +183,7 @@ export class ConnectionSetupWizard {
     /**
      * Step 3: Select project
      */
-    private async selectProjectStep(org: Organization, accessToken: string): Promise<Project | undefined> {
+    private async selectProjectStep(org: Organization, authHeader: string): Promise<Project | undefined> {
         try {
             return await vscode.window.withProgress(
                 {
@@ -191,7 +192,7 @@ export class ConnectionSetupWizard {
                     cancellable: false
                 },
                 async () => {
-                    const projects = await this.getProjects(org.url, accessToken);
+                    const projects = await this.getProjects(org.url, authHeader);
                     
                     if (!projects || projects.length === 0) {
                         throw new Error(`No projects found in organization "${org.name}".`);
@@ -218,7 +219,7 @@ export class ConnectionSetupWizard {
     /**
      * Get projects from organization
      */
-    private async getProjects(organizationUrl: string, accessToken: string): Promise<Project[]> {
+    private async getProjects(organizationUrl: string, authHeader: string): Promise<Project[]> {
         const axios = require('axios');
         
         try {
@@ -226,7 +227,7 @@ export class ConnectionSetupWizard {
             const projectsUrl = `${cleanUrl}/_apis/projects`;
 
             const response = await axios.get(projectsUrl, {
-                headers: { 'Authorization': `Bearer ${accessToken}` },
+                headers: { Authorization: authHeader },
                 params: { 'api-version': '7.1' }
             });
 
@@ -245,7 +246,7 @@ export class ConnectionSetupWizard {
     /**
      * Step 4: Select team (optional)
      */
-    private async selectTeamStep(org: Organization, project: Project, accessToken: string): Promise<Team | undefined> {
+    private async selectTeamStep(org: Organization, project: Project, authHeader: string): Promise<Team | undefined> {
         try {
             return await vscode.window.withProgress(
                 {
@@ -254,7 +255,7 @@ export class ConnectionSetupWizard {
                     cancellable: false
                 },
                 async () => {
-                    const teams = await this.getTeams(org.url, project.id, accessToken);
+                    const teams = await this.getTeams(org.url, project.id, authHeader);
                     
                     if (!teams || teams.length === 0) {
                         return undefined;
@@ -282,7 +283,7 @@ export class ConnectionSetupWizard {
     /**
      * Get teams from project
      */
-    private async getTeams(organizationUrl: string, projectId: string, accessToken: string): Promise<Team[]> {
+    private async getTeams(organizationUrl: string, projectId: string, authHeader: string): Promise<Team[]> {
         const axios = require('axios');
         
         try {
@@ -290,7 +291,7 @@ export class ConnectionSetupWizard {
             const teamsUrl = `${cleanUrl}/_apis/projects/${encodeURIComponent(projectId)}/teams`;
 
             const response = await axios.get(teamsUrl, {
-                headers: { 'Authorization': `Bearer ${accessToken}` },
+                headers: { Authorization: authHeader },
                 params: { 'api-version': '7.1-preview.3' }
             });
 
@@ -326,9 +327,12 @@ export class ConnectionSetupWizard {
         }
 
         // Update auth manager with new config
+        const authenticationMethod = this.authManager.getConfig()?.authenticationMethod
+            || vscode.workspace.getConfiguration('azureDevOps').get<'oauth' | 'pat'>('authenticationMethod', 'oauth');
         this.authManager.setConfig({
             organizationUrl: org.url,
             personalAccessToken: session.accessToken,
+            authenticationMethod,
             defaultProject: project.name,
             defaultTeam: team?.name
         });
