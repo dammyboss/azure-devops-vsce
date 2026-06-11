@@ -473,7 +473,7 @@ export class BoardPanel {
                 const teamsUrl = `${config.organizationUrl}/_apis/projects/${encodeURIComponent(config.defaultProject || '')}/teams`;
 
                 const teamsResponse = await axios.get(teamsUrl, {
-                    headers: { 'Authorization': `Bearer ${session.accessToken}` },
+                    headers: { Authorization: this.authenticationManager.getAuthorizationHeader(session.accessToken) },
                     params: { 'api-version': '7.1-preview.3' }
                 });
 

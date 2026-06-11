@@ -21,7 +21,8 @@ https://github.com/user-attachments/assets/demo.mov
 
 ### Secure Authentication
 - OAuth 2.0 authentication using Microsoft accounts
-- No Personal Access Token (PAT) required
+- Personal Access Token (PAT) authentication support
+- User-selectable authentication method (OAuth or PAT)
 - Secure token storage using VS Code's SecretStorage API
 - Support for multiple organizations and projects
 - Auto-connect on startup
