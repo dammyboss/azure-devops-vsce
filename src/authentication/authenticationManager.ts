@@ -53,21 +53,30 @@ export class AuthenticationManager {
     }
 
     private async clearLegacyPatSetting(): Promise<void> {
-        const workspaceConfig = vscode.workspace.getConfiguration('azureDevOps');
-        const inspection = workspaceConfig.inspect<string>('personalAccessToken');
+        const rootConfig = vscode.workspace.getConfiguration('azureDevOps');
+        const inspection = rootConfig.inspect<string>('personalAccessToken');
         const updates: Thenable<void>[] = [];
 
         if (inspection?.globalValue !== undefined) {
-            updates.push(workspaceConfig.update('personalAccessToken', undefined, vscode.ConfigurationTarget.Global));
+            updates.push(rootConfig.update('personalAccessToken', undefined, vscode.ConfigurationTarget.Global));
         }
         if (inspection?.workspaceValue !== undefined) {
-            updates.push(workspaceConfig.update('personalAccessToken', undefined, vscode.ConfigurationTarget.Workspace));
-        }
-        if (inspection?.workspaceFolderValue !== undefined) {
-            updates.push(workspaceConfig.update('personalAccessToken', undefined, vscode.ConfigurationTarget.WorkspaceFolder));
+            updates.push(rootConfig.update('personalAccessToken', undefined, vscode.ConfigurationTarget.Workspace));
         }
 
-        await Promise.all(updates);
+        if (inspection?.workspaceFolderValue !== undefined) {
+            const folders = vscode.workspace.workspaceFolders ?? [];
+            for (const folder of folders) {
+                const folderConfig = vscode.workspace.getConfiguration('azureDevOps', folder.uri);
+                updates.push(folderConfig.update('personalAccessToken', undefined, vscode.ConfigurationTarget.WorkspaceFolder));
+            }
+        }
+
+        try {
+            await Promise.all(updates);
+        } catch (err) {
+            console.warn('[AuthManager] Failed to clear legacy PAT setting:', err);
+        }
     }
 
     private async getOrMigratePat(): Promise<string> {
