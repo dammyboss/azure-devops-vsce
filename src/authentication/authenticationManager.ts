@@ -20,6 +20,7 @@ export class AuthenticationManager {
     private static readonly SCOPES = [
         '499b84ac-1321-427f-aa17-267ca6975798/.default' // Azure DevOps scope
     ];
+    private static readonly PAT_SECRET_KEY = 'ado-pat';
 
     private context: vscode.ExtensionContext;
     private config: AzureDevOpsConfig | null = null;
@@ -51,12 +52,58 @@ export class AuthenticationManager {
         };
     }
 
+    private async clearLegacyPatSetting(): Promise<void> {
+        const rootConfig = vscode.workspace.getConfiguration('azureDevOps');
+        const inspection = rootConfig.inspect<string>('personalAccessToken');
+        const updates: Thenable<void>[] = [];
+
+        if (inspection?.globalValue !== undefined) {
+            updates.push(rootConfig.update('personalAccessToken', undefined, vscode.ConfigurationTarget.Global));
+        }
+        if (inspection?.workspaceValue !== undefined) {
+            updates.push(rootConfig.update('personalAccessToken', undefined, vscode.ConfigurationTarget.Workspace));
+        }
+
+        if (inspection?.workspaceFolderValue !== undefined) {
+            const folders = vscode.workspace.workspaceFolders ?? [];
+            for (const folder of folders) {
+                const folderConfig = vscode.workspace.getConfiguration('azureDevOps', folder.uri);
+                updates.push(folderConfig.update('personalAccessToken', undefined, vscode.ConfigurationTarget.WorkspaceFolder));
+            }
+        }
+
+        try {
+            await Promise.all(updates);
+        } catch (err) {
+            console.warn('[AuthManager] Failed to clear legacy PAT setting:', err);
+        }
+    }
+
+    private async getOrMigratePat(): Promise<string> {
+        const storedPat = (await this.context.secrets.get(AuthenticationManager.PAT_SECRET_KEY))?.trim() || '';
+        if (storedPat) {
+            return storedPat;
+        }
+
+        const workspaceConfig = vscode.workspace.getConfiguration('azureDevOps');
+        const legacyPat = workspaceConfig.get<string>('personalAccessToken', '').trim();
+        if (!legacyPat) {
+            return '';
+        }
+
+        await this.context.secrets.store(AuthenticationManager.PAT_SECRET_KEY, legacyPat);
+        await this.clearLegacyPatSetting();
+        return legacyPat;
+    }
+
     private async loadConfiguration(): Promise<void> {
         try {
             const workspaceConfig = vscode.workspace.getConfiguration('azureDevOps');
             const authenticationMethod = this.getConfiguredAuthenticationMethod();
             const organizationUrl = workspaceConfig.get<string>('organizationUrl', '').replace(/\/+$/, '');
-            const personalAccessToken = workspaceConfig.get<string>('personalAccessToken', '');
+            const personalAccessToken = authenticationMethod === 'pat'
+                ? await this.getOrMigratePat()
+                : '';
             const defaultProject = workspaceConfig.get<string>('defaultProject', '');
             const defaultTeam = workspaceConfig.get<string>('defaultTeam', '');
 
@@ -123,16 +170,25 @@ export class AuthenticationManager {
         this.axiosInstance = axios.create({
             baseURL: this.config.organizationUrl,
             headers: {
-                'Authorization': this.getAuthorizationHeader(),
                 'Content-Type': 'application/json'
             }
         });
 
         // Add request interceptor to ensure api-version is always added
         this.axiosInstance.interceptors.request.use(
-            (config) => {
+            async (config) => {
                 // Debug log
                 console.log('[Azure DevOps] Request URL:', (config.baseURL || '') + (config.url || ''));
+                const accessToken = this.getActiveAccessToken();
+                if (accessToken) {
+                    const headerValue = this.getAuthorizationHeader(accessToken);
+                    if (config.headers && typeof (config.headers as any).set === 'function') {
+                        (config.headers as any).set('Authorization', headerValue);
+                    } else {
+                        config.headers = config.headers || {};
+                        (config.headers as any).Authorization = headerValue;
+                    }
+                }
                 
                 // Ensure api-version is in params for every request
                 if (!config.params) {
@@ -217,12 +273,23 @@ export class AuthenticationManager {
 
             if (authenticationMethod === 'pat') {
                 const config = vscode.workspace.getConfiguration('azureDevOps');
-                const personalAccessToken = config.get<string>('personalAccessToken', '').trim();
+                let personalAccessToken = await this.getOrMigratePat();
                 let organizationUrl = config.get<string>('organizationUrl', '').trim().replace(/\/+$/, '');
 
                 if (!personalAccessToken) {
-                    vscode.window.showErrorMessage('Set "azureDevOps.personalAccessToken" and retry connecting.');
-                    return false;
+                    const input = await vscode.window.showInputBox({
+                        prompt: 'Enter your Azure DevOps Personal Access Token',
+                        password: true,
+                        ignoreFocusOut: true,
+                        validateInput: (value) => value.trim() ? undefined : 'Personal Access Token is required'
+                    });
+
+                    if (!input) {
+                        return false;
+                    }
+
+                    personalAccessToken = input.trim();
+                    await this.context.secrets.store(AuthenticationManager.PAT_SECRET_KEY, personalAccessToken);
                 }
 
                 if (!organizationUrl) {
@@ -370,6 +437,7 @@ export class AuthenticationManager {
 
     public async disconnect(): Promise<void> {
         console.log('[AuthManager] Disconnecting...');
+        await this.context.secrets.delete(AuthenticationManager.PAT_SECRET_KEY);
         if (this.session) {
             await this.context.secrets.delete('ado-session-id');
             await this.context.secrets.delete('ado-tenant-id');
@@ -400,9 +468,7 @@ export class AuthenticationManager {
 
     public async getSession(): Promise<vscode.AuthenticationSession | undefined> {
         if (this.getConfiguredAuthenticationMethod() === 'pat') {
-            const personalAccessToken = vscode.workspace.getConfiguration('azureDevOps')
-                .get<string>('personalAccessToken', '')
-                .trim();
+            const personalAccessToken = await this.getOrMigratePat();
             if (!personalAccessToken) {
                 this.session = undefined;
                 return undefined;
@@ -468,11 +534,31 @@ export class AuthenticationManager {
         return [
             vscode.authentication.onDidChangeSessions(async (e) => {
                 if (e.provider.id === 'microsoft') {
-                    const session = await this.getSession();
+                    const storedTenantId = await this.context.secrets.get('ado-tenant-id');
+                    const scopes = storedTenantId
+                        ? [...AuthenticationManager.SCOPES, `VSCODE_TENANT:${storedTenantId}`]
+                        : AuthenticationManager.SCOPES;
+                    const session = await vscode.authentication.getSession(
+                        'microsoft',
+                        scopes,
+                        { createIfNone: false, silent: true }
+                    );
+                    this.session = session || undefined;
+                    if (session && this.config?.authenticationMethod === 'oauth') {
+                        this.config.personalAccessToken = session.accessToken;
+                    }
                     this.onDidChangeSessionEmitter.fire(session);
                 }
             })
         ];
+    }
+
+    private getActiveAccessToken(): string {
+        const method = this.config?.authenticationMethod ?? this.getConfiguredAuthenticationMethod();
+        if (method === 'pat') {
+            return this.config?.personalAccessToken || this.session?.accessToken || '';
+        }
+        return this.session?.accessToken || '';
     }
 
     public async getUserInfo(): Promise<{ name: string; email: string; id: string } | undefined> {
