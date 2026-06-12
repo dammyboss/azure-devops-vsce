@@ -181,8 +181,13 @@ export class AuthenticationManager {
                 console.log('[Azure DevOps] Request URL:', (config.baseURL || '') + (config.url || ''));
                 const accessToken = this.getActiveAccessToken();
                 if (accessToken) {
-                    config.headers = config.headers || {};
-                    config.headers.Authorization = this.getAuthorizationHeader(accessToken);
+                    const headerValue = this.getAuthorizationHeader(accessToken);
+                    if (config.headers && typeof (config.headers as any).set === 'function') {
+                        (config.headers as any).set('Authorization', headerValue);
+                    } else {
+                        config.headers = config.headers || {};
+                        (config.headers as any).Authorization = headerValue;
+                    }
                 }
                 
                 // Ensure api-version is in params for every request
