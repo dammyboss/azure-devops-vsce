@@ -549,7 +549,11 @@ export class AuthenticationManager {
     }
 
     private getActiveAccessToken(): string {
-        return this.session?.accessToken || this.config?.personalAccessToken || '';
+        const method = this.config?.authenticationMethod ?? this.getConfiguredAuthenticationMethod();
+        if (method === 'pat') {
+            return this.config?.personalAccessToken || this.session?.accessToken || '';
+        }
+        return this.session?.accessToken || '';
     }
 
     public async getUserInfo(): Promise<{ name: string; email: string; id: string } | undefined> {
