@@ -70,7 +70,7 @@ export class AuthenticationManager {
         await Promise.all(updates);
     }
 
-    private async getPatFromSecretStorage(): Promise<string> {
+    private async getOrMigratePat(): Promise<string> {
         const storedPat = (await this.context.secrets.get(AuthenticationManager.PAT_SECRET_KEY))?.trim() || '';
         if (storedPat) {
             return storedPat;
@@ -93,7 +93,7 @@ export class AuthenticationManager {
             const authenticationMethod = this.getConfiguredAuthenticationMethod();
             const organizationUrl = workspaceConfig.get<string>('organizationUrl', '').replace(/\/+$/, '');
             const personalAccessToken = authenticationMethod === 'pat'
-                ? await this.getPatFromSecretStorage()
+                ? await this.getOrMigratePat()
                 : '';
             const defaultProject = workspaceConfig.get<string>('defaultProject', '');
             const defaultTeam = workspaceConfig.get<string>('defaultTeam', '');
@@ -260,7 +260,7 @@ export class AuthenticationManager {
 
             if (authenticationMethod === 'pat') {
                 const config = vscode.workspace.getConfiguration('azureDevOps');
-                let personalAccessToken = await this.getPatFromSecretStorage();
+                let personalAccessToken = await this.getOrMigratePat();
                 let organizationUrl = config.get<string>('organizationUrl', '').trim().replace(/\/+$/, '');
 
                 if (!personalAccessToken) {
@@ -455,7 +455,7 @@ export class AuthenticationManager {
 
     public async getSession(): Promise<vscode.AuthenticationSession | undefined> {
         if (this.getConfiguredAuthenticationMethod() === 'pat') {
-            const personalAccessToken = await this.getPatFromSecretStorage();
+            const personalAccessToken = await this.getOrMigratePat();
             if (!personalAccessToken) {
                 this.session = undefined;
                 return undefined;
@@ -541,9 +541,6 @@ export class AuthenticationManager {
     }
 
     private getActiveAccessToken(): string {
-        if (this.getConfiguredAuthenticationMethod() === 'pat') {
-            return this.config?.personalAccessToken || this.session?.accessToken || '';
-        }
         return this.session?.accessToken || this.config?.personalAccessToken || '';
     }
 
