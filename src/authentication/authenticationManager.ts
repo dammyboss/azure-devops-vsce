@@ -161,7 +161,6 @@ export class AuthenticationManager {
         this.axiosInstance = axios.create({
             baseURL: this.config.organizationUrl,
             headers: {
-                'Authorization': this.getAuthorizationHeader(this.getActiveAccessToken()),
                 'Content-Type': 'application/json'
             }
         });
@@ -268,7 +267,7 @@ export class AuthenticationManager {
                         prompt: 'Enter your Azure DevOps Personal Access Token',
                         password: true,
                         ignoreFocusOut: true,
-                        validateInput: (value) => value.trim() ? null : 'Personal Access Token is required'
+                        validateInput: (value) => value.trim() ? undefined : 'Personal Access Token is required'
                     });
 
                     if (!input) {

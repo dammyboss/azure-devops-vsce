@@ -603,7 +603,7 @@
           "type": "string",
           "default": "",
           "description": "Deprecated legacy PAT setting (migrated to secure SecretStorage)",
-          "deprecationMessage": "Deprecated: use Sign In with authenticationMethod=pat to securely store your PAT in VS Code SecretStorage.",
+          "deprecationMessage": "Deprecated: use the Sign In flow with authenticationMethod=pat to securely store your PAT in VS Code SecretStorage.",
           "scope": "application"
         },
         "azureDevOps.authenticationMethod": {
