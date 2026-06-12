@@ -602,7 +602,8 @@
         "azureDevOps.personalAccessToken": {
           "type": "string",
           "default": "",
-          "description": "Personal Access Token for Azure DevOps",
+          "description": "Deprecated legacy PAT setting (migrated to secure SecretStorage)",
+          "deprecationMessage": "Deprecated: use Sign In with authenticationMethod=pat to securely store your PAT in VS Code SecretStorage.",
           "scope": "application"
         },
         "azureDevOps.authenticationMethod": {
